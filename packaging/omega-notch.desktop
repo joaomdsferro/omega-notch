@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Omega Notch
+GenericName=AI usage notch
+Comment=Usage limits and live sessions of your AI coding tools, in a notch on Plasma
+Exec=omega-notch
+Icon=omega-notch
+Terminal=false
+Categories=Utility;System;
+Keywords=claude;cursor;copilot;codex;usage;limits;notch;
+StartupNotify=false
+X-KDE-autostart-condition=true

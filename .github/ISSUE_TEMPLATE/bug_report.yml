@@ -1,0 +1,55 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Omega Notch. **Don't paste tokens, `auth.json` / `.credentials.json` contents or your chats**; describe them or redact screenshots.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      multiple: true
+      options: [Claude Code, Cursor, Claude Desktop, GitHub Copilot, Codex, Grok Bot, Not provider-related]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Omega Notch version
+      description: Shown next to the name in Settings, or `omega-notch-engine --version`.
+      placeholder: "0.0.1"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and Plasma version
+      placeholder: "CachyOS, Plasma 6.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: Installed from
+      options: [Release download, Built from source]
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: The output of `omega-notch-engine doctor`. Check it for personal data first.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: If you started it from a terminal, anything it printed around the problem. Check it for personal data first.
+      render: text

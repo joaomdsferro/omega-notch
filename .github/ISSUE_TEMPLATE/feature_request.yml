@@ -1,0 +1,17 @@
+name: Feature request
+description: Something you'd like Omega Notch to do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you'd like
+      description: What you want to do, and why. A new provider, a setting, something on the card…
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      multiple: true
+      options: [Claude Code, Cursor, Claude Desktop, GitHub Copilot, Codex, Grok Bot, A new one, Not provider-related]

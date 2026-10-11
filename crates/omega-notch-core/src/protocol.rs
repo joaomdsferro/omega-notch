@@ -1,0 +1,343 @@
+//! Wire protocol between the Omega Notch engine and any UI shell.
+//!
+//! Transport: newline-delimited JSON over a Unix domain socket
+//! (`$XDG_RUNTIME_DIR/omega-notch.sock`).
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderId {
+    Cursor,
+    ClaudeCode,
+    ClaudeDesktop,
+    Copilot,
+    GrokBot,
+    Codex,
+    /// Reserved for a future browser extension.
+    ClaudeWeb,
+    ChatgptWeb,
+    GeminiWeb,
+}
+
+impl ProviderId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cursor => "cursor",
+            Self::ClaudeCode => "claude_code",
+            Self::ClaudeDesktop => "claude_desktop",
+            Self::Copilot => "copilot",
+            Self::GrokBot => "grok_bot",
+            Self::Codex => "codex",
+            Self::ClaudeWeb => "claude_web",
+            Self::ChatgptWeb => "chatgpt_web",
+            Self::GeminiWeb => "gemini_web",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Cursor => "Cursor",
+            Self::ClaudeCode => "Claude Code",
+            Self::ClaudeDesktop => "Claude Desktop",
+            Self::Copilot => "GitHub Copilot",
+            Self::GrokBot => "Grok Bot",
+            Self::Codex => "Codex",
+            Self::ClaudeWeb => "Claude Web",
+            Self::ChatgptWeb => "ChatGPT",
+            Self::GeminiWeb => "Gemini",
+        }
+    }
+
+    pub fn mvp_providers() -> &'static [ProviderId] {
+        &[Self::Cursor, Self::ClaudeCode, Self::ClaudeDesktop, Self::Copilot, Self::GrokBot, Self::Codex]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Fidelity {
+    Official,
+    Derived,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingStatus {
+    Ok,
+    Stale,
+    NeedsAuth,
+    Error,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageWindow {
+    pub label: String,
+    /// 0..=100 share already used.
+    pub used_pct: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageReading {
+    pub provider: ProviderId,
+    pub display_name: String,
+    pub fidelity: Fidelity,
+    pub status: ReadingStatus,
+    pub windows: Vec<UsageWindow>,
+    pub fetched_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl UsageReading {
+    pub fn headline_pct(&self) -> Option<f64> {
+        self.windows.first().map(|w| w.used_pct)
+    }
+
+    pub fn needs_auth(provider: ProviderId, message: impl Into<String>) -> Self {
+        Self {
+            provider,
+            display_name: provider.display_name().to_string(),
+            fidelity: Fidelity::Official,
+            status: ReadingStatus::NeedsAuth,
+            windows: vec![],
+            fetched_at: Utc::now(),
+            message: Some(message.into()),
+        }
+    }
+
+    pub fn error(provider: ProviderId, message: impl Into<String>) -> Self {
+        Self {
+            provider,
+            display_name: provider.display_name().to_string(),
+            fidelity: Fidelity::Official,
+            status: ReadingStatus::Error,
+            windows: vec![],
+            fetched_at: Utc::now(),
+            message: Some(message.into()),
+        }
+    }
+
+    pub fn disabled(provider: ProviderId) -> Self {
+        Self {
+            provider,
+            display_name: provider.display_name().to_string(),
+            fidelity: Fidelity::Official,
+            status: ReadingStatus::Disabled,
+            windows: vec![],
+            fetched_at: Utc::now(),
+            message: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionKind {
+    Idle,
+    Busy,
+    WaitingYou,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionState {
+    pub provider: ProviderId,
+    pub kind: SessionKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Token counts as the vendor bills them. Cache reads and writes are kept
+/// apart from fresh input because they dominate agent sessions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenTotals {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+}
+
+impl TokenTotals {
+    pub fn total(&self) -> u64 {
+        self.input + self.output + self.cache_read + self.cache_write
+    }
+
+    pub fn add(&mut self, other: &TokenTotals) {
+        self.input += other.input;
+        self.output += other.output;
+        self.cache_read += other.cache_read;
+        self.cache_write += other.cache_write;
+    }
+
+    pub fn sub(&mut self, other: &TokenTotals) {
+        self.input = self.input.saturating_sub(other.input);
+        self.output = self.output.saturating_sub(other.output);
+        self.cache_read = self.cache_read.saturating_sub(other.cache_read);
+        self.cache_write = self.cache_write.saturating_sub(other.cache_write);
+    }
+}
+
+/// One conversation, newest first in the snapshot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatSummary {
+    pub provider: ProviderId,
+    pub id: String,
+    pub title: String,
+    /// Folder name of the workspace the chat ran in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Where it runs: "CLI", "VS Code", "Desktop", "Agent"…
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    pub state: SessionKind,
+    /// A process still owns this chat.
+    pub live: bool,
+    pub updated_at: DateTime<Utc>,
+    pub messages: u32,
+    /// Lifetime tokens of the chat, when the provider records them locally.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<TokenTotals>,
+    /// Prompt size of the latest turn, i.e. how full the context is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines_added: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines_removed: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DayTokens {
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub date: String,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelTokens {
+    pub model: String,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenStats {
+    pub provider: ProviderId,
+    pub today: TokenTotals,
+    pub week: TokenTotals,
+    /// Last seven local days, oldest first, today last.
+    pub daily: Vec<DayTokens>,
+    /// Today's tokens per model, largest first.
+    pub models_today: Vec<ModelTokens>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Activity {
+    pub chats: Vec<ChatSummary>,
+    pub tokens: Vec<TokenStats>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClientMessage {
+    Hello {
+        client: String,
+        version: u32,
+    },
+    Subscribe,
+    Refresh {
+        #[serde(default)]
+        provider: Option<ProviderId>,
+    },
+    GetSnapshot,
+    GetConfig,
+    SetConfig {
+        config: crate::config::AppConfig,
+    },
+    /// Start GitHub's device flow; progress comes back as `copilot_login`.
+    CopilotSignIn,
+    /// Bring the clicked chat to the front: its window, or a new one resuming it.
+    OpenChat {
+        provider: ProviderId,
+        id: String,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        surface: Option<String>,
+    },
+    Ping,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CopilotLogin {
+    /// Waiting for the user to enter `user_code` at `verification_uri`.
+    Pending {
+        user_code: String,
+        verification_uri: String,
+        expires_at: DateTime<Utc>,
+    },
+    SignedIn,
+    Failed {
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ServerMessage {
+    Hello {
+        server: String,
+        version: u32,
+        protocol: u32,
+    },
+    Snapshot {
+        readings: Vec<UsageReading>,
+        sessions: Vec<SessionState>,
+        chats: Vec<ChatSummary>,
+        tokens: Vec<TokenStats>,
+        config: crate::config::AppConfig,
+    },
+    ActivityUpdated {
+        chats: Vec<ChatSummary>,
+        tokens: Vec<TokenStats>,
+    },
+    UsageUpdated {
+        reading: UsageReading,
+    },
+    SessionUpdated {
+        session: SessionState,
+    },
+    SessionFinished {
+        session: SessionState,
+    },
+    SessionWaiting {
+        session: SessionState,
+    },
+    ConfigUpdated {
+        config: crate::config::AppConfig,
+    },
+    CopilotLogin {
+        login: CopilotLogin,
+    },
+    Pong,
+    Error {
+        message: String,
+    },
+}
+
+pub const PROTOCOL_VERSION: u32 = 2;
+pub const ENGINE_NAME: &str = "omega-notch-engine";

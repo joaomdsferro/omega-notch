@@ -1,0 +1,14 @@
+/target/
+/ui/plasma/build/
+**/*.o
+**/*.a
+.DS_Store
+*.user
+CMakeLists.txt.user
+/.idea/
+/.vscode/
+*.qmlc
+*.jsc
+/.claude/
+.env
+.env.*
