@@ -27,12 +27,18 @@ class EngineClient : public QObject
     Q_PROPERTY(bool autoHide READ autoHide NOTIFY configChanged)
     Q_PROPERTY(int maxProviders READ maxProviders NOTIFY configChanged)
     Q_PROPERTY(double idleSize READ idleSize NOTIFY configChanged)
+    // How the nub moves while a session works, and while one waits for you.
+    Q_PROPERTY(QString nubWorking READ nubWorking NOTIFY configChanged)
+    Q_PROPERTY(QString nubWaiting READ nubWaiting NOTIFY configChanged)
     Q_PROPERTY(QString idleColor READ idleColor NOTIFY configChanged)
     Q_PROPERTY(QString notchColor READ notchColor NOTIFY configChanged)
     Q_PROPERTY(QString screenName READ screenName NOTIFY configChanged)
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
     Q_PROPERTY(bool soundEnabled READ soundEnabled NOTIFY configChanged)
+    // Sound names as saved; empty means the default for that alert.
+    Q_PROPERTY(QString soundFinished READ soundFinished NOTIFY configChanged)
+    Q_PROPERTY(QString soundWaiting READ soundWaiting NOTIFY configChanged)
     Q_PROPERTY(bool providerCursor READ providerCursor NOTIFY configChanged)
     Q_PROPERTY(bool providerClaudeCode READ providerClaudeCode NOTIFY configChanged)
     Q_PROPERTY(bool providerClaudeDesktop READ providerClaudeDesktop NOTIFY configChanged)
@@ -66,12 +72,16 @@ public:
     bool autoHide() const { return m_autoHide; }
     int maxProviders() const { return m_maxProviders; }
     double idleSize() const { return m_idleSize; }
+    QString nubWorking() const { return m_nubWorking; }
+    QString nubWaiting() const { return m_nubWaiting; }
     QString idleColor() const { return m_idleColor; }
     QString notchColor() const { return m_notchColor; }
     QString screenName() const { return m_screenName; }
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
     bool soundEnabled() const { return m_soundEnabled; }
+    QString soundFinished() const { return m_soundFinished; }
+    QString soundWaiting() const { return m_soundWaiting; }
     bool providerCursor() const { return m_providerCursor; }
     bool providerClaudeCode() const { return m_providerClaudeCode; }
     bool providerClaudeDesktop() const { return m_providerClaudeDesktop; }
@@ -96,6 +106,8 @@ public:
     Q_INVOKABLE void setAutoHide(bool hide);
     Q_INVOKABLE void setMaxProviders(int count);
     Q_INVOKABLE void setIdleSize(double size);
+    Q_INVOKABLE void setNubWorking(const QString &motion);
+    Q_INVOKABLE void setNubWaiting(const QString &motion);
     Q_INVOKABLE void setIdleColor(const QString &color);
     Q_INVOKABLE void setNotchColor(const QString &color);
     Q_INVOKABLE void setScreenName(const QString &name);
@@ -105,6 +117,8 @@ public:
     Q_INVOKABLE void setProviderEnabled(const QString &id, bool enabled);
     Q_INVOKABLE void setAlertsEnabled(bool enabled);
     Q_INVOKABLE void setSoundEnabled(bool enabled);
+    Q_INVOKABLE void setSoundFinished(const QString &name);
+    Q_INVOKABLE void setSoundWaiting(const QString &name);
     // Starts GitHub's device flow; once the code arrives it is copied and the
     // GitHub page opened, so all that is left is pasting it.
     Q_INVOKABLE void copilotSignIn();
@@ -176,11 +190,15 @@ private:
     bool m_autoHide = true;
     int m_maxProviders = 1;
     double m_idleSize = 1.0;
+    QString m_nubWorking = QStringLiteral("shiver");
+    QString m_nubWaiting = QStringLiteral("pulse");
     QString m_idleColor = QStringLiteral("#000000");
     QString m_notchColor = QStringLiteral("#000000");
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;
+    QString m_soundFinished;
+    QString m_soundWaiting;
     bool m_providerCursor = true;
     bool m_providerClaudeCode = true;
     bool m_providerClaudeDesktop = true;

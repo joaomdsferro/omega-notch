@@ -252,6 +252,8 @@ void EngineClient::applyConfig(const QJsonObject &config)
     m_maxProviders = qBound(1, config.value(QStringLiteral("max_providers")).toInt(1), 5);
     m_idleSize = qBound(1.0, config.value(QStringLiteral("idle_size")).toDouble(1.0), 3.0);
     m_idleColor = config.value(QStringLiteral("idle_color")).toString(QStringLiteral("#000000"));
+    m_nubWorking = config.value(QStringLiteral("nub_working")).toString(QStringLiteral("shiver"));
+    m_nubWaiting = config.value(QStringLiteral("nub_waiting")).toString(QStringLiteral("pulse"));
     m_notchColor = config.value(QStringLiteral("notch_color")).toString(QStringLiteral("#000000"));
     m_screenName = config.value(QStringLiteral("screen")).toString();
 
@@ -266,6 +268,8 @@ void EngineClient::applyConfig(const QJsonObject &config)
     const QJsonObject alerts = config.value(QStringLiteral("alerts")).toObject();
     m_alertsEnabled = alerts.value(QStringLiteral("enabled")).toBool(true);
     m_soundEnabled = alerts.value(QStringLiteral("sound")).toBool(true);
+    m_soundFinished = alerts.value(QStringLiteral("sound_finished")).toString();
+    m_soundWaiting = alerts.value(QStringLiteral("sound_waiting")).toString();
 
     emit configChanged();
 }
@@ -336,6 +340,8 @@ void EngineClient::pushConfig()
             {QStringLiteral("max_providers"), m_maxProviders},
             {QStringLiteral("idle_size"), m_idleSize},
             {QStringLiteral("idle_color"), m_idleColor},
+            {QStringLiteral("nub_working"), m_nubWorking},
+            {QStringLiteral("nub_waiting"), m_nubWaiting},
             {QStringLiteral("notch_color"), m_notchColor},
             {QStringLiteral("screen"), m_screenName},
             {QStringLiteral("providers"),
@@ -351,6 +357,8 @@ void EngineClient::pushConfig()
              QJsonObject{
                  {QStringLiteral("enabled"), m_alertsEnabled},
                  {QStringLiteral("sound"), m_soundEnabled},
+                 {QStringLiteral("sound_finished"), m_soundFinished},
+                 {QStringLiteral("sound_waiting"), m_soundWaiting},
                  {QStringLiteral("mute_cursor"), false},
                  {QStringLiteral("mute_claude_code"), false},
                  {QStringLiteral("mute_claude_desktop"), false},
@@ -368,6 +376,8 @@ void EngineClient::pushConfig()
         m_rawConfig.insert(QStringLiteral("max_providers"), m_maxProviders);
         m_rawConfig.insert(QStringLiteral("idle_size"), m_idleSize);
         m_rawConfig.insert(QStringLiteral("idle_color"), m_idleColor);
+        m_rawConfig.insert(QStringLiteral("nub_working"), m_nubWorking);
+        m_rawConfig.insert(QStringLiteral("nub_waiting"), m_nubWaiting);
         m_rawConfig.insert(QStringLiteral("notch_color"), m_notchColor);
         m_rawConfig.insert(QStringLiteral("screen"), m_screenName);
         QJsonObject providers = m_rawConfig.value(QStringLiteral("providers")).toObject();
@@ -381,6 +391,8 @@ void EngineClient::pushConfig()
         QJsonObject alerts = m_rawConfig.value(QStringLiteral("alerts")).toObject();
         alerts.insert(QStringLiteral("enabled"), m_alertsEnabled);
         alerts.insert(QStringLiteral("sound"), m_soundEnabled);
+        alerts.insert(QStringLiteral("sound_finished"), m_soundFinished);
+        alerts.insert(QStringLiteral("sound_waiting"), m_soundWaiting);
         m_rawConfig.insert(QStringLiteral("alerts"), alerts);
     }
 
@@ -434,6 +446,20 @@ void EngineClient::setMaxProviders(int count)
 void EngineClient::setIdleSize(double size)
 {
     m_idleSize = qBound(1.0, size, 3.0);
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setNubWorking(const QString &motion)
+{
+    m_nubWorking = motion;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setNubWaiting(const QString &motion)
+{
+    m_nubWaiting = motion;
     emit configChanged();
     pushConfig();
 }
@@ -553,6 +579,20 @@ void EngineClient::setAlertsEnabled(bool enabled)
 void EngineClient::setSoundEnabled(bool enabled)
 {
     m_soundEnabled = enabled;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setSoundFinished(const QString &name)
+{
+    m_soundFinished = name;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setSoundWaiting(const QString &name)
+{
+    m_soundWaiting = name;
     emit configChanged();
     pushConfig();
 }

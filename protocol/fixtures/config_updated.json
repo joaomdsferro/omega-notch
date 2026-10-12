@@ -30,6 +30,8 @@
     "max_providers": 1,
     "idle_size": 1.0,
     "idle_color": "#000000",
+    "nub_working": "shiver",
+    "nub_waiting": "pulse",
     "notch_color": "#000000",
     "screen": ""
   }

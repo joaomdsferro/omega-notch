@@ -47,16 +47,19 @@ Window {
     }
     // Painted apart from the nub, so either can stay black.
     readonly property color notchColor: Engine.notchColor
-    // A session is working somewhere: the nub shivers to say so.
-    readonly property bool working: {
+    // A session is working somewhere, or waiting for you: the nub moves to
+    // say so, each in the motion chosen in Settings.
+    function anySession(kind) {
         const all = activeReadings
         for (let i = 0; i < all.length; ++i) {
             const session = sessionFor(all[i].provider)
-            if (session !== null && session.kind === "busy")
+            if (session !== null && session.kind === kind)
                 return true
         }
         return false
     }
+    readonly property bool working: anySession("busy")
+    readonly property bool waiting: anySession("waiting_you")
     readonly property int cellCount: Math.max(1, shownReadings.length)
     readonly property real collapsedLength: padStart + cellCount * cellAlong
                                             + (cellCount - 1) * cellSpacing + padEnd
@@ -320,25 +323,23 @@ Window {
         // The nub: what is left on the edge while the notch is tucked away.
         NotchShape {
             id: nub
-            readonly property real centre: root.bodyStart + root.collapsedLength / 2 + buzz
-            // A short shiver along the edge, then a rest, for as long as
-            // something is working.
-            property real buzz: 0
-            SequentialAnimation on buzz {
-                running: nub.visible && root.working
-                loops: Animation.Infinite
-                alwaysRunToEnd: true
-                NumberAnimation { to: 1.6 * root.s; duration: 45 }
-                NumberAnimation { to: -1.6 * root.s; duration: 90 }
-                NumberAnimation { to: 1.2 * root.s; duration: 90 }
-                NumberAnimation { to: -1.2 * root.s; duration: 90 }
-                NumberAnimation { to: 0; duration: 45 }
-                PauseAnimation { duration: 1500 }
+            readonly property real centre: root.bodyStart + root.collapsedLength / 2 + motion.along
+            // Waiting for you outranks working.
+            NubMotion {
+                id: motion
+                style: root.waiting ? Engine.nubWaiting : Engine.nubWorking
+                active: nub.visible && (root.waiting || root.working)
+                unit: root.s
             }
             edge: root.edge
-            length: 30 * root.s * Engine.idleSize
-            depth: root.nubDepth
-            color: Engine.idleColor
+            length: 30 * root.s * Engine.idleSize * motion.lengthScale
+            depth: root.nubDepth * motion.depthScale
+            wave: motion.wave * depth
+            wavePhase: motion.wavePhase
+            // Breathing fades the paint; the nub's own opacity belongs to
+            // hiding and showing.
+            readonly property color paint: Engine.idleColor
+            color: Qt.rgba(paint.r, paint.g, paint.b, motion.fade)
             curl: depth / 2
             radius: depth / 2
             x: root.vertical ? (root.edge === "right" ? root.width - depth : 0)
