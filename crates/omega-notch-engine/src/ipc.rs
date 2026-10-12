@@ -1,10 +1,8 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use omega_notch_core::protocol::{
-    ClientMessage, ServerMessage, ENGINE_NAME, PROTOCOL_VERSION,
-};
 use omega_notch_core::jump::{self, ChatTarget};
+use omega_notch_core::protocol::{ClientMessage, ServerMessage, ENGINE_NAME, PROTOCOL_VERSION};
 use omega_notch_core::UsageStore;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -137,7 +135,13 @@ async fn handle_message(
         ClientMessage::CopilotSignIn => {
             store.copilot_sign_in();
         }
-        ClientMessage::OpenChat { provider, id, cwd, title, surface } => {
+        ClientMessage::OpenChat {
+            provider,
+            id,
+            cwd,
+            title,
+            surface,
+        } => {
             // Raising windows shells out and may wait for a new one to appear.
             let opened = tokio::task::spawn_blocking(move || {
                 let target = ChatTarget {

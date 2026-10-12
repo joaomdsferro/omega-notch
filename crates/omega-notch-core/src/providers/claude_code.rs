@@ -248,9 +248,9 @@ fn ask_keychain() -> KeychainRead {
     use crate::platform::{keychain_password, KeychainError};
 
     match keychain_password(paths::CLAUDE_KEYCHAIN_SERVICE) {
-        Ok(data) => KeychainRead::Done(
-            String::from_utf8(data).map_err(|e| ProviderError::Other(e.into())),
-        ),
+        Ok(data) => {
+            KeychainRead::Done(String::from_utf8(data).map_err(|e| ProviderError::Other(e.into())))
+        }
         Err(KeychainError::NotFound) => KeychainRead::Done(Err(ProviderError::NeedsAuth(
             "No Claude Code sign-in in the Keychain — sign in with Claude Code".into(),
         ))),

@@ -34,10 +34,9 @@ impl CodexProvider {
         if let Some(account) = &auth.account_id {
             request = request.header("ChatGPT-Account-Id", account);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ProviderError::Message(format!("Codex usage request failed: {}", e.without_url())))?;
+        let response = request.send().await.map_err(|e| {
+            ProviderError::Message(format!("Codex usage request failed: {}", e.without_url()))
+        })?;
 
         if response.status() == reqwest::StatusCode::UNAUTHORIZED
             || response.status() == reqwest::StatusCode::FORBIDDEN
@@ -89,7 +88,11 @@ fn read_auth() -> Result<CodexAuth, ProviderError> {
     let file: AuthFile = serde_json::from_str(&raw)
         .map_err(|_| ProviderError::Message("Could not parse ~/.codex/auth.json".into()))?;
 
-    if file.auth_mode.as_deref().is_some_and(|m| m.eq_ignore_ascii_case("apikey")) {
+    if file
+        .auth_mode
+        .as_deref()
+        .is_some_and(|m| m.eq_ignore_ascii_case("apikey"))
+    {
         return Err(ProviderError::NeedsAuth(
             "Codex uses an API key — limits exist only with a ChatGPT sign-in".into(),
         ));
@@ -101,7 +104,9 @@ fn read_auth() -> Result<CodexAuth, ProviderError> {
     let access_token = tokens
         .access_token
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| ProviderError::NeedsAuth("Sign in to Codex with your ChatGPT account".into()))?;
+        .ok_or_else(|| {
+            ProviderError::NeedsAuth("Sign in to Codex with your ChatGPT account".into())
+        })?;
 
     Ok(CodexAuth {
         access_token,
@@ -185,7 +190,9 @@ impl UsagePayload {
             (true, Some(plan)) => Some(format!("{plan} · limit reached")),
             (true, None) => Some("Limit reached".to_string()),
             (false, plan) if windows.is_empty() => {
-                Some(plan.map_or("No usage limits reported".into(), |p| format!("{p} · no limits reported")))
+                Some(plan.map_or("No usage limits reported".into(), |p| {
+                    format!("{p} · no limits reported")
+                }))
             }
             (false, plan) => plan,
         };
@@ -219,11 +226,16 @@ mod tests {
         let raw = r#"{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,
             "primary_window":{"used_percent":12,"limit_window_seconds":18000,"reset_after_seconds":600,"reset_at":1791374400},
             "secondary_window":{"used_percent":40.5,"limit_window_seconds":604800,"reset_after_seconds":9000,"reset_at":1791900000}}}"#;
-        let reading = serde_json::from_str::<UsagePayload>(raw).unwrap().into_reading();
+        let reading = serde_json::from_str::<UsagePayload>(raw)
+            .unwrap()
+            .into_reading();
         assert_eq!(reading.windows.len(), 2);
         assert_eq!(reading.windows[0].label, "5h");
         assert_eq!(reading.windows[0].used_pct, 12.0);
-        assert_eq!(reading.windows[0].resets_at.unwrap().timestamp(), 1791374400);
+        assert_eq!(
+            reading.windows[0].resets_at.unwrap().timestamp(),
+            1791374400
+        );
         assert_eq!(reading.windows[1].label, "Weekly");
         assert!((reading.windows[1].used_pct - 40.5).abs() < 1e-9);
         assert_eq!(reading.message.as_deref(), Some("ChatGPT Plus"));
@@ -235,7 +247,10 @@ mod tests {
             .unwrap()
             .into_reading();
         assert!(reading.windows.is_empty());
-        assert_eq!(reading.message.as_deref(), Some("ChatGPT Free · no limits reported"));
+        assert_eq!(
+            reading.message.as_deref(),
+            Some("ChatGPT Free · no limits reported")
+        );
     }
 
     #[test]

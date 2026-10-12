@@ -51,7 +51,14 @@ impl ProviderId {
     }
 
     pub fn mvp_providers() -> &'static [ProviderId] {
-        &[Self::Cursor, Self::ClaudeCode, Self::ClaudeDesktop, Self::Copilot, Self::GrokBot, Self::Codex]
+        &[
+            Self::Cursor,
+            Self::ClaudeCode,
+            Self::ClaudeDesktop,
+            Self::Copilot,
+            Self::GrokBot,
+            Self::Codex,
+        ]
     }
 }
 

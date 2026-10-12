@@ -129,10 +129,7 @@ struct OnDemandUsage {
 
 impl UsageSummary {
     fn into_reading(self) -> UsageReading {
-        let resets_at = self
-            .billing_cycle_end
-            .as_deref()
-            .and_then(parse_rfc3339);
+        let resets_at = self.billing_cycle_end.as_deref().and_then(parse_rfc3339);
 
         let mut windows = Vec::new();
 
@@ -178,7 +175,9 @@ impl UsageSummary {
         {
             if on_demand.enabled.unwrap_or(false) {
                 let pct = match (on_demand.used, on_demand.limit) {
-                    (Some(used), Some(limit)) if limit > 0.0 => (used / limit * 100.0).clamp(0.0, 100.0),
+                    (Some(used), Some(limit)) if limit > 0.0 => {
+                        (used / limit * 100.0).clamp(0.0, 100.0)
+                    }
                     _ => 0.0,
                 };
                 windows.push(UsageWindow {

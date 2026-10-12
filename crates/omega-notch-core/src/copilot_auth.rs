@@ -119,6 +119,10 @@ pub fn save_token(token: &str) -> anyhow::Result<()> {
         .truncate(true)
         .mode(0o600)
         .open(&path)?;
-    file.write_all(serde_json::json!({ "oauth_token": token }).to_string().as_bytes())?;
+    file.write_all(
+        serde_json::json!({ "oauth_token": token })
+            .to_string()
+            .as_bytes(),
+    )?;
     Ok(())
 }

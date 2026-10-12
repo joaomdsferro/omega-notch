@@ -29,7 +29,12 @@ pub async fn run_doctor() -> String {
         match id {
             ProviderId::Cursor => {
                 let db = paths::cursor_state_db();
-                let _ = writeln!(out, "  state.vscdb: {} exists={}", db.display(), db.exists());
+                let _ = writeln!(
+                    out,
+                    "  state.vscdb: {} exists={}",
+                    db.display(),
+                    db.exists()
+                );
             }
             ProviderId::ClaudeCode => {
                 let creds = paths::claude_credentials();
@@ -60,7 +65,12 @@ pub async fn run_doctor() -> String {
             }
             ProviderId::Copilot => {
                 let dir = paths::github_copilot_dir();
-                let _ = writeln!(out, "  github-copilot: {} exists={}", dir.display(), dir.exists());
+                let _ = writeln!(
+                    out,
+                    "  github-copilot: {} exists={}",
+                    dir.display(),
+                    dir.exists()
+                );
                 let opencode = paths::opencode_auth();
                 let _ = writeln!(
                     out,
@@ -73,11 +83,21 @@ pub async fn run_doctor() -> String {
                 let dir = paths::grok_bot_dir();
                 let _ = writeln!(out, "  grokbot: {} exists={}", dir.display(), dir.exists());
                 let db = paths::cursor_state_db();
-                let _ = writeln!(out, "  cursor sign-in: {} exists={}", db.display(), db.exists());
+                let _ = writeln!(
+                    out,
+                    "  cursor sign-in: {} exists={}",
+                    db.display(),
+                    db.exists()
+                );
             }
             ProviderId::Codex => {
                 let auth = paths::codex_auth();
-                let _ = writeln!(out, "  codex auth: {} exists={}", auth.display(), auth.exists());
+                let _ = writeln!(
+                    out,
+                    "  codex auth: {} exists={}",
+                    auth.display(),
+                    auth.exists()
+                );
             }
             _ => {}
         }

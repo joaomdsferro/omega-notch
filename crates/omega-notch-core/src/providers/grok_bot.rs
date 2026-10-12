@@ -142,7 +142,9 @@ mod tests {
     #[test]
     fn reads_weekly_percent_and_reset() {
         let raw = r#"{"currentPeriodStart":"2026-09-30T00:00:00Z","nextResetTimestampUtc":"2026-10-07T00:00:00Z","usagePercent":1.4,"hasAvailableUsage":true,"hasNonZeroIncludedLimit":true}"#;
-        let reading = serde_json::from_str::<SandUsageStatus>(raw).unwrap().into_reading();
+        let reading = serde_json::from_str::<SandUsageStatus>(raw)
+            .unwrap()
+            .into_reading();
         assert_eq!(reading.windows.len(), 1);
         assert_eq!(reading.windows[0].label, "Weekly");
         assert!((reading.windows[0].used_pct - 1.4).abs() < 1e-9);
@@ -155,7 +157,9 @@ mod tests {
     #[test]
     fn omitted_percent_with_a_limit_is_zero() {
         let raw = r#"{"hasNonZeroIncludedLimit":true}"#;
-        let reading = serde_json::from_str::<SandUsageStatus>(raw).unwrap().into_reading();
+        let reading = serde_json::from_str::<SandUsageStatus>(raw)
+            .unwrap()
+            .into_reading();
         assert_eq!(reading.windows[0].used_pct, 0.0);
     }
 }

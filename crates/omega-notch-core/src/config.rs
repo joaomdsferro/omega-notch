@@ -72,9 +72,7 @@ fn default_notch_color() -> String {
 }
 
 fn is_hex_color(value: &str) -> bool {
-    value.len() == 7
-        && value.starts_with('#')
-        && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn default_true() -> bool {
@@ -154,7 +152,11 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             // On a Mac the notch grows out of the camera housing.
-            edge: if cfg!(target_os = "macos") { Edge::Top } else { Edge::Right },
+            edge: if cfg!(target_os = "macos") {
+                Edge::Top
+            } else {
+                Edge::Right
+            },
             edge_position: 0.5,
             size: SizePreset::Medium,
             accent: Accent::Plasma,
@@ -282,7 +284,9 @@ mod tests {
         for (k, v) in extra.as_object().unwrap() {
             map.insert(k.clone(), v.clone());
         }
-        serde_json::from_value::<AppConfig>(value).unwrap().normalized()
+        serde_json::from_value::<AppConfig>(value)
+            .unwrap()
+            .normalized()
     }
 
     #[test]
@@ -313,7 +317,9 @@ mod tests {
         let map = value.as_object_mut().unwrap();
         map.remove("nub_working");
         map.insert("nub_waiting".into(), "wiggle".into());
-        let c = serde_json::from_value::<AppConfig>(value).unwrap().normalized();
+        let c = serde_json::from_value::<AppConfig>(value)
+            .unwrap()
+            .normalized();
         assert_eq!(c.nub_working, "shiver");
         assert_eq!(c.nub_waiting, "pulse");
 

@@ -1,5 +1,5 @@
-mod ipc;
 mod hooks;
+mod ipc;
 
 use clap::{Parser, Subcommand};
 use omega_notch_core::config::AppConfig;
@@ -9,7 +9,11 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "omega-notch-engine", version, about = "Omega Notch usage engine")]
+#[command(
+    name = "omega-notch-engine",
+    version,
+    about = "Omega Notch usage engine"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

@@ -49,7 +49,9 @@ fn check_local_client(headers: &HeaderMap) -> Result<(), StatusCode> {
     if !host.is_some_and(|h| local_hosts.iter().any(|l| l.eq_ignore_ascii_case(h))) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let content_type = headers.get(header::CONTENT_TYPE).and_then(|h| h.to_str().ok());
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok());
     let is_json = content_type
         .and_then(|c| c.split(';').next())
         .is_some_and(|c| c.trim().eq_ignore_ascii_case("application/json"));
@@ -114,11 +116,24 @@ mod tests {
 
     #[test]
     fn rejects_simple_content_types() {
-        for ct in ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data"] {
-            let h = headers(&[(header::HOST, "127.0.0.1:17337"), (header::CONTENT_TYPE, ct)]);
-            assert_eq!(check_local_client(&h), Err(StatusCode::UNSUPPORTED_MEDIA_TYPE));
+        for ct in [
+            "text/plain",
+            "application/x-www-form-urlencoded",
+            "multipart/form-data",
+        ] {
+            let h = headers(&[
+                (header::HOST, "127.0.0.1:17337"),
+                (header::CONTENT_TYPE, ct),
+            ]);
+            assert_eq!(
+                check_local_client(&h),
+                Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+            );
         }
         let h = headers(&[(header::HOST, "127.0.0.1:17337")]);
-        assert_eq!(check_local_client(&h), Err(StatusCode::UNSUPPORTED_MEDIA_TYPE));
+        assert_eq!(
+            check_local_client(&h),
+            Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+        );
     }
 }
