@@ -1,0 +1,9 @@
+{
+  "type": "session_updated",
+  "session": {
+    "provider": "claude_code",
+    "kind": "idle",
+    "label": "omega-notch",
+    "updated_at": "2026-10-01T14:42:00Z"
+  }
+}

@@ -64,15 +64,30 @@ pub struct ChatTarget<'a> {
     pub surface: Option<&'a str>,
 }
 
-pub fn open_chat(target: &ChatTarget) -> anyhow::Result<()> {
+/// What the app shell should bring forward once the engine has done its part:
+/// on macOS, picking a window (and a terminal tab) takes AppKit and the
+/// user's permission, which only the shell has.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RaiseRequest {
+    /// The session's process and its parents, nearest first.
+    pub pids: Vec<u32>,
+    /// Words the window's title may carry, best first.
+    pub hints: Vec<String>,
+    /// The session's terminal, such as `/dev/ttys003`.
+    pub tty: Option<String>,
+}
+
+/// Opens the chat. On macOS, a live session also comes back as a request for
+/// the shell to raise its window.
+pub fn open_chat(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
     match target.provider {
         ProviderId::ClaudeCode => open_claude(target),
-        ProviderId::Cursor => open_app(&CURSOR, target.cwd),
+        ProviderId::Cursor => open_app(&CURSOR, target.cwd).map(|_| None),
         other => bail!("{other:?} chats cannot be opened"),
     }
 }
 
-fn open_claude(target: &ChatTarget) -> anyhow::Result<()> {
+fn open_claude(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
     if !valid_session_id(target.id) {
         bail!("not a Claude Code session id: {}", target.id);
     }
@@ -91,15 +106,22 @@ fn open_claude(target: &ChatTarget) -> anyhow::Result<()> {
     info!(id = target.id, live = live.is_some(), %entrypoint, "opening chat");
 
     match (entrypoint.as_str(), live) {
-        ("claude-vscode", _) => open_in_vscode(target.id, cwd.as_deref()),
+        ("claude-vscode", _) => open_in_vscode(target.id, cwd.as_deref()).map(|_| None),
         (_, Some(session)) => {
             let hints = window_hints(Some(&session), target.title, cwd.as_deref());
-            raise_window(&ancestors(session.pid), &hints)?;
+            let pids = ancestors(session.pid);
+            raise_window(&pids, &hints)?;
             ring_bell(session.pid);
-            Ok(())
+            if cfg!(target_os = "macos") {
+                let tty = platform::tty(session.pid).map(|t| t.display().to_string());
+                return Ok(Some(RaiseRequest { pids, hints, tty }));
+            }
+            Ok(None)
         }
-        ("claude-desktop" | "claude-desktop-3p", None) => open_app(&CLAUDE_DESKTOP, None),
-        (_, None) => resume_in_terminal(target.id, cwd.as_deref()),
+        ("claude-desktop" | "claude-desktop-3p", None) => {
+            open_app(&CLAUDE_DESKTOP, None).map(|_| None)
+        }
+        (_, None) => resume_in_terminal(target.id, cwd.as_deref()).map(|_| None),
     }
 }
 

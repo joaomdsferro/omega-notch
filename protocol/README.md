@@ -10,7 +10,7 @@ $XDG_RUNTIME_DIR/omega-notch.sock                                  (Linux)
 Only its owner can connect: the socket is `0600`, in a folder only its owner
 can open.
 
-Protocol version: **3**
+Protocol version: **4**
 
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
@@ -41,8 +41,16 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
 | `config_updated` | `config` |
+| `raise_window` | `pids`, `hints`, `tty?` |
 | `pong` | — |
 | `error` | `message` |
+
+`raise_window` (v4) answers `open_chat` on macOS when the chat runs in a
+live session: the engine has brought the app forward, and the client picks the
+window. `pids` is the session's process and its parents, nearest first; the
+first one that is an app owns the window. `hints` are words its title may
+carry, best first. `tty` is the session's terminal (`/dev/ttys003`), for
+picking the tab. Other clients ignore it.
 
 `session_updated` carries a provider's overall state (waiting outranks busy,
 busy outranks idle). `session_finished` and `session_waiting` are about one

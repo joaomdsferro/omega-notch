@@ -1,0 +1,9 @@
+{
+  "type": "copilot_login",
+  "login": {
+    "state": "pending",
+    "user_code": "ABCD-1234",
+    "verification_uri": "https://github.com/login/device",
+    "expires_at": "2026-10-01T15:00:00Z"
+  }
+}

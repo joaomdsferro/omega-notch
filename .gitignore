@@ -12,3 +12,5 @@ CMakeLists.txt.user
 /.claude/
 .env
 .env.*
+/ui/macos/.build/
+/ui/macos/.swiftpm/
