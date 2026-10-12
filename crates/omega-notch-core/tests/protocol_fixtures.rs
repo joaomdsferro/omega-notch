@@ -196,6 +196,14 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                 },
             },
         ),
+        (
+            "raise_window",
+            ServerMessage::RaiseWindow {
+                pids: vec![4242, 4100, 1],
+                hints: vec!["omega-notch".into(), "Sidebar resize performance".into()],
+                tty: Some("/dev/ttys003".into()),
+            },
+        ),
         ("pong", ServerMessage::Pong),
         (
             "error",

@@ -4,7 +4,7 @@ import Foundation
 // follow the JSON names through `convertFromSnakeCase`; anything optional on
 // the Rust side is optional here, so an older or newer engine still decodes.
 
-public let supportedProtocol = 3
+public let supportedProtocol = 4
 
 public enum SessionKind: String, Codable, Sendable {
   case idle
@@ -143,6 +143,24 @@ public struct CopilotLogin: Codable, Equatable, Sendable {
   public init(state: String) { self.state = state }
 }
 
+/// Which window to bring forward for a chat in a live session.
+public struct RaiseRequest: Codable, Equatable, Sendable {
+  /// The session's process and its parents, nearest first.
+  public var pids: [Int32]
+  /// Words the window's title may carry, best first.
+  public var hints: [String]
+  /// The session's terminal, such as `/dev/ttys003`.
+  public var tty: String?
+
+  /// Only a real terminal device: it ends up in a script.
+  public var safeTty: String? {
+    guard let tty, tty.hasPrefix("/dev/ttys"), tty.dropFirst(9).allSatisfy(\.isNumber),
+      tty.count > 9
+    else { return nil }
+    return tty
+  }
+}
+
 public enum ServerMessage: Sendable {
   case hello(protocol: Int)
   case snapshot(
@@ -156,6 +174,8 @@ public enum ServerMessage: Sendable {
   case configUpdated(JSONValue)
   case dashboard(Dashboard)
   case copilotLogin(CopilotLogin)
+  /// The chat runs in a live session: pick its window (v4).
+  case raiseWindow(RaiseRequest)
   case pong
   case error(String)
   /// A message this shell does not know; ignored.
@@ -255,6 +275,8 @@ extension ServerMessage {
       return .dashboard(dashboard)
     case "copilot_login":
       return .copilotLogin(try d.decode(LoginBody.self, from: line).login)
+    case "raise_window":
+      return .raiseWindow(try d.decode(RaiseRequest.self, from: line))
     case "pong":
       return .pong
     case "error":

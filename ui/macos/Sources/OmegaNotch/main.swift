@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         .waiting)
     }
     client.onCopilotCode = { login in Windows.finishCopilotSignIn(login) }
+    client.onRaiseWindow = { request in WindowRaiser.raise(request) }
     client.start()
 
     notch.openSettings = { [weak self] in self?.windows.showSettings() }

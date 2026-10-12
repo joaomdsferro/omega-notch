@@ -28,6 +28,8 @@ public final class EngineClient {
   @ObservationIgnored public var onSessionWaiting: ((String, String) -> Void)?
   /// Called when the device code is ready, to copy it and open GitHub.
   @ObservationIgnored public var onCopilotCode: ((CopilotLogin) -> Void)?
+  /// Called when a clicked chat's window is the shell's to bring forward.
+  @ObservationIgnored public var onRaiseWindow: ((RaiseRequest) -> Void)?
 
   @ObservationIgnored private let socketPath: String
   @ObservationIgnored private var socket: LineSocket?
@@ -176,6 +178,8 @@ public final class EngineClient {
     case .copilotLogin(let login):
       copilotLogin = login
       if login.state == "pending" { onCopilotCode?(login) }
+    case .raiseWindow(let request):
+      onRaiseWindow?(request)
     case .hello, .pong, .error, .unknown:
       break
     }

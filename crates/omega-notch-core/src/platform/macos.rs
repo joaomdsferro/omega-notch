@@ -11,30 +11,29 @@ const ITEM_NOT_FOUND: i32 = -25300;
 /// `errSecUserCanceled` and `errSecAuthFailed`: the user said no to the prompt.
 const DENIED: [i32; 2] = [-128, -25293];
 
-fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
+/// One of `proc_pidinfo`'s plain-data records for `pid`.
+fn pid_info<T>(pid: u32, flavor: libc::c_int) -> Option<T> {
     let pid = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
-    // SAFETY: proc_bsdinfo is plain old data, so all zeroes is a valid value.
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    // SAFETY: the buffer is a proc_bsdinfo and `size` is its exact size.
-    let written = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            &mut info as *mut _ as *mut c_void,
-            size,
-        )
-    };
+    // SAFETY: only used with libproc's records, which are plain old data, so
+    // all zeroes is a valid value.
+    let mut info: T = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<T>() as libc::c_int;
+    // SAFETY: the buffer is a T and `size` is its exact size.
+    let written =
+        unsafe { libc::proc_pidinfo(pid, flavor, 0, &mut info as *mut T as *mut c_void, size) };
     (written == size).then_some(info)
 }
 
+/// Uses the short record, which macOS gives out for any process: the full
+/// one is refused for another user's, and a terminal session runs under
+/// root's `/usr/bin/login`.
 pub fn parent(pid: u32) -> Option<u32> {
-    bsd_info(pid).map(|info| info.pbi_ppid)
+    pid_info::<libc::proc_bsdshortinfo>(pid, libc::PROC_PIDT_SHORTBSDINFO)
+        .map(|info| info.pbsi_ppid)
 }
 
 pub fn tty(pid: u32) -> Option<PathBuf> {
-    let dev = bsd_info(pid)?.e_tdev;
+    let dev = pid_info::<libc::proc_bsdinfo>(pid, libc::PROC_PIDTBSDINFO)?.e_tdev;
     // NODEV: no controlling terminal.
     if dev == u32::MAX {
         return None;
@@ -125,6 +124,13 @@ mod tests {
             keychain_password(service),
             Err(KeychainError::NotFound)
         ));
+    }
+
+    #[test]
+    fn root_processes_still_have_a_parent() {
+        // launchd runs as root, like the `login` between a terminal and its
+        // shell; the walk up to the terminal must not stop there.
+        assert_eq!(parent(1), Some(0));
     }
 
     #[test]

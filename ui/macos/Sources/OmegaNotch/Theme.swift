@@ -108,3 +108,39 @@ extension View {
     }
   }
 }
+
+/// Breathing between 35% and full opacity, 1.4 s a cycle, while `active`.
+/// Driven by a clock rather than a repeating animation, which SwiftUI would
+/// let leak into the views around it (the ring's number would blink).
+struct Breathing: ViewModifier {
+  var active: Bool
+
+  func body(content: Content) -> some View {
+    if active {
+      TimelineView(.animation) { timeline in
+        let t = timeline.date.timeIntervalSinceReferenceDate
+        content.opacity(0.675 + 0.325 * cos(2 * .pi * t / 1.4))
+      }
+    } else {
+      content
+    }
+  }
+}
+
+/// A full turn every `period` seconds while `active`, from the same clock.
+struct Spinning: ViewModifier {
+  var active: Bool
+  var period: Double = 1.1
+
+  func body(content: Content) -> some View {
+    TimelineView(.animation(paused: !active)) { timeline in
+      let t = timeline.date.timeIntervalSinceReferenceDate
+      content.rotationEffect(.degrees(t.truncatingRemainder(dividingBy: period) / period * 360))
+    }
+  }
+}
+
+extension View {
+  func breathing(_ active: Bool) -> some View { modifier(Breathing(active: active)) }
+  func spinning(_ active: Bool) -> some View { modifier(Spinning(active: active)) }
+}

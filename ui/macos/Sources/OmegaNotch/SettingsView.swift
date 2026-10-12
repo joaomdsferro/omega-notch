@@ -13,6 +13,8 @@ struct SettingsView: View {
   @State private var loginError = ""
   /// The sound whose list is open, if any: only one at a time.
   @State private var openSound: AlertSound.Kind?
+  @State private var windowsAllowed = WindowRaiser.trusted
+  @AppStorage(WindowRaiser.pickTabKey) private var pickTab = false
 
   private static let providers = [
     ("cursor", "Cursor"), ("claude_code", "Claude Code"), ("claude_desktop", "Claude Desktop"),
@@ -29,6 +31,7 @@ struct SettingsView: View {
         notch
         providers
         alerts
+        windows
         startup
         HStack {
           SettingsButton(title: "Refresh all now", enabled: client.connected) { client.refresh() }
@@ -45,6 +48,10 @@ struct SettingsView: View {
     .onReceive(
       NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
     ) { _ in screens = NSScreen.screens.map(ScreenInfo.init) }
+    // Back from System Settings with the permission granted, or not.
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+      windowsAllowed = WindowRaiser.trusted
+    }
   }
 
   private func update(_ change: (inout NotchConfig) -> Void) {
@@ -217,6 +224,38 @@ struct SettingsView: View {
           open: $openSound
         ) { name in update { $0.soundWaiting = name } }
       }
+    }
+  }
+
+  /// Opening a chat: the window it runs in, and optionally its tab.
+  private var windows: some View {
+    SettingsSection(heading: "Opening chats") {
+      HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Bring the chat's window forward").font(.notch(14)).foregroundStyle(Theme.text)
+          Text(
+            windowsAllowed
+              ? "Allowed in Accessibility"
+              : "Needs Accessibility permission; without it, only the app comes forward"
+          )
+          .font(.notch(12))
+          .foregroundStyle(windowsAllowed ? Theme.textSecondary : Theme.watch)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 12)
+        if !windowsAllowed {
+          SettingsButton(title: "Allow…") {
+            WindowRaiser.askForAccessibility()
+            WindowRaiser.openAccessibilitySettings()
+          }
+        }
+      }
+      .frame(minHeight: 44)
+      SettingsSwitch(
+        title: "Pick the terminal tab",
+        subtitle: "Terminal and iTerm2 · macOS asks to let Omega Notch control them the first time",
+        isOn: pickTab
+      ) { on in pickTab = on }
     }
   }
 

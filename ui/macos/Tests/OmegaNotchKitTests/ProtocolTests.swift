@@ -67,6 +67,21 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(login.userCode, "ABCD-1234")
   }
 
+  func testRaiseWindowAndItsTty() throws {
+    guard case .raiseWindow(let request) = try fixture("raise_window") else {
+      return XCTFail("not a raise_window")
+    }
+    XCTAssertEqual(request.pids.first, 4242)
+    XCTAssertEqual(request.hints.first, "omega-notch")
+    XCTAssertEqual(request.safeTty, "/dev/ttys003")
+
+    var odd = request
+    for tty in ["/dev/ttys", "/dev/ttys1\" & do shell script \"x", "/dev/pts/3", "ttys003"] {
+      odd.tty = tty
+      XCTAssertNil(odd.safeTty, tty)
+    }
+  }
+
   func testDatesWithNanoseconds() {
     XCTAssertNotNil(ServerMessage.parseDate("2026-10-12T13:50:00.149964Z"))
     XCTAssertNotNil(ServerMessage.parseDate("2026-10-12T13:50:00.149964123+00:00"))

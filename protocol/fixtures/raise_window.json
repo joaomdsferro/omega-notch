@@ -1,0 +1,13 @@
+{
+  "type": "raise_window",
+  "pids": [
+    4242,
+    4100,
+    1
+  ],
+  "hints": [
+    "omega-notch",
+    "Sidebar resize performance"
+  ],
+  "tty": "/dev/ttys003"
+}

@@ -397,13 +397,21 @@ pub enum ServerMessage {
     CopilotLogin {
         login: CopilotLogin,
     },
+    /// Sent back to the client that asked to open a chat, when picking its
+    /// window is the client's job (macOS, v4, additive).
+    RaiseWindow {
+        pids: Vec<u32>,
+        hints: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tty: Option<String>,
+    },
     Pong,
     Error {
         message: String,
     },
 }
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const ENGINE_NAME: &str = "omega-notch-engine";
 
 fn default_dashboard_days() -> u32 {

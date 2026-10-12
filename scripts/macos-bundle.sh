@@ -50,14 +50,28 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>MIT licence. Not affiliated with Anthropic, Anysphere, GitHub, OpenAI or xAI.</string>
-  <key>NSAppleEventsUsageDescription</key><string>Omega Notch opens Terminal to resume a finished chat.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Omega Notch opens Terminal to resume a finished chat, and picks the tab a chat runs in when you switch that on.</string>
+</dict>
+</plist>
+EOF
+
+# The one entitlement: sending Apple Events, to pick a Terminal or iTerm2 tab
+# (only when that is switched on in Settings, and after macOS asks).
+ENTITLEMENTS="$(mktemp)"
+cat > "$ENTITLEMENTS" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key><true/>
 </dict>
 </plist>
 EOF
 
 # Inside out: the helper first, then the app around it.
 codesign --force --options runtime --sign - "$APP/Contents/Helpers/omega-notch-engine"
-codesign --force --options runtime --sign - "$APP"
+codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
+rm -f "$ENTITLEMENTS"
 codesign --verify --deep --strict "$APP"
 
 echo "$APP"

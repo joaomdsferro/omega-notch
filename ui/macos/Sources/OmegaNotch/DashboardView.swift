@@ -529,7 +529,6 @@ private struct DashChatRow: View {
   var open: () -> Void
 
   @State private var hovered = false
-  @State private var dim = false
 
   private var tokens: Double { chat.tokens?.total ?? 0 }
 
@@ -556,10 +555,7 @@ private struct DashChatRow: View {
             .overlay(Circle().strokeBorder(Theme.panelRaised, lineWidth: 2))
             .frame(width: 10, height: 10)
             .offset(x: 3, y: -3)
-            .opacity(dim ? 0.35 : 1)
-            .onAppear {
-              withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { dim = true }
-            }
+            .breathing(chat.state != .idle)
         }
       }
       VStack(alignment: .leading, spacing: 3) {

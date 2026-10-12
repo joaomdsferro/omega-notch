@@ -227,7 +227,6 @@ struct ChatRow: View {
   var open: () -> Void
 
   @State private var hovered = false
-  @State private var dim = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2 * s) {
@@ -235,7 +234,7 @@ struct ChatRow: View {
         Circle()
           .fill(Theme.stateColor(chat.state))
           .frame(width: 7 * s, height: 7 * s)
-          .opacity(dim ? 0.35 : 1)
+          .breathing(chat.state != .idle)
           .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 * s }
         Text(chat.title)
           .font(.notch(12.5 * s))
@@ -261,10 +260,6 @@ struct ChatRow: View {
     .onHover { hovered = $0 }
     .clickable()
     .onTapGesture(perform: open)
-    .onAppear {
-      guard chat.state != .idle else { return }
-      withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { dim = true }
-    }
   }
 
   private var when: String {

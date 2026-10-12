@@ -15,8 +15,6 @@ struct RingView: View {
   var onTap: () -> Void
 
   @State private var refreshing = false
-  @State private var spin = false
-  @State private var breathe = false
 
   private var status: String { reading?.status ?? "offline" }
   private var hasData: Bool { reading?.hasData ?? false }
@@ -44,7 +42,7 @@ struct RingView: View {
           .trim(from: 0, to: 95.0 / 360)
           .stroke(Theme.ink(surface), style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
           .frame(width: 25 * s, height: 25 * s)
-          .rotationEffect(.degrees(spin ? 360 : 0))
+          .spinning(sessionKind == .busy || refreshing)
           .opacity(sessionKind == .busy || refreshing ? 1 : 0)
           .animation(.easeInOut(duration: 0.18), value: sessionKind == .busy || refreshing)
 
@@ -53,13 +51,7 @@ struct RingView: View {
           Circle()
             .stroke(Theme.waiting, lineWidth: 2 * s)
             .frame(width: 25 * s, height: 25 * s)
-            .opacity(breathe ? 1 : 0.35)
-            .onAppear {
-              withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
-                breathe = true
-              }
-            }
-            .onDisappear { breathe = false }
+            .breathing(true)
         }
 
         ProviderGlyph(
@@ -86,9 +78,6 @@ struct RingView: View {
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { refreshing = false }
     }
     .clickable()
-    .onAppear {
-      withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spin = true }
-    }
   }
 
   private var label: String {

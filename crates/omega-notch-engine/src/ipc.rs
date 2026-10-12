@@ -139,7 +139,7 @@ async fn handle_message(
         }
         ClientMessage::OpenChat { provider, id, cwd, title, surface } => {
             // Raising windows shells out and may wait for a new one to appear.
-            tokio::task::spawn_blocking(move || {
+            let opened = tokio::task::spawn_blocking(move || {
                 let target = ChatTarget {
                     provider,
                     id: &id,
@@ -147,10 +147,22 @@ async fn handle_message(
                     title: title.as_deref(),
                     surface: surface.as_deref(),
                 };
-                if let Err(err) = jump::open_chat(&target) {
+                jump::open_chat(&target).map_err(|err| {
                     warn!(error = %err, id, "could not open chat");
-                }
-            });
+                })
+            })
+            .await?;
+            if let Ok(Some(raise)) = opened {
+                write_msg(
+                    writer,
+                    &ServerMessage::RaiseWindow {
+                        pids: raise.pids,
+                        hints: raise.hints,
+                        tty: raise.tty,
+                    },
+                )
+                .await?;
+            }
         }
         ClientMessage::GetDashboard { days } => {
             write_msg(writer, &store.dashboard(days).await).await?;
