@@ -1,0 +1,36 @@
+{
+  "type": "dashboard",
+  "points": [
+    {
+      "provider": "claude_code",
+      "date": "2026-10-01",
+      "input": 412,
+      "output": 28247,
+      "cache_read": 3357968,
+      "cache_write": 128178,
+      "total": 3514805
+    }
+  ],
+  "costs": [
+    {
+      "provider": "claude_code",
+      "model": "Opus 5.5",
+      "total": 3514805,
+      "cost_usd": 1.27
+    }
+  ],
+  "total_usd": 1.27,
+  "models": [
+    {
+      "provider": "claude_code",
+      "date": "2026-10-01",
+      "model": "Opus 5.5",
+      "input": 412,
+      "output": 28247,
+      "cache_read": 3357968,
+      "cache_write": 128178,
+      "total": 3514805,
+      "cost_usd": 1.27
+    }
+  ]
+}

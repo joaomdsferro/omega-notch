@@ -1,0 +1,57 @@
+{
+  "type": "activity_updated",
+  "chats": [
+    {
+      "provider": "claude_code",
+      "id": "5073f281-1cf8-48a8-9c37-42d7aae21f83",
+      "title": "Sidebar resize performance",
+      "project": "omega-zap",
+      "cwd": "/home/me/omega-zap",
+      "model": "Opus 5.5",
+      "surface": "VS Code",
+      "state": "busy",
+      "live": true,
+      "updated_at": "2026-10-01T14:42:00Z",
+      "messages": 12,
+      "tokens": {
+        "input": 412,
+        "output": 28247,
+        "cache_read": 3357968,
+        "cache_write": 128178
+      },
+      "context_tokens": 151320,
+      "context_pct": 75.7,
+      "lines_added": 120,
+      "lines_removed": 8
+    }
+  ],
+  "tokens": [
+    {
+      "provider": "claude_code",
+      "today": {
+        "input": 412,
+        "output": 28247,
+        "cache_read": 3357968,
+        "cache_write": 128178
+      },
+      "week": {
+        "input": 412,
+        "output": 28247,
+        "cache_read": 3357968,
+        "cache_write": 128178
+      },
+      "daily": [
+        {
+          "date": "2026-10-01",
+          "total": 3514805
+        }
+      ],
+      "models_today": [
+        {
+          "model": "Opus 5.5",
+          "total": 3514805
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "type": "usage_updated",
+  "reading": {
+    "provider": "claude_code",
+    "display_name": "Claude Code",
+    "fidelity": "official",
+    "status": "ok",
+    "windows": [
+      {
+        "label": "Current session",
+        "used_pct": 45.0,
+        "resets_at": "2026-10-01T18:50:00Z"
+      },
+      {
+        "label": "Weekly limit",
+        "used_pct": 55.5
+      }
+    ],
+    "fetched_at": "2026-10-01T14:42:00Z"
+  }
+}

@@ -1,0 +1,176 @@
+import AppKit
+import OmegaNotchKit
+import SwiftUI
+
+/// One provider in the notch: a ring that fills with the headline limit, the
+/// provider's mark inside it, and the number underneath. A white arc turns
+/// inside the ring while a session works; it becomes a breathing amber ring
+/// when one is waiting on you.
+struct RingView: View {
+  var reading: UsageReading?
+  var sessionKind: SessionKind
+  var s: CGFloat
+  var surface: String
+  var hovered: Bool
+  var onTap: () -> Void
+
+  @State private var refreshing = false
+  @State private var spin = false
+  @State private var breathe = false
+
+  private var status: String { reading?.status ?? "offline" }
+  private var hasData: Bool { reading?.hasData ?? false }
+  private var pct: Double { reading?.headlinePct ?? 0 }
+  private var ringSize: CGFloat { 44 * s }
+
+  var body: some View {
+    VStack(spacing: 7 * s) {
+      ZStack {
+        Circle()
+          .stroke(Theme.inkTrack(surface), lineWidth: 5.2 * s)
+          .padding(2.6 * s)
+        Circle()
+          .trim(from: 0, to: max(0, min(1, pct / 100)))
+          .stroke(
+            pct > 0.4 ? Theme.usageColor(pct) : .clear,
+            style: StrokeStyle(lineWidth: 3.4 * s, lineCap: .round)
+          )
+          .rotationEffect(.degrees(-90))
+          .padding(2.6 * s)
+          .animation(.easeOut(duration: 0.6), value: pct)
+
+        // Working: a short arc orbiting between the mark and the ring.
+        Circle()
+          .trim(from: 0, to: 95.0 / 360)
+          .stroke(Theme.ink(surface), style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
+          .frame(width: 25 * s, height: 25 * s)
+          .rotationEffect(.degrees(spin ? 360 : 0))
+          .opacity(sessionKind == .busy || refreshing ? 1 : 0)
+          .animation(.easeInOut(duration: 0.18), value: sessionKind == .busy || refreshing)
+
+        // Waiting on you: the same orbit, closed and breathing amber.
+        if sessionKind == .waitingYou && !refreshing {
+          Circle()
+            .stroke(Theme.waiting, lineWidth: 2 * s)
+            .frame(width: 25 * s, height: 25 * s)
+            .opacity(breathe ? 1 : 0.35)
+            .onAppear {
+              withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                breathe = true
+              }
+            }
+            .onDisappear { breathe = false }
+        }
+
+        ProviderGlyph(
+          provider: reading?.provider ?? "",
+          color: hasData ? Theme.ink(surface) : Theme.inkSecondary(surface)
+        )
+        .frame(width: 17 * s, height: 17 * s)
+      }
+      .frame(width: ringSize, height: ringSize)
+      .scaleEffect(hovered ? 1.06 : 1)
+      .animation(.easeOut(duration: 0.14), value: hovered)
+
+      Text(label)
+        .font(.notch(13 * s, .semibold, tabular: true))
+        .foregroundStyle(labelColor)
+        .lineLimit(1)
+        .fixedSize()
+    }
+    .frame(width: 48 * s, height: 67 * s, alignment: .top)
+    .contentShape(Rectangle())
+    .onTapGesture {
+      refreshing = true
+      onTap()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { refreshing = false }
+    }
+    .clickable()
+    .onAppear {
+      withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spin = true }
+    }
+  }
+
+  private var label: String {
+    if hasData { return "\(Int(pct.rounded()))%" }
+    return status == "error" ? "!" : "—"
+  }
+
+  private var labelColor: Color {
+    if status == "error" { return Theme.critical }
+    return hasData ? Theme.ink(surface) : Theme.inkSecondary(surface)
+  }
+}
+
+/// A small round control in the notch's footer.
+struct ToolButton: View {
+  enum Icon { case settings, grip, dashboard }
+
+  var icon: Icon
+  var s: CGFloat
+  var surface: String
+  /// The pointing hand, or the resize arrows for the grip.
+  var cursor: NSCursor = .pointingHand
+  var action: () -> Void = {}
+
+  @State private var hovered = false
+
+  var body: some View {
+    let onLight = Theme.isLight(surface)
+    let fill = (onLight ? Color.black : Color.white).opacity(hovered ? 0x2B / 255 : 0x17 / 255)
+    ZStack {
+      Circle().fill(fill)
+      switch icon {
+      case .settings: sliders
+      case .grip: dots
+      case .dashboard: bars
+      }
+    }
+    .frame(width: 26 * s, height: 26 * s)
+    .animation(.easeOut(duration: 0.12), value: hovered)
+    .contentShape(Circle())
+    .onHover { inside in
+      hovered = inside
+      if inside { cursor.push() } else { NSCursor.pop() }
+    }
+    .onTapGesture(perform: action)
+  }
+
+  private var ink: Color { hovered ? Theme.ink(surface) : Theme.inkSecondary(surface) }
+
+  /// Settings: three sliders.
+  private var sliders: some View {
+    VStack(spacing: (10 * s - 3 * 1.5 * s) / 2) {
+      ForEach([0.68, 0.28, 0.55], id: \.self) { knob in
+        ZStack(alignment: .leading) {
+          Capsule().fill(Theme.inkSecondary(surface)).frame(height: 1.5 * s)
+          Circle().fill(Theme.ink(surface)).frame(width: 4 * s, height: 4 * s)
+            .offset(x: (12 * s - 4 * s) * knob)
+        }
+        .frame(width: 12 * s, height: 1.5 * s)
+      }
+    }
+    .frame(width: 12 * s, height: 10 * s)
+  }
+
+  /// Grip: six dots.
+  private var dots: some View {
+    Grid(horizontalSpacing: 2.5 * s, verticalSpacing: 2.5 * s) {
+      ForEach(0..<3, id: \.self) { _ in
+        GridRow {
+          Circle().fill(ink).frame(width: 2.5 * s, height: 2.5 * s)
+          Circle().fill(ink).frame(width: 2.5 * s, height: 2.5 * s)
+        }
+      }
+    }
+  }
+
+  /// Dashboard: three rising bars.
+  private var bars: some View {
+    HStack(alignment: .bottom, spacing: 2 * s) {
+      ForEach([5.0, 9.0, 7.0], id: \.self) { height in
+        RoundedRectangle(cornerRadius: 1 * s).fill(ink).frame(width: 3 * s, height: height * s)
+      }
+    }
+  }
+}

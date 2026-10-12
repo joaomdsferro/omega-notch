@@ -1,4 +1,4 @@
-.PHONY: engine ui run doctor install uninstall dist clean
+.PHONY: engine ui macos run doctor install uninstall dist clean
 
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 ARCH := $(shell uname -m)
@@ -10,6 +10,10 @@ engine:
 ui:
 	cmake -S ui/plasma -B ui/plasma/build -G Ninja -DCMAKE_BUILD_TYPE=Release
 	cmake --build ui/plasma/build
+
+# macOS: target/macos/Omega Notch.app, the engine inside it.
+macos:
+	./scripts/macos-bundle.sh
 
 run: engine ui
 	chmod +x scripts/run.sh
@@ -45,4 +49,4 @@ dist: engine ui
 
 clean:
 	cargo clean
-	rm -rf ui/plasma/build
+	rm -rf ui/plasma/build ui/macos/.build

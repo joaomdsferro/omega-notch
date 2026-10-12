@@ -125,7 +125,8 @@ pub struct AlertSettings {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            edge: Edge::Right,
+            // On a Mac the notch grows out of the camera housing.
+            edge: if cfg!(target_os = "macos") { Edge::Top } else { Edge::Right },
             edge_position: 0.5,
             size: SizePreset::Medium,
             accent: Accent::Plasma,

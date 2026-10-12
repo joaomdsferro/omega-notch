@@ -1,0 +1,266 @@
+import Foundation
+
+// The engine's IPC protocol (protocol/README.md), as Swift types. Fields
+// follow the JSON names through `convertFromSnakeCase`; anything optional on
+// the Rust side is optional here, so an older or newer engine still decodes.
+
+public let supportedProtocol = 3
+
+public enum SessionKind: String, Codable, Sendable {
+  case idle
+  case busy
+  case waitingYou = "waiting_you"
+}
+
+public struct UsageWindow: Codable, Equatable, Sendable {
+  public var label: String
+  public var usedPct: Double
+  public var resetsAt: Date?
+}
+
+public struct UsageReading: Codable, Equatable, Sendable, Identifiable {
+  public var provider: String
+  public var displayName: String
+  public var fidelity: String
+  public var status: String
+  public var windows: [UsageWindow]
+  public var fetchedAt: Date?
+  public var message: String?
+
+  public var id: String { provider }
+  /// Something to draw: a limit, from a reading that is current or merely old.
+  public var hasData: Bool { !windows.isEmpty && (status == "ok" || status == "stale") }
+  public var headlinePct: Double { hasData ? windows[0].usedPct : 0 }
+}
+
+public struct SessionState: Codable, Equatable, Sendable {
+  public var provider: String
+  public var kind: SessionKind
+  public var label: String?
+  public var updatedAt: Date?
+}
+
+public struct TokenTotals: Codable, Equatable, Sendable {
+  public var input: Double
+  public var output: Double
+  public var cacheRead: Double
+  public var cacheWrite: Double
+
+  public init(input: Double = 0, output: Double = 0, cacheRead: Double = 0, cacheWrite: Double = 0) {
+    self.input = input
+    self.output = output
+    self.cacheRead = cacheRead
+    self.cacheWrite = cacheWrite
+  }
+
+  public var total: Double { input + output + cacheRead + cacheWrite }
+}
+
+public struct ChatSummary: Codable, Equatable, Sendable, Identifiable {
+  public var provider: String
+  public var id: String
+  public var title: String
+  public var project: String?
+  public var cwd: String?
+  public var model: String?
+  public var surface: String?
+  public var state: SessionKind
+  public var live: Bool
+  public var updatedAt: Date?
+  public var messages: Int?
+  public var tokens: TokenTotals?
+  public var contextTokens: Double?
+  public var contextPct: Double?
+  public var linesAdded: Int?
+  public var linesRemoved: Int?
+}
+
+public struct DayTokens: Codable, Equatable, Sendable {
+  public var date: String
+  public var total: Double
+}
+
+public struct ModelTokens: Codable, Equatable, Sendable {
+  public var model: String
+  public var total: Double
+}
+
+public struct TokenStats: Codable, Equatable, Sendable {
+  public var provider: String
+  public var today: TokenTotals
+  public var week: TokenTotals
+  public var daily: [DayTokens]
+  public var modelsToday: [ModelTokens]
+}
+
+public struct HistoryPoint: Codable, Equatable, Sendable {
+  public var provider: String
+  public var date: String
+  public var input: Double
+  public var output: Double
+  public var cacheRead: Double
+  public var cacheWrite: Double
+  public var total: Double
+}
+
+public struct ModelDayPoint: Codable, Equatable, Sendable {
+  public var provider: String
+  public var date: String
+  public var model: String
+  public var input: Double
+  public var output: Double
+  public var cacheRead: Double
+  public var cacheWrite: Double
+  public var total: Double
+  public var costUsd: Double
+}
+
+public struct CostEstimate: Codable, Equatable, Sendable {
+  public var provider: String
+  public var model: String
+  public var total: Double
+  public var costUsd: Double
+}
+
+public struct Dashboard: Equatable, Sendable {
+  public var points: [HistoryPoint] = []
+  public var costs: [CostEstimate] = []
+  public var models: [ModelDayPoint] = []
+  public var totalUsd: Double = 0
+
+  public init() {}
+}
+
+/// GitHub's device flow, as the engine reports it.
+public struct CopilotLogin: Codable, Equatable, Sendable {
+  /// `starting` is the shell's own, until the engine answers; then `pending`,
+  /// `signed_in` or `failed`.
+  public var state: String
+  public var userCode: String?
+  public var verificationUri: String?
+  public var message: String?
+
+  public init(state: String) { self.state = state }
+}
+
+public enum ServerMessage: Sendable {
+  case hello(protocol: Int)
+  case snapshot(
+    readings: [UsageReading], sessions: [SessionState], chats: [ChatSummary],
+    tokens: [TokenStats], config: JSONValue)
+  case activityUpdated(chats: [ChatSummary], tokens: [TokenStats])
+  case usageUpdated(UsageReading)
+  case sessionUpdated(SessionState)
+  case sessionFinished(SessionState)
+  case sessionWaiting(SessionState)
+  case configUpdated(JSONValue)
+  case dashboard(Dashboard)
+  case copilotLogin(CopilotLogin)
+  case pong
+  case error(String)
+  /// A message this shell does not know; ignored.
+  case unknown(String)
+}
+
+extension ServerMessage {
+  public static let decoder: JSONDecoder = {
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    decoder.dateDecodingStrategy = .custom { decoder in
+      let raw = try decoder.singleValueContainer().decode(String.self)
+      guard let date = parseDate(raw) else {
+        throw DecodingError.dataCorrupted(
+          .init(codingPath: decoder.codingPath, debugDescription: "not a date: \(raw)"))
+      }
+      return date
+    }
+    return decoder
+  }()
+
+  /// chrono writes RFC 3339 with anything from no fraction to nanoseconds.
+  static func parseDate(_ raw: String) -> Date? {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: raw) { return date }
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    if let date = plain.date(from: raw) { return date }
+    // More than three fraction digits: trim to milliseconds and try again.
+    if let dot = raw.firstIndex(of: "."),
+      let end = raw[dot...].firstIndex(where: { !$0.isNumber && $0 != "." })
+    {
+      let digits = raw[raw.index(after: dot)..<end]
+      let trimmed = raw[..<dot] + "." + digits.prefix(3) + raw[end...]
+      return fractional.date(from: String(trimmed))
+    }
+    return nil
+  }
+
+  private struct Envelope: Decodable { var type: String }
+  private struct Snapshot: Decodable {
+    var readings: [UsageReading]
+    var sessions: [SessionState]
+    var chats: [ChatSummary]
+    var tokens: [TokenStats]
+    var config: JSONValue
+  }
+  private struct Activity: Decodable {
+    var chats: [ChatSummary]
+    var tokens: [TokenStats]
+  }
+  private struct ReadingBody: Decodable { var reading: UsageReading }
+  private struct SessionBody: Decodable { var session: SessionState }
+  private struct ConfigBody: Decodable { var config: JSONValue }
+  private struct HelloBody: Decodable { var `protocol`: Int }
+  private struct ErrorBody: Decodable { var message: String }
+  private struct LoginBody: Decodable { var login: CopilotLogin }
+  private struct DashboardBody: Decodable {
+    var points: [HistoryPoint]
+    var costs: [CostEstimate]
+    var models: [ModelDayPoint]?
+    var totalUsd: Double
+  }
+
+  public static func decode(_ line: Data) throws -> ServerMessage {
+    let d = decoder
+    let type = try d.decode(Envelope.self, from: line).type
+    switch type {
+    case "hello":
+      return .hello(protocol: try d.decode(HelloBody.self, from: line).protocol)
+    case "snapshot":
+      let s = try d.decode(Snapshot.self, from: line)
+      return .snapshot(
+        readings: s.readings, sessions: s.sessions, chats: s.chats, tokens: s.tokens,
+        config: s.config)
+    case "activity_updated":
+      let a = try d.decode(Activity.self, from: line)
+      return .activityUpdated(chats: a.chats, tokens: a.tokens)
+    case "usage_updated":
+      return .usageUpdated(try d.decode(ReadingBody.self, from: line).reading)
+    case "session_updated":
+      return .sessionUpdated(try d.decode(SessionBody.self, from: line).session)
+    case "session_finished":
+      return .sessionFinished(try d.decode(SessionBody.self, from: line).session)
+    case "session_waiting":
+      return .sessionWaiting(try d.decode(SessionBody.self, from: line).session)
+    case "config_updated":
+      return .configUpdated(try d.decode(ConfigBody.self, from: line).config)
+    case "dashboard":
+      let body = try d.decode(DashboardBody.self, from: line)
+      var dashboard = Dashboard()
+      dashboard.points = body.points
+      dashboard.costs = body.costs
+      dashboard.models = body.models ?? []
+      dashboard.totalUsd = body.totalUsd
+      return .dashboard(dashboard)
+    case "copilot_login":
+      return .copilotLogin(try d.decode(LoginBody.self, from: line).login)
+    case "pong":
+      return .pong
+    case "error":
+      return .error(try d.decode(ErrorBody.self, from: line).message)
+    default:
+      return .unknown(type)
+    }
+  }
+}

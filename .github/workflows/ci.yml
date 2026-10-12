@@ -1,4 +1,5 @@
-# Runs the engine's tests on Linux and macOS for every pull request.
+# Runs the engine's tests on Linux and macOS, and the macOS shell's tests,
+# for every pull request.
 name: CI
 
 on:
@@ -23,3 +24,11 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - run: cargo test --workspace --locked
+
+  macos-shell:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - run: swift test
+        working-directory: ui/macos

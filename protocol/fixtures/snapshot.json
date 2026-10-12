@@ -1,0 +1,116 @@
+{
+  "type": "snapshot",
+  "readings": [
+    {
+      "provider": "claude_code",
+      "display_name": "Claude Code",
+      "fidelity": "official",
+      "status": "ok",
+      "windows": [
+        {
+          "label": "Current session",
+          "used_pct": 45.0,
+          "resets_at": "2026-10-01T18:50:00Z"
+        },
+        {
+          "label": "Weekly limit",
+          "used_pct": 55.5
+        }
+      ],
+      "fetched_at": "2026-10-01T14:42:00Z"
+    }
+  ],
+  "sessions": [
+    {
+      "provider": "claude_code",
+      "kind": "busy",
+      "label": "omega-notch",
+      "updated_at": "2026-10-01T14:42:00Z"
+    }
+  ],
+  "chats": [
+    {
+      "provider": "claude_code",
+      "id": "5073f281-1cf8-48a8-9c37-42d7aae21f83",
+      "title": "Sidebar resize performance",
+      "project": "omega-zap",
+      "cwd": "/home/me/omega-zap",
+      "model": "Opus 5.5",
+      "surface": "VS Code",
+      "state": "busy",
+      "live": true,
+      "updated_at": "2026-10-01T14:42:00Z",
+      "messages": 12,
+      "tokens": {
+        "input": 412,
+        "output": 28247,
+        "cache_read": 3357968,
+        "cache_write": 128178
+      },
+      "context_tokens": 151320,
+      "context_pct": 75.7,
+      "lines_added": 120,
+      "lines_removed": 8
+    }
+  ],
+  "tokens": [
+    {
+      "provider": "claude_code",
+      "today": {
+        "input": 412,
+        "output": 28247,
+        "cache_read": 3357968,
+        "cache_write": 128178
+      },
+      "week": {
+        "input": 412,
+        "output": 28247,
+        "cache_read": 3357968,
+        "cache_write": 128178
+      },
+      "daily": [
+        {
+          "date": "2026-10-01",
+          "total": 3514805
+        }
+      ],
+      "models_today": [
+        {
+          "model": "Opus 5.5",
+          "total": 3514805
+        }
+      ]
+    }
+  ],
+  "config": {
+    "edge": "right",
+    "edge_position": 0.5,
+    "size": "medium",
+    "accent": "plasma",
+    "providers": {
+      "cursor": true,
+      "claude_code": true,
+      "claude_desktop": true,
+      "copilot": true,
+      "grok_bot": true,
+      "codex": true
+    },
+    "alerts": {
+      "enabled": true,
+      "sound": true,
+      "mute_cursor": false,
+      "mute_claude_code": false,
+      "mute_claude_desktop": false,
+      "mute_copilot": false,
+      "mute_grok_bot": false,
+      "mute_codex": false
+    },
+    "peek_seconds": 5,
+    "auto_hide": true,
+    "max_providers": 1,
+    "idle_size": 1.0,
+    "idle_color": "#000000",
+    "notch_color": "#000000",
+    "screen": ""
+  }
+}
