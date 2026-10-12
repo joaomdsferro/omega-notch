@@ -62,7 +62,9 @@ Omega Notch.app/
   guaranteed in every case). It stays under the 104-byte `sun_path` limit on macOS for normal user
   names. `OMEGA_NOTCH_SOCKET` still overrides it.
 - **Minimum macOS: 14 (Sonoma).** Version 14 gives SwiftUI `@Observable`, Swift Charts and
-  cooperative app activation (`NSApp.yieldActivation`), which raising another app's window needs.
+  cooperative app activation, which raising another app's window needs:
+  `NSApplication.yieldActivation(to:)` followed by `NSRunningApplication.activate(from:options:)`,
+  both new in macOS 14.
 
 ### Why AppKit + SwiftUI rather than AppKit alone
 
@@ -77,8 +79,10 @@ possible, but it would mean writing roughly twice as much code for the same resu
 ## The notch on macOS
 
 - **Edges:** keep the four edges. Default to **top-centre on a screen with a hardware notch**,
-  detected with `NSScreen.safeAreaInsets.top > 0` and `auxiliaryTopLeftArea` /
-  `auxiliaryTopRightArea`, so the notch grows out of the real one. Use right-centre elsewhere, as
+  detected with `NSScreen.safeAreaInsets.top > 0`. The two `NSScreen` properties
+  `auxiliaryTopLeftArea` and `auxiliaryTopRightArea` (macOS 12+) give the menu bar space on either
+  side of the hardware notch, and the gap between them is the notch itself, so our notch grows out of
+  the real one. Use right-centre elsewhere, as
   today.
 - **Click-through:** on Wayland the surface spans the whole edge and a mask sets the input region
   (`setInputRegion`). On macOS the panel is instead **sized to the notch plus the open card**, and
@@ -203,12 +207,17 @@ provider's own usage endpoint. What changes:
   build relies on `$XDG_RUNTIME_DIR` being `0700`.
 - **Signing** means users can verify that the build they run is the one CI produced. Gatekeeper and
   notarisation do the same check automatically.
-- **Found while planning, not part of the port:** the hook server (`127.0.0.1:17337`) accepts any
-  body as JSON without checking `Content-Type` or `Origin`. A web page could therefore send a
-  "simple" cross-origin `POST` and fake session events: spurious notifications and ring states, with
-  no data exposed. This affects Linux as well. It should be fixed separately, by requiring
-  `application/json` and rejecting requests that carry an `Origin`, and reported through
-  [SECURITY.md](../SECURITY.md) if the owner wants it tracked as a vulnerability.
+- **Hook server:**
+  - *Fixed in [#2](https://github.com/joaomdsferro/omega-notch/pull/2), on every platform:* the
+    hook server (`127.0.0.1:17337`) used to take any request body as JSON, so a web page could fake
+    session events with a "simple" cross-origin `POST`. It now requires `application/json`, a `Host`
+    naming the server, and no `Origin`. The content type is the control that matters here: a page
+    can't send it cross-origin without a preflight, which the server never answers. The other two
+    checks also block DNS rebinding and older browsers.
+  - *Still open:* any **other local user** on the same machine can reach a loopback TCP port, and
+    sends the same headers curl does. Phase 1 closes that gap with a per-install token: the engine
+    writes a random token to the `0600` app data folder, the hook script sends it in a header, and
+    the server compares it in constant time. The header checks stay as defence in depth.
 
 ## Phases
 
@@ -217,14 +226,14 @@ Each phase is one or more pull requests from its own branch, reviewed and merged
 | # | Phase | Main changes | Size |
 |---|---|---|---|
 | 0 | Decisions | Taken, see [Decisions](#decisions) (one left for Phase 4) | — |
-| 1 | Engine runs on macOS | `platform` module, paths, socket permissions, Keychain, `PATH`, `doctor`; `cargo test` on a macOS CI runner | S–M |
+| 1 | Engine runs on macOS | `platform` module, paths, socket permissions, hook token, Keychain, `PATH`, `doctor`; `cargo test` on a macOS CI runner | S–M |
 | 2 | Shell skeleton | SwiftPM package, protocol client and fixtures, engine supervision, notch panel with rings and peek | M |
 | 3 | Feature parity | Cards, chats, Settings, Dashboard, Copilot sign-in, notifications, screens and edges, login item | L |
 | 4 | Jump on macOS | `open`-based launching, `raise_window` (protocol v4), Accessibility; optional Terminal/iTerm2 tab selection | M |
 | 5 | Release | `make macos`, signing, notarisation, `.dmg`, `release.yml` job | M |
 | 6 | Docs | README (platform badge, install, privacy prompts), `CONTRIBUTING.md` (macOS setup), `protocol/README.md` (socket per OS, v4) | S |
 
-Phase 1 helps Linux too: it adds `is_alive` without `/proc` and tightens the socket permissions. It
+Phase 1 helps Linux too: it adds `is_alive` without `/proc` tightens the socket permissions, and adds the hook token. It
 can merge before any Swift code exists.
 
 ## Decisions
