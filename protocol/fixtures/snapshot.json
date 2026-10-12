@@ -98,6 +98,8 @@
     "alerts": {
       "enabled": true,
       "sound": true,
+      "sound_finished": "",
+      "sound_waiting": "",
       "mute_cursor": false,
       "mute_claude_code": false,
       "mute_claude_desktop": false,

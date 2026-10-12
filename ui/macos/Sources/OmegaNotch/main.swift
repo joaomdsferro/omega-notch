@@ -16,11 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     supervisor.start()
 
     client.onSessionFinished = { [weak self] provider, label in
-      self?.announce(label.isEmpty ? "\(provider) finished" : "\(provider) · \(label) finished")
+      self?.announce(
+        label.isEmpty ? "\(provider) finished" : "\(provider) · \(label) finished", .finished)
     }
     client.onSessionWaiting = { [weak self] provider, label in
       self?.announce(
-        label.isEmpty ? "\(provider) is waiting on you" : "\(provider) · \(label) is waiting on you")
+        label.isEmpty ? "\(provider) is waiting on you" : "\(provider) · \(label) is waiting on you",
+        .waiting)
     }
     client.onCopilotCode = { login in Windows.finishCopilotSignIn(login) }
     client.start()
@@ -36,9 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     supervisor.stop()
   }
 
-  private func announce(_ body: String) {
-    guard client.config.alertsEnabled else { return }
-    notifications.notify(title: "Omega Notch", body: body, sound: client.config.soundEnabled)
+  private func announce(_ body: String, _ kind: AlertSound.Kind) {
+    let config = client.config
+    guard config.alertsEnabled else { return }
+    let name = kind == .finished ? config.soundFinished : config.soundWaiting
+    notifications.notify(title: "Omega Notch", body: body, sound: config.soundEnabled ? (name, kind) : nil)
   }
 }
 

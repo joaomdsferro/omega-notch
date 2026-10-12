@@ -111,6 +111,13 @@ pub struct ProviderToggles {
 pub struct AlertSettings {
     pub enabled: bool,
     pub sound: bool,
+    /// The sound for a session that finished, by name: a macOS system
+    /// sound such as `Glass`. Empty picks the shell's default.
+    #[serde(default)]
+    pub sound_finished: String,
+    /// The same, for a session that stopped to ask you something.
+    #[serde(default)]
+    pub sound_waiting: String,
     pub mute_cursor: bool,
     pub mute_claude_code: bool,
     pub mute_claude_desktop: bool,
@@ -141,6 +148,8 @@ impl Default for AppConfig {
             alerts: AlertSettings {
                 enabled: true,
                 sound: true,
+                sound_finished: String::new(),
+                sound_waiting: String::new(),
                 mute_cursor: false,
                 mute_claude_code: false,
                 mute_claude_desktop: false,

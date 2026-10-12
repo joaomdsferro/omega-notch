@@ -306,3 +306,88 @@ struct ScreenRow: View {
     .onTapGesture { if enabled { action() } }
   }
 }
+
+/// One alert's sound: its name and a play button, and the system sounds as
+/// chips once the row is opened. Picking a chip plays it.
+struct SoundRow: View {
+  var title: String
+  var kind: AlertSound.Kind
+  var value: String
+  @Binding var open: AlertSound.Kind?
+  var pick: (String) -> Void
+
+  @State private var hovered = false
+
+  private var chosen: String { AlertSound.resolve(value, for: kind) }
+  private var isOpen: Bool { open == kind }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 12) {
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.notch(14)).foregroundStyle(Theme.text)
+            Text(chosen).font(.notch(12)).foregroundStyle(Theme.textSecondary)
+          }
+          Spacer(minLength: 12)
+          Image(systemName: "chevron.down")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.textSecondary)
+            .rotationEffect(.degrees(isOpen ? 180 : 0))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+          withAnimation(.easeOut(duration: 0.16)) { open = isOpen ? nil : kind }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(isOpen ? "Hides the sounds" : "Shows the sounds")
+        .clickable()
+        SettingsButton(title: "▶") { AlertSound.play(value, for: kind) }
+          .accessibilityLabel("Play \(chosen)")
+      }
+      .frame(minHeight: 44)
+      .padding(.horizontal, 8)
+      .background(RoundedRectangle(cornerRadius: 8).fill(hovered || isOpen ? Theme.panelHover : .clear))
+      .padding(.horizontal, -8)
+      .onHover { hovered = $0 }
+
+      if isOpen {
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+          ForEach(AlertSound.names, id: \.self) { name in
+            Chip(label: name, chosen: name == chosen) {
+              AlertSound.play(name, for: kind)
+              pick(name)
+            }
+          }
+        }
+        .padding(.bottom, 6)
+        .transition(.opacity)
+      }
+    }
+  }
+
+  private struct Chip: View {
+    var label: String
+    var chosen: Bool
+    var action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+      Text(label)
+        .font(.notch(12, chosen ? .semibold : .regular))
+        .foregroundStyle(chosen ? Theme.text : Theme.textSecondary)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(
+          RoundedRectangle(cornerRadius: 7)
+            .fill(chosen ? Theme.controlChosen : hovered ? Theme.controlHover : Theme.controlFill))
+        .animation(.easeOut(duration: 0.12), value: chosen)
+        .onHover { hovered = $0 }
+        .clickable()
+        .onTapGesture(perform: action)
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint("Plays the sound")
+    }
+  }
+}

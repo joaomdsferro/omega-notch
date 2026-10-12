@@ -11,6 +11,8 @@ struct SettingsView: View {
   @State private var screens = NSScreen.screens.map(ScreenInfo.init)
   @State private var openAtLogin = SMAppService.mainApp.status == .enabled
   @State private var loginError = ""
+  /// The sound whose list is open, if any: only one at a time.
+  @State private var openSound: AlertSound.Kind?
 
   private static let providers = [
     ("cursor", "Cursor"), ("claude_code", "Claude Code"), ("claude_desktop", "Claude Desktop"),
@@ -204,6 +206,17 @@ struct SettingsView: View {
         title: "Play a sound", subtitle: config.alertsEnabled ? "" : "Notifications are off",
         isOn: config.soundEnabled
       ) { on in update { $0.soundEnabled = on } }
+
+      if config.soundEnabled {
+        SoundRow(
+          title: "When a session finishes", kind: .finished, value: config.soundFinished,
+          open: $openSound
+        ) { name in update { $0.soundFinished = name } }
+        SoundRow(
+          title: "When a session needs you", kind: .waiting, value: config.soundWaiting,
+          open: $openSound
+        ) { name in update { $0.soundWaiting = name } }
+      }
     }
   }
 

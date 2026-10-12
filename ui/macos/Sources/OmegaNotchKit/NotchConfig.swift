@@ -87,6 +87,24 @@ public struct NotchConfig: Equatable, Sendable {
     set { setAlert("sound", newValue) }
   }
 
+  /// The sound for a session that finished, by name; empty for the default.
+  public var soundFinished: String {
+    get { raw["alerts"]?["sound_finished"]?.string ?? "" }
+    set { setAlertSound("sound_finished", newValue) }
+  }
+
+  /// The sound for a session that stopped to ask you something.
+  public var soundWaiting: String {
+    get { raw["alerts"]?["sound_waiting"]?.string ?? "" }
+    set { setAlertSound("sound_waiting", newValue) }
+  }
+
+  private mutating func setAlertSound(_ key: String, _ value: String) {
+    var alerts = raw["alerts"] ?? .object([:])
+    alerts[key] = .string(value)
+    raw["alerts"] = alerts
+  }
+
   private mutating func setAlert(_ key: String, _ value: Bool) {
     var alerts = raw["alerts"] ?? .object([:])
     alerts[key] = .bool(value)
