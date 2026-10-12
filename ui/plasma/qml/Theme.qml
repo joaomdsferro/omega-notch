@@ -26,6 +26,12 @@ QtObject {
     readonly property color waiting: "#FFB020"
     readonly property color busy: "#FFFFFF"
 
+    // Dashboard series, brightest first: the biggest share gets the most ink.
+    readonly property var shades: ["#F2F2F5", "#B4B4BE", "#808089", "#5C5C66", "#44444D", "#33333B"]
+    readonly property color controlFill: "#14FFFFFF"
+    readonly property color controlChosen: "#2EFFFFFF"
+    readonly property color controlHover: "#12FFFFFF"
+
     readonly property int watchAt: 75
     readonly property int criticalAt: 90
 
@@ -65,6 +71,26 @@ QtObject {
             }
         }
         return n.toString()
+    }
+
+    // 13.2 -> "$13.20", 0.004 -> "<$0.01"
+    function usd(v) {
+        v = Number(v) || 0
+        if (v > 0 && v < 0.01) return "<$0.01"
+        if (v >= 1000) return "$" + Math.round(v).toLocaleString(Qt.locale("en_US"), "f", 0)
+        return "$" + v.toFixed(2)
+    }
+
+    // A round number at or above n: 1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a
+    // power of ten.
+    function niceCeil(n) {
+        if (n <= 0) return 1
+        const mag = Math.pow(10, Math.floor(Math.log(n) / Math.LN10))
+        const steps = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]
+        for (let i = 0; i < steps.length; ++i) {
+            if (steps[i] * mag >= n) return steps[i] * mag
+        }
+        return 10 * mag
     }
 
     function totalTokens(t) {

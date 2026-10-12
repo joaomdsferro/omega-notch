@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(omega-notch-plasma VERSION 0.0.1 LANGUAGES CXX)
+project(omega-notch-plasma VERSION 0.0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,15 @@ qt_add_qml_module(omega-notch-plasma
         qml/TokenPanel.qml
         qml/ChatRow.qml
         qml/ToolButton.qml
+        qml/DashboardWindow.qml
+        qml/DashCard.qml
+        qml/DashSegmented.qml
+        qml/DashRing.qml
+        qml/DashLimitCard.qml
+        qml/DashUsageChart.qml
+        qml/DashCostBreakdown.qml
+        qml/DashChatRow.qml
+        qml/DashModelTable.qml
         qml/SettingsWindow.qml
         qml/SettingsSwitch.qml
         qml/SettingsSegmented.qml

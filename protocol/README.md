@@ -6,7 +6,7 @@ Newline-delimited JSON over a Unix domain socket:
 $XDG_RUNTIME_DIR/omega-notch.sock
 ```
 
-Protocol version: **2**
+Protocol version: **3**
 
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
@@ -21,6 +21,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `get_config` | — | current config |
 | `set_config` | `config` | replace config (persisted) |
 | `open_chat` | `provider`, `id`, `cwd?`, `title?`, `surface?` | raise the chat's window, or resume it in a new one |
+| `get_dashboard` | `days?` (7–90, default 30) | persisted history + cost estimates |
 | `ping` | — | liveness |
 
 ## Engine → Client
@@ -31,6 +32,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
+| `dashboard` | `points`, `costs`, `total_usd`, `models` |
 | `session_updated` | `session` |
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
@@ -71,6 +73,44 @@ provider.
 
 `daily` is the last seven local days, oldest first. A streamed message is
 counted once, at its final size.
+
+## Dashboard history
+
+Persisted by the engine in `~/.local/share/omega-notch/history.db`. Every
+activity refresh rewrites the days it covers (the last seven), and on first
+start the engine backfills every older Claude Code day still on disk.
+`daily_tokens` holds one row per tool and day (`points`):
+
+```json
+{
+  "provider": "claude_code", "date": "2026-10-01",
+  "input": 412, "output": 28247, "cache_read": 3357968,
+  "cache_write": 128178, "total": 3490835
+}
+```
+
+`models` comes from `daily_model_tokens`, one row per tool, day and model,
+with its estimated cost:
+
+```json
+{
+  "provider": "claude_code", "date": "2026-10-01", "model": "Opus 5.5",
+  "input": 412, "output": 28247, "cache_read": 3357968,
+  "cache_write": 128178, "total": 3490835, "cost_usd": 1.27
+}
+```
+
+`costs` is today only, one entry per model:
+
+```json
+{
+  "provider": "claude_code", "model": "Opus 5.5",
+  "total": 3490835, "cost_usd": 1.27
+}
+```
+
+`total_usd` is the sum over `costs`. All costs are estimates from a static
+per-model price table (cache-aware) — never a bill.
 
 ## Provider ids
 

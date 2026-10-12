@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,12 +7,14 @@ use chrono::Utc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tracing::{info, warn};
 
-use crate::chats::ActivityIndex;
+use crate::chats::{self, ActivityIndex};
 use crate::config::AppConfig;
 use crate::copilot_auth;
 use crate::protocol::{
-    Activity, CopilotLogin, ProviderId, ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
+    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus, ServerMessage,
+    SessionKind, SessionState, UsageReading,
 };
+use crate::{history, pricing};
 use crate::providers;
 use crate::sessions::{self, SessionEvent};
 
@@ -29,6 +32,8 @@ struct Inner {
     index: Arc<Mutex<ActivityIndex>>,
     /// Held for the length of a Copilot sign-in, so a second click joins it.
     copilot_login: Arc<Mutex<()>>,
+    /// Set once the history backfill has been looked at this run.
+    backfill_checked: AtomicBool,
     events: broadcast::Sender<ServerMessage>,
 }
 
@@ -43,6 +48,7 @@ impl UsageStore {
                 activity: RwLock::new(Activity::default()),
                 index: Arc::new(Mutex::new(ActivityIndex::new())),
                 copilot_login: Arc::new(Mutex::new(())),
+                backfill_checked: AtomicBool::new(false),
                 events,
             }),
         }
@@ -187,6 +193,11 @@ impl UsageStore {
             return;
         };
         let config = self.config().await;
+        if config.provider_enabled(ProviderId::ClaudeCode)
+            && !self.inner.backfill_checked.swap(true, Ordering::SeqCst)
+        {
+            tokio::task::spawn_blocking(backfill_history);
+        }
         let scanned = tokio::task::spawn_blocking(move || index.scan(&config)).await;
         let Ok(activity) = scanned else {
             return;
@@ -198,10 +209,73 @@ impl UsageStore {
             }
             *guard = activity.clone();
         }
+        // Persist for the dashboard chart; failures must not break polling.
+        let snapshot = activity.tokens.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(err) = history::record_tokens(&snapshot) {
+                warn!(error = %err, "could not record token history");
+            }
+        });
         let _ = self.inner.events.send(ServerMessage::ActivityUpdated {
             chats: activity.chats,
             tokens: activity.tokens,
         });
+    }
+
+    /// Dashboard payload: persisted daily points plus today's per-model cost
+    /// estimates. `days` clamps to 7..=90 inside `history`.
+    pub async fn dashboard(&self, days: u32) -> ServerMessage {
+        let days = days.clamp(7, history::MAX_HISTORY_DAYS);
+        let points: Vec<HistoryPoint> =
+            tokio::task::spawn_blocking(move || history::query_history(days))
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .unwrap_or_default();
+        let models: Vec<ModelDayPoint> =
+            tokio::task::spawn_blocking(move || history::query_models(days))
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .unwrap_or_default();
+        let activity = self.inner.activity.read().await.clone();
+        let mut costs = Vec::new();
+        for stats in &activity.tokens {
+            let today_total = stats.today.total();
+            if today_total == 0 {
+                continue;
+            }
+            for model in &stats.models_today {
+                if model.total == 0 {
+                    continue;
+                }
+                let share = model.total as f64 / today_total as f64;
+                let bucket = crate::protocol::TokenTotals {
+                    input: (stats.today.input as f64 * share).round() as u64,
+                    output: (stats.today.output as f64 * share).round() as u64,
+                    cache_read: (stats.today.cache_read as f64 * share).round() as u64,
+                    cache_write: (stats.today.cache_write as f64 * share).round() as u64,
+                };
+                costs.push(CostEstimate {
+                    provider: stats.provider,
+                    model: model.model.clone(),
+                    total: model.total,
+                    cost_usd: pricing::estimate_cost_usd(&model.model, &bucket),
+                });
+            }
+        }
+        costs.sort_by(|a, b| {
+            b.cost_usd
+                .partial_cmp(&a.cost_usd)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let total_usd = costs.iter().map(|c| c.cost_usd).sum();
+        ServerMessage::Dashboard {
+            points,
+            costs,
+            total_usd,
+            models,
+        }
     }
 
     /// Records a provider's state without reading a transition into it.
@@ -342,5 +416,28 @@ impl UsageStore {
             return;
         }
         self.apply_session(session).await;
+    }
+}
+
+/// Fills the dashboard history once from every Claude Code transcript still
+/// on disk, up to the days the live scan already covers. Runs in the
+/// background; a failure only means a shorter history.
+fn backfill_history() {
+    match history::backfill_done() {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(err) => {
+            warn!(error = %err, "could not read token history");
+            return;
+        }
+    }
+    let today = chrono::Local::now().date_naive();
+    let first_day = today - chrono::Duration::days(history::MAX_HISTORY_DAYS as i64 - 1);
+    let live_from = today - chrono::Duration::days(chats::HISTORY_DAYS - 1);
+    let started = std::time::Instant::now();
+    let rows = chats::backfill_claude(first_day, live_from);
+    match history::record_backfill(ProviderId::ClaudeCode, &rows) {
+        Ok(()) => info!(rows = rows.len(), took = ?started.elapsed(), "token history backfilled"),
+        Err(err) => warn!(error = %err, "could not backfill token history"),
     }
 }

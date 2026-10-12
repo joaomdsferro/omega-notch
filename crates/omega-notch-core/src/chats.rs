@@ -19,14 +19,14 @@ use walkdir::WalkDir;
 use crate::config::AppConfig;
 use crate::paths;
 use crate::protocol::{
-    Activity, ChatSummary, DayTokens, ModelTokens, ProviderId, SessionKind, TokenStats,
-    TokenTotals,
+    Activity, ChatSummary, DayModelTokens, DayTokens, ModelTokens, ProviderId, SessionKind,
+    TokenStats, TokenTotals,
 };
 
 /// Chats kept per provider in a snapshot.
 const MAX_CHATS: usize = 8;
 /// Days of token history, today included.
-const HISTORY_DAYS: i64 = 7;
+pub const HISTORY_DAYS: i64 = 7;
 const TITLE_CHARS: usize = 90;
 
 // ---------------------------------------------------------------------------
@@ -311,6 +311,66 @@ impl Transcript {
     }
 }
 
+/// Folds raw model ids into display names (two ids can share one) and drops
+/// empty buckets, sorted by day then model so the output is stable.
+fn day_model_rows(raw: HashMap<(NaiveDate, &str), TokenTotals>) -> Vec<DayModelTokens> {
+    let mut merged: HashMap<(NaiveDate, String), TokenTotals> = HashMap::new();
+    for ((day, model), tokens) in raw {
+        merged.entry((day, pretty_model(model))).or_default().add(&tokens);
+    }
+    let mut rows: Vec<DayModelTokens> = merged
+        .into_iter()
+        .filter(|(_, tokens)| tokens.total() > 0)
+        .map(|((day, model), tokens)| DayModelTokens {
+            date: day.format("%Y-%m-%d").to_string(),
+            model,
+            tokens,
+        })
+        .collect();
+    rows.sort_by(|a, b| a.date.cmp(&b.date).then(a.model.cmp(&b.model)));
+    rows
+}
+
+/// Every Claude Code day still on disk from `first_day` up to, but not
+/// including, `before`, split by model. A one-off pass for the dashboard
+/// history: each transcript is parsed and dropped, nothing is kept.
+pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Vec<DayModelTokens> {
+    let start: SystemTime = first_day
+        .and_hms_opt(0, 0, 0)
+        .and_then(|t| Local.from_local_datetime(&t).earliest())
+        .map(SystemTime::from)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+
+    let mut totals: HashMap<(NaiveDate, String), TokenTotals> = HashMap::new();
+    let root = paths::claude_projects();
+    if !root.exists() {
+        return Vec::new();
+    }
+    for entry in WalkDir::new(&root).max_depth(4).into_iter().flatten() {
+        if !entry.file_type().is_file()
+            || entry.path().extension().and_then(|s| s.to_str()) != Some("jsonl")
+        {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        // A transcript last written before the range holds nothing in it.
+        if meta.modified().map_or(true, |m| m < start) {
+            continue;
+        }
+        let mut transcript = Transcript::default();
+        transcript.update(entry.path(), meta.len());
+        for (day, models) in transcript.days {
+            if day < first_day || day >= before {
+                continue;
+            }
+            for (model, tokens) in models {
+                totals.entry((day, model)).or_default().add(&tokens);
+            }
+        }
+    }
+    day_model_rows(totals.iter().map(|((d, m), t)| ((*d, m.as_str()), *t)).collect())
+}
+
 struct Candidate {
     path: PathBuf,
     modified: SystemTime,
@@ -403,6 +463,7 @@ impl ActivityIndex {
         // Tokens.
         let mut per_day: HashMap<NaiveDate, TokenTotals> = HashMap::new();
         let mut models_today: HashMap<&str, u64> = HashMap::new();
+        let mut per_day_model: HashMap<(NaiveDate, &str), TokenTotals> = HashMap::new();
         for transcript in self.claude.values() {
             for (day, models) in &transcript.days {
                 if *day < first_day || *day > today {
@@ -410,12 +471,14 @@ impl ActivityIndex {
                 }
                 for (model, tokens) in models {
                     per_day.entry(*day).or_default().add(tokens);
+                    per_day_model.entry((*day, model.as_str())).or_default().add(tokens);
                     if *day == today {
                         *models_today.entry(model.as_str()).or_default() += tokens.total();
                     }
                 }
             }
         }
+        let days_by_model = day_model_rows(per_day_model);
         let mut week = TokenTotals::default();
         let mut daily = Vec::with_capacity(HISTORY_DAYS as usize);
         for offset in 0..HISTORY_DAYS {
@@ -443,6 +506,7 @@ impl ActivityIndex {
             week,
             daily,
             models_today,
+            days_by_model,
         };
 
         // Chats.

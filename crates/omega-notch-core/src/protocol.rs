@@ -231,6 +231,54 @@ pub struct ModelTokens {
     pub total: u64,
 }
 
+/// One persisted day for the dashboard chart (see `history.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryPoint {
+    pub provider: ProviderId,
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub date: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub total: u64,
+}
+
+/// One model's tokens on one local day, split by kind. Engine-internal:
+/// it feeds the persisted history, not the live snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DayModelTokens {
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub date: String,
+    pub model: String,
+    pub tokens: TokenTotals,
+}
+
+/// One model on one persisted day for the dashboard, with its estimated cost.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelDayPoint {
+    pub provider: ProviderId,
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub date: String,
+    pub model: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub total: u64,
+    pub cost_usd: f64,
+}
+
+/// Estimated spend for one model bucket today (see `pricing.rs`).
+/// Always an estimate — vendors reprice without notice.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CostEstimate {
+    pub provider: ProviderId,
+    pub model: String,
+    pub total: u64,
+    pub cost_usd: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenStats {
     pub provider: ProviderId,
@@ -240,6 +288,9 @@ pub struct TokenStats {
     pub daily: Vec<DayTokens>,
     /// Today's tokens per model, largest first.
     pub models_today: Vec<ModelTokens>,
+    /// Per-day, per-model split of `daily`, for the history. Not sent.
+    #[serde(skip)]
+    pub days_by_model: Vec<DayModelTokens>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -277,6 +328,11 @@ pub enum ClientMessage {
         title: Option<String>,
         #[serde(default)]
         surface: Option<String>,
+    },
+    /// Dashboard history + cost estimates (v3). `days` clamps to 7..=90.
+    GetDashboard {
+        #[serde(default = "default_dashboard_days")]
+        days: u32,
     },
     Ping,
 }
@@ -330,6 +386,14 @@ pub enum ServerMessage {
     ConfigUpdated {
         config: crate::config::AppConfig,
     },
+    Dashboard {
+        points: Vec<HistoryPoint>,
+        costs: Vec<CostEstimate>,
+        total_usd: f64,
+        /// Per-day, per-model history with estimated cost (v3, additive).
+        #[serde(default)]
+        models: Vec<ModelDayPoint>,
+    },
     CopilotLogin {
         login: CopilotLogin,
     },
@@ -339,5 +403,9 @@ pub enum ServerMessage {
     },
 }
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 pub const ENGINE_NAME: &str = "omega-notch-engine";
+
+fn default_dashboard_days() -> u32 {
+    30
+}

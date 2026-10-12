@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "omega-notch-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "omega-notch-engine"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "axum",

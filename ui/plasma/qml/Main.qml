@@ -33,7 +33,7 @@ Window {
     readonly property real padAcross: 14 * s
     readonly property real depth: vertical ? 72 * s : cellHeight + padAcross + 12 * s
     readonly property real curl: 34 * s
-    readonly property real footerLength: 38 * s
+    readonly property real footerLength: 68 * s
     readonly property real cardGap: 19 * s          // notch edge -> card, tail included
 
     readonly property var activeReadings: {
@@ -302,6 +302,7 @@ Window {
     Connections {
         target: Engine
         function onOpenSettingsRequested() { root.showSettings() }
+        function onOpenDashboardRequested() { root.showDashboard() }
         // Follows the chosen output, and the primary one while it is unplugged;
         // a no-op when the notch is already there.
         function onConfigChanged() { Engine.placeOnScreen(root) }
@@ -421,10 +422,14 @@ Window {
                 }
             }
 
-            // Footer: unfolds under the rings when the pointer arrives.
+            // Footer: unfolds under the rings when the pointer arrives. A pair of
+            // buttons across the notch, the grip centred after them, so it fits
+            // the notch's depth on any edge.
             Grid {
-                columns: root.vertical ? 2 : 1
+                columns: root.vertical ? 1 : 2
                 spacing: 6 * root.s
+                horizontalItemAlignment: Grid.AlignHCenter
+                verticalItemAlignment: Grid.AlignVCenter
                 x: root.vertical ? (root.depth - width) / 2
                                  : root.collapsedLength + (root.footerLength - width) / 2 - 8 * root.s
                 y: root.vertical ? root.collapsedLength + (root.footerLength - height) / 2 - 6 * root.s
@@ -433,11 +438,22 @@ Window {
                 visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: 160 } }
 
-                ToolButton {
-                    icon: "settings"
-                    scale_: root.s
-                    surface: root.notchColor
-                    onClicked: Engine.openSettings()
+                Grid {
+                    columns: root.vertical ? 2 : 1
+                    spacing: 6 * root.s
+
+                    ToolButton {
+                        icon: "dashboard"
+                        scale_: root.s
+                        surface: root.notchColor
+                        onClicked: Engine.openDashboard()
+                    }
+                    ToolButton {
+                        icon: "settings"
+                        scale_: root.s
+                        surface: root.notchColor
+                        onClicked: Engine.openSettings()
+                    }
                 }
                 ToolButton {
                     icon: "grip"
@@ -542,6 +558,21 @@ Window {
         refocusSettings.restart()
     }
 
+    // Same dance for the dashboard: a plain window, focus-friendly.
+    function showDashboard() {
+        Engine.requestDashboard(30)
+        if (!dashboardLoader.active) {
+            dashboardLoader.active = true
+            return
+        }
+        const w = dashboardLoader.item
+        if (w.active)
+            return
+        w.raise()
+        w.requestActivate()
+        refocusDashboard.restart()
+    }
+
     // The notch never holds keyboard focus, so the compositor may refuse to
     // activate an existing window on its behalf. A fresh window does get focus.
     Timer {
@@ -554,12 +585,29 @@ Window {
             }
         }
     }
+    Timer {
+        id: refocusDashboard
+        interval: 200
+        onTriggered: {
+            if (dashboardLoader.item && !dashboardLoader.item.active) {
+                dashboardLoader.active = false
+                dashboardLoader.active = true
+            }
+        }
+    }
 
     Loader {
         id: settingsLoader
         active: false
         sourceComponent: SettingsWindow {
             onRequestClose: settingsLoader.active = false
+        }
+    }
+    Loader {
+        id: dashboardLoader
+        active: false
+        sourceComponent: DashboardWindow {
+            onRequestClose: dashboardLoader.active = false
         }
     }
 }

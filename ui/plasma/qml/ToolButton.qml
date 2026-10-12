@@ -5,7 +5,7 @@ import OmegaNotch
 Item {
     id: root
 
-    property string icon: "settings"   // "settings" | "grip"
+    property string icon: "settings"   // "settings" | "grip" | "dashboard"
     property real scale_: 1.0
     property int cursor: Qt.PointingHandCursor
     property color surface: Theme.notch    // what the button is drawn on
@@ -66,6 +66,24 @@ Item {
                 width: 2.5 * root.scale_
                 height: width
                 radius: width / 2
+                color: hover.hovered ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
+            }
+        }
+    }
+
+    // Dashboard: three rising bars.
+    Row {
+        anchors.centerIn: parent
+        visible: root.icon === "dashboard"
+        spacing: 2 * root.scale_
+        Repeater {
+            model: [5, 9, 7]
+            delegate: Rectangle {
+                required property real modelData
+                width: 3 * root.scale_
+                height: modelData * root.scale_
+                anchors.bottom: parent.bottom
+                radius: 1 * root.scale_
                 color: hover.hovered ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
             }
         }

@@ -149,6 +149,9 @@ async fn handle_message(
                 }
             });
         }
+        ClientMessage::GetDashboard { days } => {
+            write_msg(writer, &store.dashboard(days).await).await?;
+        }
         ClientMessage::Ping => {
             write_msg(writer, &ServerMessage::Pong).await?;
         }

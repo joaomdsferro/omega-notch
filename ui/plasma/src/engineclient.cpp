@@ -152,6 +152,8 @@ void EngineClient::handleServerMessage(const QJsonObject &obj)
         }
     } else if (type == QLatin1String("activity_updated")) {
         applyActivity(obj);
+    } else if (type == QLatin1String("dashboard")) {
+        applyDashboard(obj);
     } else if (type == QLatin1String("config_updated")) {
         applyConfig(obj.value(QStringLiteral("config")).toObject());
     } else if (type == QLatin1String("copilot_login")) {
@@ -189,6 +191,15 @@ void EngineClient::applyActivity(const QJsonObject &obj)
     m_chats = obj.value(QStringLiteral("chats")).toArray().toVariantList();
     m_tokens = obj.value(QStringLiteral("tokens")).toArray().toVariantList();
     emit activityChanged();
+}
+
+void EngineClient::applyDashboard(const QJsonObject &obj)
+{
+    m_dashboardPoints = obj.value(QStringLiteral("points")).toArray().toVariantList();
+    m_dashboardCosts = obj.value(QStringLiteral("costs")).toArray().toVariantList();
+    m_dashboardModels = obj.value(QStringLiteral("models")).toArray().toVariantList();
+    m_dashboardTotalUsd = obj.value(QStringLiteral("total_usd")).toDouble(0.0);
+    emit dashboardChanged();
 }
 
 void EngineClient::applyReading(const QJsonObject &reading)
@@ -289,6 +300,15 @@ void EngineClient::refresh(const QString &provider)
         obj.insert(QStringLiteral("provider"), provider);
     }
     sendJson(obj);
+}
+
+void EngineClient::requestDashboard(int days)
+{
+    const int clamped = qBound(7, days, 90);
+    sendJson(QJsonObject{
+        {QStringLiteral("type"), QStringLiteral("get_dashboard")},
+        {QStringLiteral("days"), clamped},
+    });
 }
 
 void EngineClient::openChat(const QVariantMap &chat)
@@ -572,6 +592,11 @@ void EngineClient::setInputRegion(QWindow *window, const QVariantList &rects)
 void EngineClient::openSettings()
 {
     emit openSettingsRequested();
+}
+
+void EngineClient::openDashboard()
+{
+    emit openDashboardRequested();
 }
 
 void EngineClient::triggerPeek(const QJsonObject &session, const QString &kind)

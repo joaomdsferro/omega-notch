@@ -70,6 +70,10 @@ To remove it, run `./uninstall.sh` from the same folder.
     Click one to jump to it: the terminal or VS Code window running it, or a new one resuming it
 - The card opens by itself for a few seconds when a session finishes or asks something, alongside a
   Plasma notification
+- A **dashboard** window, from the bars button in the notch's footer: every limit, estimated cost and
+  tokens per day over 7, 30 or 90 days (by model, by tool or by kind), each model's share of the
+  spend, today's mix and the recent chats. History starts with every Claude Code day still on disk.
+  Costs are estimates at API list prices, not a bill
 - Click a ring to refresh it; hover the notch for Settings and a grip to slide it along the edge;
   right-click opens Settings
 - Only the notch takes input; the rest of the edge stays click-through
@@ -126,6 +130,8 @@ packaging/                  installer, desktop entry, icons
   saved. Nothing goes to a server of ours, because there is none.
 - The Copilot sign-in made through the notch is kept in `~/.local/share/omega-notch/copilot.json`
   (mode 600). Settings live in `~/.config/omega-notch/config.json`.
+- The dashboard's daily token history is kept in `~/.local/share/omega-notch/history.db`: counts per
+  day and model only, no chat content.
 - The hook server listens on `127.0.0.1` only.
 
 ## Build from source

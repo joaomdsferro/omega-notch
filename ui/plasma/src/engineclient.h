@@ -16,6 +16,10 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged)
     Q_PROPERTY(QVariantList chats READ chats NOTIFY activityChanged)
     Q_PROPERTY(QVariantList tokens READ tokens NOTIFY activityChanged)
+    Q_PROPERTY(QVariantList dashboardPoints READ dashboardPoints NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantList dashboardCosts READ dashboardCosts NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantList dashboardModels READ dashboardModels NOTIFY dashboardChanged)
+    Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
     Q_PROPERTY(double edgePosition READ edgePosition NOTIFY configChanged)
     Q_PROPERTY(QString sizePreset READ sizePreset NOTIFY configChanged)
@@ -51,6 +55,10 @@ public:
     QVariantList sessions() const { return m_sessions; }
     QVariantList chats() const { return m_chats; }
     QVariantList tokens() const { return m_tokens; }
+    QVariantList dashboardPoints() const { return m_dashboardPoints; }
+    QVariantList dashboardCosts() const { return m_dashboardCosts; }
+    QVariantList dashboardModels() const { return m_dashboardModels; }
+    double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
     double edgePosition() const { return m_edgePosition; }
     QString sizePreset() const { return m_sizePreset; }
@@ -81,6 +89,7 @@ public:
     QString previewProvider() const { return qEnvironmentVariable("OMEGA_NOTCH_PREVIEW"); }
 
     Q_INVOKABLE void refresh(const QString &provider = QString());
+    Q_INVOKABLE void requestDashboard(int days = 30);
     Q_INVOKABLE void setEdge(const QString &edge);
     Q_INVOKABLE void setEdgePosition(double pos);
     Q_INVOKABLE void setSizePreset(const QString &size);
@@ -103,6 +112,7 @@ public:
     Q_INVOKABLE void copyCopilotCode();
     Q_INVOKABLE QString displayName(const QString &provider) const;
     Q_INVOKABLE void openSettings();
+    Q_INVOKABLE void openDashboard();
     // Raises the window running this chat, or resumes it in a new one.
     Q_INVOKABLE void openChat(const QVariantMap &chat);
     Q_INVOKABLE void setInputRegion(QWindow *window, const QVariantList &rects);
@@ -112,6 +122,7 @@ signals:
     void readingsChanged();
     void sessionsChanged();
     void activityChanged();
+    void dashboardChanged();
     void configChanged();
     void screensChanged();
     void peekOpenChanged();
@@ -119,6 +130,7 @@ signals:
     void sessionFinished(const QString &provider, const QString &label);
     void sessionWaiting(const QString &provider, const QString &label);
     void openSettingsRequested();
+    void openDashboardRequested();
 
 private slots:
     void tryConnect();
@@ -134,6 +146,7 @@ private:
     void applyReading(const QJsonObject &reading);
     void applySession(const QJsonObject &session);
     void applyActivity(const QJsonObject &obj);
+    void applyDashboard(const QJsonObject &obj);
     void applyConfig(const QJsonObject &config);
     void pushConfig();
     void triggerPeek(const QJsonObject &session, const QString &kind);
@@ -149,6 +162,10 @@ private:
     QVariantList m_sessions;
     QVariantList m_chats;
     QVariantList m_tokens;
+    QVariantList m_dashboardPoints;
+    QVariantList m_dashboardCosts;
+    QVariantList m_dashboardModels;
+    double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;
     QString m_peekLabel;
