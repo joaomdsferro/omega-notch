@@ -134,18 +134,19 @@ struct NotchView: View {
       cursor: model.vertical ? .resizeUpDown : .resizeLeftRight
     )
     .gesture(dragGrip)
-    .disabled(model.housing != .zero)
+    // Centred on the camera housing, the notch has nowhere to slide.
+    let canSlide = model.housing == .zero
 
     return Group {
       if model.vertical {
         VStack(spacing: spacing) {
           HStack(spacing: spacing) { pair }
-          grip
+          if canSlide { grip }
         }
       } else {
         HStack(spacing: spacing) {
           VStack(spacing: spacing) { pair }
-          grip
+          if canSlide { grip }
         }
       }
     }

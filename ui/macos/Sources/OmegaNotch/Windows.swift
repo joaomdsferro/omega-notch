@@ -17,7 +17,7 @@ final class Windows {
   func showSettings() {
     if settings == nil {
       settings = makeWindow(
-        title: "Omega Notch Settings", size: CGSize(width: 560, height: 720),
+        title: "Omega Notch Settings", size: CGSize(width: 460, height: 760),
         content: SettingsView(client: client))
     }
     bringForward(settings)
@@ -27,8 +27,8 @@ final class Windows {
     client.requestDashboard(days: 30)
     if dashboard == nil {
       dashboard = makeWindow(
-        title: "Omega Notch Dashboard", size: CGSize(width: 1080, height: 760),
-        content: DashboardView(client: client))
+        title: "Omega Notch Dashboard", size: CGSize(width: 1180, height: 820),
+        content: DashboardView(client: client) { [weak self] in self?.showSettings() })
     }
     bringForward(dashboard)
   }

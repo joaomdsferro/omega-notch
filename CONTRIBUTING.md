@@ -42,6 +42,35 @@ cargo test -p omega-notch-core
 make engine ui
 ```
 
+### On macOS
+
+Requirements: Rust (stable) and Xcode 16 or later (for Swift and the macOS SDK), on macOS 14 or later.
+The shell lives in `ui/macos`, a Swift package.
+
+```sh
+make macos                         # builds target/macos/Omega Notch.app, signed ad hoc
+open "target/macos/Omega Notch.app"
+```
+
+The app starts the engine inside it, and logs the engine to `~/Library/Logs/Omega Notch/engine.log`.
+Config, data and the socket live in `~/Library/Application Support/omega-notch/`. The first time the
+engine reads the Claude Code sign-in, macOS asks for Keychain access. A build signed ad hoc asks again
+after every rebuild.
+
+To work on the shell without bundling it, start an engine yourself and point the shell at it:
+
+```sh
+./target/release/omega-notch-engine serve &
+cd ui/macos && OMEGA_NOTCH_PREVIEW=claude_code swift run
+```
+
+Notifications need the app bundle, so `swift run` only logs them. Before sending changes:
+
+```sh
+cargo test --workspace
+(cd ui/macos && swift test)
+```
+
 ## Formatting
 
 Rust code is formatted with `rustfmt` (`cargo fmt`), with its default settings. This starts with
@@ -54,7 +83,7 @@ v0.0.3:
   `cargo fmt --check`.
 - **From then on:** every change must pass `cargo fmt --check`. Run `cargo fmt` before committing.
 
-QML and C++ have no formatter: match the style of the file around you.
+QML, C++ and Swift have no enforced formatter: match the style of the file around you.
 
 ## Pull requests
 
