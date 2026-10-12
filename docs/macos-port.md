@@ -1,6 +1,6 @@
 # Omega Notch on macOS: port plan
 
-Status: **proposal** (2026-10-12, against v0.0.2). Nothing here is built yet.
+Status: **accepted** (2026-10-12, against v0.0.2). Nothing here is built yet.
 
 Omega Notch was built Linux-first, for KDE Plasma 6 on Wayland, and has never run on macOS. This plan
 brings it to macOS with a **native Swift / AppKit shell**. The Rust engine is shared: it keeps
@@ -216,7 +216,7 @@ Each phase is one or more pull requests from its own branch, reviewed and merged
 
 | # | Phase | Main changes | Size |
 |---|---|---|---|
-| 0 | Decisions | The open questions below | — |
+| 0 | Decisions | Taken, see [Decisions](#decisions) (one left for Phase 4) | — |
 | 1 | Engine runs on macOS | `platform` module, paths, socket permissions, Keychain, `PATH`, `doctor`; `cargo test` on a macOS CI runner | S–M |
 | 2 | Shell skeleton | SwiftPM package, protocol client and fixtures, engine supervision, notch panel with rings and peek | M |
 | 3 | Feature parity | Cards, chats, Settings, Dashboard, Copilot sign-in, notifications, screens and edges, login item | L |
@@ -227,13 +227,20 @@ Each phase is one or more pull requests from its own branch, reviewed and merged
 Phase 1 helps Linux too: it adds `is_alive` without `/proc` and tightens the socket permissions. It
 can merge before any Swift code exists.
 
-## Open questions for the owner
+## Decisions
 
-1. **Apple Developer Program** (paid yearly). Without it, the app can't be notarised: Gatekeeper
-   blocks it on first open, and the Keychain asks again after every update. Is a signed release
-   wanted from the first macOS version, or do we start with build-from-source only?
-2. **Bundle identifier**, for example `io.github.joaomdsferro.omeganotch`. It is permanent once
-   released, because notification and privacy permissions are tied to it.
-3. **Minimum macOS 14**: is that acceptable?
-4. **Default position**: top-centre around the hardware notch, or the same right edge as Linux?
-5. **Terminal tab selection** (Phase 4): worth the extra Automation prompt?
+Taken by the owner on 2026-10-12:
+
+1. **Signed and notarised from the first macOS release.** The owner's existing personal Apple
+   Developer account is used. Its Developer ID certificate also signs other apps, so CI gets a
+   **dedicated App Store Connect API key** for this repository, which can be revoked without touching
+   anything else. The key and the certificate live only in the protected GitHub environment.
+2. **Bundle identifier: `app.wisething.omeganotch`.** It is permanent from the first release.
+3. **Minimum macOS 14 (Sonoma).**
+4. **Default position: top-centre around the hardware notch**, falling back to the right edge on
+   screens without one.
+
+Still open:
+
+5. **Terminal tab selection** (Phase 4): is it worth the extra Automation prompt? This can wait
+   until Phase 4.
