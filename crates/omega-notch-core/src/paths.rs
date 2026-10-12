@@ -69,8 +69,7 @@ pub fn socket_path() -> PathBuf {
 }
 
 pub fn cursor_state_db() -> PathBuf {
-    config_home()
-        .join("Cursor/User/globalStorage/state.vscdb")
+    config_home().join("Cursor/User/globalStorage/state.vscdb")
 }
 
 /// Where Claude Code keeps its sign-in on Linux. On macOS it is in the login
@@ -162,14 +161,9 @@ pub fn copilot_token_file() -> PathBuf {
 /// folder.
 pub fn vscode_product_dirs() -> Vec<PathBuf> {
     let config = config_home();
-    [
-        "Code",
-        "Code - Insiders",
-        "Code - OSS",
-        "VSCodium",
-    ]
-    .into_iter()
-    .map(|name| config.join(name))
-    .filter(|p| p.is_dir())
-    .collect()
+    ["Code", "Code - Insiders", "Code - OSS", "VSCodium"]
+        .into_iter()
+        .map(|name| config.join(name))
+        .filter(|p| p.is_dir())
+        .collect()
 }

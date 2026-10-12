@@ -24,6 +24,13 @@ pub struct AppConfig {
     /// Colour of that nub, as `#RRGGBB`.
     #[serde(default = "default_idle_color")]
     pub idle_color: String,
+    /// How the nub moves while a session works, by name (see
+    /// `NUB_MOTIONS`); an unknown name falls back to the default.
+    #[serde(default = "default_nub_working")]
+    pub nub_working: String,
+    /// The same, while a session waits for you.
+    #[serde(default = "default_nub_waiting")]
+    pub nub_waiting: String,
     /// Colour of the notch itself, as `#RRGGBB`, independent of the nub.
     #[serde(default)]
     pub notch_color: String,
@@ -39,6 +46,10 @@ pub struct AppConfig {
 
 pub const MAX_PROVIDERS_LIMIT: u32 = 5;
 pub const IDLE_SIZE_MAX: f64 = 3.0;
+/// The motions a nub can play; `none` keeps it still.
+pub const NUB_MOTIONS: [&str; 7] = [
+    "none", "shiver", "breathe", "wave", "pulse", "bounce", "stretch",
+];
 
 fn default_idle_size() -> f64 {
     1.0
@@ -48,14 +59,20 @@ fn default_idle_color() -> String {
     "#000000".to_string()
 }
 
+fn default_nub_working() -> String {
+    "shiver".to_string()
+}
+
+fn default_nub_waiting() -> String {
+    "pulse".to_string()
+}
+
 fn default_notch_color() -> String {
     "#000000".to_string()
 }
 
 fn is_hex_color(value: &str) -> bool {
-    value.len() == 7
-        && value.starts_with('#')
-        && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn default_true() -> bool {
@@ -112,7 +129,9 @@ pub struct AlertSettings {
     pub enabled: bool,
     pub sound: bool,
     /// The sound for a session that finished, by name: a macOS system
-    /// sound such as `Glass`. Empty picks the shell's default.
+    /// sound such as `Glass`, or a freedesktop sound such as
+    /// `completion-success` on Plasma. Empty, or a name the shell does not
+    /// offer, picks the shell's default.
     #[serde(default)]
     pub sound_finished: String,
     /// The same, for a session that stopped to ask you something.
@@ -133,7 +152,11 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             // On a Mac the notch grows out of the camera housing.
-            edge: if cfg!(target_os = "macos") { Edge::Top } else { Edge::Right },
+            edge: if cfg!(target_os = "macos") {
+                Edge::Top
+            } else {
+                Edge::Right
+            },
             edge_position: 0.5,
             size: SizePreset::Medium,
             accent: Accent::Plasma,
@@ -162,6 +185,8 @@ impl Default for AppConfig {
             max_providers: default_max_providers(),
             idle_size: default_idle_size(),
             idle_color: default_idle_color(),
+            nub_working: default_nub_working(),
+            nub_waiting: default_nub_waiting(),
             notch_color: default_notch_color(),
             color_notch: None,
             screen: String::new(),
@@ -217,6 +242,12 @@ impl AppConfig {
         if !is_hex_color(&self.idle_color) {
             self.idle_color = default_idle_color();
         }
+        if !NUB_MOTIONS.contains(&self.nub_working.as_str()) {
+            self.nub_working = default_nub_working();
+        }
+        if !NUB_MOTIONS.contains(&self.nub_waiting.as_str()) {
+            self.nub_waiting = default_nub_waiting();
+        }
         if !is_hex_color(&self.notch_color) {
             self.notch_color = if self.color_notch.unwrap_or(true) {
                 self.idle_color.clone()
@@ -253,7 +284,9 @@ mod tests {
         for (k, v) in extra.as_object().unwrap() {
             map.insert(k.clone(), v.clone());
         }
-        serde_json::from_value::<AppConfig>(value).unwrap().normalized()
+        serde_json::from_value::<AppConfig>(value)
+            .unwrap()
+            .normalized()
     }
 
     #[test]
@@ -276,5 +309,22 @@ mod tests {
         assert_eq!(c.idle_color, "#000000");
         assert_eq!(c.notch_color, "#4C8DFF");
         assert_eq!(c.screen, "DP-1");
+    }
+
+    #[test]
+    fn nub_motions_default_and_reject_unknown_names() {
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        let map = value.as_object_mut().unwrap();
+        map.remove("nub_working");
+        map.insert("nub_waiting".into(), "wiggle".into());
+        let c = serde_json::from_value::<AppConfig>(value)
+            .unwrap()
+            .normalized();
+        assert_eq!(c.nub_working, "shiver");
+        assert_eq!(c.nub_waiting, "pulse");
+
+        let c = parse(r#"{"nub_working":"wave","nub_waiting":"none"}"#);
+        assert_eq!(c.nub_working, "wave");
+        assert_eq!(c.nub_waiting, "none");
     }
 }

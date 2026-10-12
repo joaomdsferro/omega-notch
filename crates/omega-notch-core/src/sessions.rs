@@ -160,9 +160,7 @@ fn summarize_claude(live: &[LiveSession]) -> SessionState {
         SessionKind::Busy => 1,
         SessionKind::Idle => 0,
     };
-    let lead = live
-        .iter()
-        .max_by_key(|s| (rank(s.state), s.updated_at));
+    let lead = live.iter().max_by_key(|s| (rank(s.state), s.updated_at));
 
     match lead {
         Some(session) if session.state != SessionKind::Idle => SessionState {
@@ -211,7 +209,9 @@ fn detect_claude_session() -> crate::protocol::SessionState {
             })
         {
             let Ok(meta) = entry.metadata() else { continue };
-            let Ok(modified) = meta.modified() else { continue };
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
             let age = now.duration_since(modified).unwrap_or_default();
             if age > Duration::from_secs(15 * 60) {
                 continue;
@@ -338,7 +338,9 @@ fn detect_cursor_session() -> crate::protocol::SessionState {
                 continue;
             }
             let Ok(meta) = entry.metadata() else { continue };
-            let Ok(modified) = meta.modified() else { continue };
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
             if now.duration_since(modified).unwrap_or_default() < BEST_EFFORT_RECENT {
                 newest = Some(newest.map_or(modified, |t| t.max(modified)));
             }
@@ -366,7 +368,9 @@ fn cursor_activity_file(path: &Path) -> bool {
         .extension()
         .and_then(|s| s.to_str())
         .is_some_and(|ext| ext == "jsonl")
-        && path.components().any(|c| c.as_os_str() == "agent-transcripts")
+        && path
+            .components()
+            .any(|c| c.as_os_str() == "agent-transcripts")
     {
         return true;
     }
@@ -429,9 +433,8 @@ fn detect_copilot_session() -> SessionState {
         }
     }
 
-    let recent = newest_activity.is_some_and(|t| {
-        now.duration_since(t).unwrap_or_default() < BEST_EFFORT_RECENT
-    });
+    let recent = newest_activity
+        .is_some_and(|t| now.duration_since(t).unwrap_or_default() < BEST_EFFORT_RECENT);
 
     let kind = if recent || open_tool {
         SessionKind::Busy
@@ -464,7 +467,11 @@ fn scan_copilot_files(
     newest: &mut Option<SystemTime>,
     open_tool: &mut bool,
 ) {
-    for entry in WalkDir::new(root).max_depth(max_depth).into_iter().flatten() {
+    for entry in WalkDir::new(root)
+        .max_depth(max_depth)
+        .into_iter()
+        .flatten()
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -473,7 +480,9 @@ fn scan_copilot_files(
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
-        let Ok(modified) = meta.modified() else { continue };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
         let age = now.duration_since(modified).unwrap_or_default();
 
         if age < BEST_EFFORT_RECENT {
@@ -503,7 +512,10 @@ fn scan_copilot_files(
 /// sits idle with the Copilot extension loaded.
 fn copilot_activity_file(path: &Path) -> bool {
     let parts: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
-    if parts.iter().any(|p| *p == "transcripts" || *p == "emptyWindowChatSessions") {
+    if parts
+        .iter()
+        .any(|p| *p == "transcripts" || *p == "emptyWindowChatSessions")
+    {
         return path
             .extension()
             .and_then(|s| s.to_str())

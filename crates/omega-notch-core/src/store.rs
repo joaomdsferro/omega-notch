@@ -11,12 +11,12 @@ use crate::chats::{self, ActivityIndex};
 use crate::config::AppConfig;
 use crate::copilot_auth;
 use crate::protocol::{
-    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus, ServerMessage,
-    SessionKind, SessionState, UsageReading,
+    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus,
+    ServerMessage, SessionKind, SessionState, UsageReading,
 };
-use crate::{history, pricing};
 use crate::providers;
 use crate::sessions::{self, SessionEvent};
+use crate::{history, pricing};
 
 #[derive(Clone)]
 pub struct UsageStore {
@@ -128,7 +128,10 @@ impl UsageStore {
                     }
                 }
             };
-            let _ = store.inner.events.send(ServerMessage::CopilotLogin { login });
+            let _ = store
+                .inner
+                .events
+                .send(ServerMessage::CopilotLogin { login });
         });
     }
 
@@ -293,7 +296,10 @@ impl UsageStore {
         let previous = guard.insert(session.provider, session.clone());
         drop(guard);
         if !unchanged {
-            let _ = self.inner.events.send(ServerMessage::SessionUpdated { session });
+            let _ = self
+                .inner
+                .events
+                .send(ServerMessage::SessionUpdated { session });
         }
         previous
     }
@@ -329,9 +335,7 @@ impl UsageStore {
                     .events
                     .send(ServerMessage::SessionFinished { session });
             }
-            (_, SessionKind::WaitingYou)
-                if prev_kind != Some(SessionKind::WaitingYou) =>
-            {
+            (_, SessionKind::WaitingYou) if prev_kind != Some(SessionKind::WaitingYou) => {
                 let _ = self
                     .inner
                     .events

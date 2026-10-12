@@ -114,18 +114,18 @@ fn reading_from_history(raw: &str, now: DateTime<Utc>) -> Option<UsageReading> {
     })
 }
 
-fn reading_from_usage_json(value: &Value, fidelity: Fidelity) -> Result<UsageReading, ProviderError> {
+fn reading_from_usage_json(
+    value: &Value,
+    fidelity: Fidelity,
+) -> Result<UsageReading, ProviderError> {
     let mut windows = Vec::new();
     if let Some(obj) = value.get("five_hour") {
         if let Some(pct) = obj.get("utilization").and_then(|v| v.as_f64()) {
-            let resets = obj
-                .get("resets_at")
-                .and_then(|v| v.as_str())
-                .and_then(|s| {
-                    chrono::DateTime::parse_from_rfc3339(s)
-                        .ok()
-                        .map(|d| d.with_timezone(&Utc))
-                });
+            let resets = obj.get("resets_at").and_then(|v| v.as_str()).and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .ok()
+                    .map(|d| d.with_timezone(&Utc))
+            });
             windows.push(UsageWindow {
                 label: "Current session".into(),
                 used_pct: pct.clamp(0.0, 100.0),
@@ -135,14 +135,11 @@ fn reading_from_usage_json(value: &Value, fidelity: Fidelity) -> Result<UsageRea
     }
     if let Some(obj) = value.get("seven_day") {
         if let Some(pct) = obj.get("utilization").and_then(|v| v.as_f64()) {
-            let resets = obj
-                .get("resets_at")
-                .and_then(|v| v.as_str())
-                .and_then(|s| {
-                    chrono::DateTime::parse_from_rfc3339(s)
-                        .ok()
-                        .map(|d| d.with_timezone(&Utc))
-                });
+            let resets = obj.get("resets_at").and_then(|v| v.as_str()).and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .ok()
+                    .map(|d| d.with_timezone(&Utc))
+            });
             windows.push(UsageWindow {
                 label: "Weekly limit".into(),
                 used_pct: pct.clamp(0.0, 100.0),

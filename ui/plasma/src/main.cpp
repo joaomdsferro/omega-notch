@@ -31,7 +31,10 @@ int main(int argc, char *argv[])
                          const QString body = label.isEmpty()
                              ? QStringLiteral("%1 finished").arg(provider)
                              : QStringLiteral("%1 · %2 finished").arg(provider, label);
-                         notifications.notify(QStringLiteral("Omega Notch"), body, engineClient.soundEnabled());
+                         const QString sound = engineClient.soundEnabled()
+                             ? Notifications::finishedSound(engineClient.soundFinished())
+                             : QString();
+                         notifications.notify(QStringLiteral("Omega Notch"), body, sound);
                      });
     QObject::connect(&engineClient, &EngineClient::sessionWaiting, &notifications,
                      [&](const QString &provider, const QString &label) {
@@ -41,7 +44,10 @@ int main(int argc, char *argv[])
                          const QString body = label.isEmpty()
                              ? QStringLiteral("%1 is waiting on you").arg(provider)
                              : QStringLiteral("%1 · %2 is waiting on you").arg(provider, label);
-                         notifications.notify(QStringLiteral("Omega Notch"), body, engineClient.soundEnabled());
+                         const QString sound = engineClient.soundEnabled()
+                             ? Notifications::waitingSound(engineClient.soundWaiting())
+                             : QString();
+                         notifications.notify(QStringLiteral("Omega Notch"), body, sound);
                      });
 
     QQmlApplicationEngine engine;

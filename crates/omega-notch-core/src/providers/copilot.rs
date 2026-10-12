@@ -3,8 +3,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::traits::{Provider, ProviderError};
-use crate::{copilot_auth, paths};
 use crate::protocol::{Fidelity, ProviderId, ReadingStatus, UsageReading, UsageWindow};
+use crate::{copilot_auth, paths};
 
 /// Reads the monthly quotas GitHub reports to the Copilot editor plugins.
 ///
@@ -73,8 +73,7 @@ impl CopilotProvider {
         }
 
         Err(ProviderError::NeedsAuth(
-            "Copilot sign-in expired or has no Copilot access — sign in again from Settings"
-                .into(),
+            "Copilot sign-in expired or has no Copilot access — sign in again from Settings".into(),
         ))
     }
 }

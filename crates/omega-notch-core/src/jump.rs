@@ -33,7 +33,14 @@ use crate::protocol::ProviderId;
 const VSCODE_SESSION_URI: &str = "vscode://anthropic.claude-code/open?session=";
 /// Terminals tried, in order, for resuming a chat whose process is gone.
 #[cfg(not(target_os = "macos"))]
-const TERMINALS: &[&str] = &["ghostty", "konsole", "kitty", "wezterm", "alacritty", "foot"];
+const TERMINALS: &[&str] = &[
+    "ghostty",
+    "konsole",
+    "kitty",
+    "wezterm",
+    "alacritty",
+    "foot",
+];
 
 /// An app to open: its command on Linux, its bundle id on macOS.
 struct App {
@@ -41,9 +48,18 @@ struct App {
     bundle_id: &'static str,
 }
 
-const VSCODE: App = App { command: "code", bundle_id: "com.microsoft.VSCode" };
-const CURSOR: App = App { command: "cursor", bundle_id: "com.todesktop.230313mzl4w4u92" };
-const CLAUDE_DESKTOP: App = App { command: "claude-desktop", bundle_id: "com.anthropic.claudefordesktop" };
+const VSCODE: App = App {
+    command: "code",
+    bundle_id: "com.microsoft.VSCode",
+};
+const CURSOR: App = App {
+    command: "cursor",
+    bundle_id: "com.todesktop.230313mzl4w4u92",
+};
+const CLAUDE_DESKTOP: App = App {
+    command: "claude-desktop",
+    bundle_id: "com.anthropic.claudefordesktop",
+};
 
 /// Opens `app`, on `folder` if given.
 fn open_app(app: &App, folder: Option<&str>) -> anyhow::Result<()> {
@@ -166,7 +182,11 @@ fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
     let claude = which("claude").context("claude is not on PATH")?;
     let claude = claude.as_str();
     #[cfg(target_os = "macos")]
-    if std::env::var("TERMINAL").ok().and_then(|t| which(&t)).is_none() {
+    if std::env::var("TERMINAL")
+        .ok()
+        .and_then(|t| which(&t))
+        .is_none()
+    {
         return resume_in_terminal_app(&dir, claude, id);
     }
     let terminal = std::env::var("TERMINAL")
@@ -188,11 +208,44 @@ fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
             "--resume".into(),
             id.into(),
         ],
-        "konsole" => vec!["--workdir".into(), dir.clone(), "-e".into(), claude.into(), "--resume".into(), id.into()],
-        "kitty" => vec!["--directory".into(), dir.clone(), claude.into(), "--resume".into(), id.into()],
-        "wezterm" => vec!["start".into(), "--cwd".into(), dir.clone(), "--".into(), claude.into(), "--resume".into(), id.into()],
-        "foot" => vec![format!("--working-directory={dir}"), claude.into(), "--resume".into(), id.into()],
-        _ => vec!["--working-directory".into(), dir.clone(), "-e".into(), claude.into(), "--resume".into(), id.into()],
+        "konsole" => vec![
+            "--workdir".into(),
+            dir.clone(),
+            "-e".into(),
+            claude.into(),
+            "--resume".into(),
+            id.into(),
+        ],
+        "kitty" => vec![
+            "--directory".into(),
+            dir.clone(),
+            claude.into(),
+            "--resume".into(),
+            id.into(),
+        ],
+        "wezterm" => vec![
+            "start".into(),
+            "--cwd".into(),
+            dir.clone(),
+            "--".into(),
+            claude.into(),
+            "--resume".into(),
+            id.into(),
+        ],
+        "foot" => vec![
+            format!("--working-directory={dir}"),
+            claude.into(),
+            "--resume".into(),
+            id.into(),
+        ],
+        _ => vec![
+            "--working-directory".into(),
+            dir.clone(),
+            "-e".into(),
+            claude.into(),
+            "--resume".into(),
+            id.into(),
+        ],
     };
     let mut command = Command::new(&terminal);
     command.args(&args).current_dir(&dir);
@@ -201,7 +254,10 @@ fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
 
 #[cfg(not(target_os = "macos"))]
 fn default_terminal() -> Option<String> {
-    TERMINALS.iter().find(|t| which(t).is_some()).map(|t| t.to_string())
+    TERMINALS
+        .iter()
+        .find(|t| which(t).is_some())
+        .map(|t| t.to_string())
 }
 
 /// `$TERMINAL` is checked before this is reached; without it, Terminal.app.
@@ -228,7 +284,11 @@ end run"#;
 }
 
 /// Words a window caption may carry for this chat, best first.
-fn window_hints(session: Option<&LiveSession>, title: Option<&str>, cwd: Option<&str>) -> Vec<String> {
+fn window_hints(
+    session: Option<&LiveSession>,
+    title: Option<&str>,
+    cwd: Option<&str>,
+) -> Vec<String> {
     let mut hints = Vec::new();
     if let Some(session) = session {
         hints.push(session.name.clone());
@@ -323,8 +383,13 @@ if (target) {{
 #[cfg(not(target_os = "macos"))]
 fn raise_vscode_window(folder: &str) -> bool {
     let Ok(reply) = gdbus(&[
-        "--dest", "org.kde.KWin", "--object-path", "/WindowsRunner",
-        "--method", "org.kde.krunner1.Match", folder,
+        "--dest",
+        "org.kde.KWin",
+        "--object-path",
+        "/WindowsRunner",
+        "--method",
+        "org.kde.krunner1.Match",
+        folder,
     ]) else {
         return false;
     };
@@ -338,8 +403,14 @@ fn raise_vscode_window(folder: &str) -> bool {
     });
     let Some(id) = found else { return false };
     gdbus(&[
-        "--dest", "org.kde.KWin", "--object-path", "/WindowsRunner",
-        "--method", "org.kde.krunner1.Run", &id, "",
+        "--dest",
+        "org.kde.KWin",
+        "--object-path",
+        "/WindowsRunner",
+        "--method",
+        "org.kde.krunner1.Run",
+        &id,
+        "",
     ])
     .is_ok()
 }
@@ -354,9 +425,14 @@ fn run_kwin_script(source: &str) -> anyhow::Result<()> {
 
     let result = (|| {
         let out = gdbus(&[
-            "--dest", "org.kde.KWin", "--object-path", "/Scripting",
-            "--method", "org.kde.kwin.Scripting.loadScript",
-            &path.display().to_string(), &plugin,
+            "--dest",
+            "org.kde.KWin",
+            "--object-path",
+            "/Scripting",
+            "--method",
+            "org.kde.kwin.Scripting.loadScript",
+            &path.display().to_string(),
+            &plugin,
         ])?;
         // `(7,)`
         let id: i64 = out
@@ -370,15 +446,24 @@ fn run_kwin_script(source: &str) -> anyhow::Result<()> {
             bail!("KWin refused the script");
         }
         gdbus(&[
-            "--dest", "org.kde.KWin", "--object-path", &format!("/Scripting/Script{id}"),
-            "--method", "org.kde.kwin.Script.run",
+            "--dest",
+            "org.kde.KWin",
+            "--object-path",
+            &format!("/Scripting/Script{id}"),
+            "--method",
+            "org.kde.kwin.Script.run",
         ])?;
         Ok(())
     })();
 
     let _ = gdbus(&[
-        "--dest", "org.kde.KWin", "--object-path", "/Scripting",
-        "--method", "org.kde.kwin.Scripting.unloadScript", &plugin,
+        "--dest",
+        "org.kde.KWin",
+        "--object-path",
+        "/Scripting",
+        "--method",
+        "org.kde.kwin.Scripting.unloadScript",
+        &plugin,
     ]);
     let _ = std::fs::remove_file(&path);
     result

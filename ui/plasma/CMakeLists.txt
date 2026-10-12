@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(omega-notch-plasma VERSION 0.0.2 LANGUAGES CXX)
+project(omega-notch-plasma VERSION 0.0.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,6 +30,7 @@ qt_add_qml_module(omega-notch-plasma
         qml/Main.qml
         qml/Theme.qml
         qml/NotchShape.qml
+        qml/NubMotion.qml
         qml/ProviderRing.qml
         qml/ProviderGlyph.qml
         qml/DetailCard.qml
@@ -50,6 +51,9 @@ qt_add_qml_module(omega-notch-plasma
         qml/SettingsSwitch.qml
         qml/SettingsSegmented.qml
         qml/SettingsButton.qml
+        qml/SettingsIcon.qml
+        qml/SettingsToggle.qml
+        qml/SettingsToolTip.qml
         qml/CopilotSignIn.qml
 )
 

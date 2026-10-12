@@ -99,7 +99,9 @@ pub fn read_claude_sessions() -> Option<Vec<LiveSession>> {
             cwd: cwd.to_string(),
             entrypoint: text("entrypoint").map(str::to_string),
             state,
-            waiting_for: text("waitingFor").or_else(|| text("needs")).map(str::to_string),
+            waiting_for: text("waitingFor")
+                .or_else(|| text("needs"))
+                .map(str::to_string),
             updated_at,
         });
     }
@@ -243,9 +245,7 @@ impl Transcript {
 
         match line.kind.as_deref() {
             Some("ai-title") => self.ai_title = clean_title(line.ai_title.as_deref()),
-            Some("custom-title") => {
-                self.custom_title = clean_title(line.custom_title.as_deref())
-            }
+            Some("custom-title") => self.custom_title = clean_title(line.custom_title.as_deref()),
             Some("last-prompt") => self.last_prompt = clean_title(line.last_prompt.as_deref()),
             Some("user") if line.is_meta != Some(true) => {
                 let text = match line.message.and_then(|m| m.content) {
@@ -277,8 +277,13 @@ impl Transcript {
                     cache_read: usage.cache_read_input_tokens.unwrap_or(0),
                     cache_write: usage.cache_creation_input_tokens.unwrap_or(0),
                 };
-                let Some(key) = message.id.or(line.uuid) else { return };
-                let day = at.unwrap_or_else(Utc::now).with_timezone(&Local).date_naive();
+                let Some(key) = message.id.or(line.uuid) else {
+                    return;
+                };
+                let day = at
+                    .unwrap_or_else(Utc::now)
+                    .with_timezone(&Local)
+                    .date_naive();
 
                 if let Some(old) = self.billed.remove(&key) {
                     self.totals.sub(&old.tokens);
@@ -317,7 +322,10 @@ impl Transcript {
 fn day_model_rows(raw: HashMap<(NaiveDate, &str), TokenTotals>) -> Vec<DayModelTokens> {
     let mut merged: HashMap<(NaiveDate, String), TokenTotals> = HashMap::new();
     for ((day, model), tokens) in raw {
-        merged.entry((day, pretty_model(model))).or_default().add(&tokens);
+        merged
+            .entry((day, pretty_model(model)))
+            .or_default()
+            .add(&tokens);
     }
     let mut rows: Vec<DayModelTokens> = merged
         .into_iter()
@@ -369,7 +377,12 @@ pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Vec<DayModelT
             }
         }
     }
-    day_model_rows(totals.iter().map(|((d, m), t)| ((*d, m.as_str()), *t)).collect())
+    day_model_rows(
+        totals
+            .iter()
+            .map(|((d, m), t)| ((*d, m.as_str()), *t))
+            .collect(),
+    )
 }
 
 struct Candidate {
@@ -429,7 +442,9 @@ impl ActivityIndex {
                     continue;
                 }
                 let Ok(meta) = entry.metadata() else { continue };
-                let Ok(modified) = meta.modified() else { continue };
+                let Ok(modified) = meta.modified() else {
+                    continue;
+                };
                 candidates.push(Candidate {
                     path: entry.path().to_path_buf(),
                     modified,
@@ -472,7 +487,10 @@ impl ActivityIndex {
                 }
                 for (model, tokens) in models {
                     per_day.entry(*day).or_default().add(tokens);
-                    per_day_model.entry((*day, model.as_str())).or_default().add(tokens);
+                    per_day_model
+                        .entry((*day, model.as_str()))
+                        .or_default()
+                        .add(tokens);
                     if *day == today {
                         *models_today.entry(model.as_str()).or_default() += tokens.total();
                     }
@@ -765,11 +783,20 @@ mod tests {
 
     #[test]
     fn titles() {
-        assert_eq!(clean_title(Some("  fix\n the  bug ")).as_deref(), Some("fix the bug"));
-        assert_eq!(clean_title(Some("<command-name>/clear</command-name>")), None);
+        assert_eq!(
+            clean_title(Some("  fix\n the  bug ")).as_deref(),
+            Some("fix the bug")
+        );
+        assert_eq!(
+            clean_title(Some("<command-name>/clear</command-name>")),
+            None
+        );
         assert_eq!(clean_title(Some("   ")), None);
         let long = "a".repeat(200);
-        assert_eq!(clean_title(Some(&long)).unwrap().chars().count(), TITLE_CHARS);
+        assert_eq!(
+            clean_title(Some(&long)).unwrap().chars().count(),
+            TITLE_CHARS
+        );
     }
 
     fn line(json: &str) -> RawLine {
