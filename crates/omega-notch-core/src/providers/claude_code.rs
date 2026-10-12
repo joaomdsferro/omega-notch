@@ -102,7 +102,11 @@ impl ClaudeCodeProvider {
     }
 
     async fn fetch_remote(&self) -> Result<UsageReading, Failure> {
-        let token = read_oauth_token().map_err(Failure::Other)?;
+        // Reading the Keychain can wait on the user answering a prompt.
+        let token = tokio::task::spawn_blocking(read_oauth_token)
+            .await
+            .map_err(|e| Failure::Other(ProviderError::Other(e.into())))?
+            .map_err(Failure::Other)?;
         let other = |e: reqwest::Error| Failure::Other(ProviderError::Other(e.into()));
         let client = reqwest::Client::builder()
             .user_agent(crate::USER_AGENT)
@@ -152,14 +156,113 @@ impl ClaudeCodeProvider {
 
 fn read_oauth_token() -> Result<String, ProviderError> {
     let path = paths::claude_credentials();
-    if !path.exists() {
-        return Err(ProviderError::NeedsAuth(
-            "No ~/.claude/.credentials.json — sign in with Claude Code".into(),
-        ));
-    }
+    let raw = if path.exists() {
+        std::fs::read_to_string(&path).map_err(|e| ProviderError::Other(e.into()))?
+    } else {
+        read_keychain_credentials()?
+    };
+    parse_oauth_token(&raw)
+}
 
-    let raw = std::fs::read_to_string(&path).map_err(|e| ProviderError::Other(e.into()))?;
-    let value: Value = serde_json::from_str(&raw).map_err(|e| ProviderError::Other(e.into()))?;
+#[cfg(not(target_os = "macos"))]
+fn read_keychain_credentials() -> Result<String, ProviderError> {
+    Err(ProviderError::NeedsAuth(
+        "No ~/.claude/.credentials.json — sign in with Claude Code".into(),
+    ))
+}
+
+/// After the user turns the Keychain prompt down, it is not shown again for
+/// this long, rather than on every refresh.
+#[cfg(target_os = "macos")]
+const KEYCHAIN_QUIET_FOR: Duration = Duration::from_secs(3600);
+/// How long a refresh waits for the Keychain. An allowed read takes a few
+/// milliseconds; a prompt can stay up for as long as the user ignores it, and
+/// the other providers must not wait on it.
+#[cfg(target_os = "macos")]
+const KEYCHAIN_WAIT: Duration = Duration::from_secs(2);
+
+#[cfg(target_os = "macos")]
+enum KeychainRead {
+    Idle,
+    /// A read is under way, perhaps behind a prompt; its result lands in `Done`.
+    Asking,
+    Done(Result<String, ProviderError>),
+    DeniedAt(Instant),
+}
+
+#[cfg(target_os = "macos")]
+static KEYCHAIN: (Mutex<KeychainRead>, std::sync::Condvar) =
+    (Mutex::new(KeychainRead::Idle), std::sync::Condvar::new());
+
+#[cfg(target_os = "macos")]
+fn keychain_denied() -> ProviderError {
+    ProviderError::NeedsAuth(
+        "Keychain access was declined — allow Omega Notch to read the Claude Code sign-in".into(),
+    )
+}
+
+/// Claude Code on macOS keeps the same JSON as the Linux file in the login
+/// Keychain. The read runs on its own thread, so a prompt left unanswered
+/// only delays this provider; its answer is picked up by the next refresh.
+/// The token is only ever held in memory.
+#[cfg(target_os = "macos")]
+fn read_keychain_credentials() -> Result<String, ProviderError> {
+    let (lock, ready) = &KEYCHAIN;
+    let mut state = lock.lock().unwrap();
+    match *state {
+        KeychainRead::DeniedAt(at) if at.elapsed() < KEYCHAIN_QUIET_FOR => {
+            return Err(keychain_denied());
+        }
+        KeychainRead::Idle | KeychainRead::DeniedAt(_) => {
+            *state = KeychainRead::Asking;
+            std::thread::spawn(|| {
+                let result = ask_keychain();
+                let (lock, ready) = &KEYCHAIN;
+                *lock.lock().unwrap() = result;
+                ready.notify_all();
+            });
+        }
+        KeychainRead::Asking | KeychainRead::Done(_) => {}
+    }
+    let (mut state, _) = ready
+        .wait_timeout_while(state, KEYCHAIN_WAIT, |s| matches!(s, KeychainRead::Asking))
+        .unwrap();
+    match std::mem::replace(&mut *state, KeychainRead::Idle) {
+        KeychainRead::Done(result) => result,
+        KeychainRead::DeniedAt(at) => {
+            *state = KeychainRead::DeniedAt(at);
+            Err(keychain_denied())
+        }
+        KeychainRead::Asking => {
+            *state = KeychainRead::Asking;
+            Err(ProviderError::NeedsAuth(
+                "Waiting for you to allow Keychain access to the Claude Code sign-in".into(),
+            ))
+        }
+        KeychainRead::Idle => unreachable!("a read was started above"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ask_keychain() -> KeychainRead {
+    use crate::platform::{keychain_password, KeychainError};
+
+    match keychain_password(paths::CLAUDE_KEYCHAIN_SERVICE) {
+        Ok(data) => KeychainRead::Done(
+            String::from_utf8(data).map_err(|e| ProviderError::Other(e.into())),
+        ),
+        Err(KeychainError::NotFound) => KeychainRead::Done(Err(ProviderError::NeedsAuth(
+            "No Claude Code sign-in in the Keychain — sign in with Claude Code".into(),
+        ))),
+        Err(KeychainError::Denied) => KeychainRead::DeniedAt(Instant::now()),
+        Err(KeychainError::Other(message)) => KeychainRead::Done(Err(ProviderError::Message(
+            format!("Could not read the Keychain: {message}"),
+        ))),
+    }
+}
+
+fn parse_oauth_token(raw: &str) -> Result<String, ProviderError> {
+    let value: Value = serde_json::from_str(raw).map_err(|e| ProviderError::Other(e.into()))?;
     let token = value
         .pointer("/claudeAiOauth/accessToken")
         .and_then(|v| v.as_str())

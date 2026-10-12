@@ -11,6 +11,10 @@
 //! - Finished CLI sessions: `claude --resume <id>` in a new terminal window.
 //! - Claude Desktop and Cursor: their window is raised (Cursor on the chat's
 //!   folder); neither offers a link to a single chat.
+//!
+//! On macOS, apps are opened by bundle id through `open`, since their command
+//! line tools are often not installed. A live CLI session brings its terminal
+//! app forward; picking its window or tab is left to the app shell.
 
 use std::io::Write;
 use std::path::Path;
@@ -21,12 +25,35 @@ use anyhow::{bail, Context};
 use tracing::info;
 
 use crate::chats::{self, LiveSession};
+#[cfg(not(target_os = "macos"))]
 use crate::paths;
+use crate::platform;
 use crate::protocol::ProviderId;
 
 const VSCODE_SESSION_URI: &str = "vscode://anthropic.claude-code/open?session=";
 /// Terminals tried, in order, for resuming a chat whose process is gone.
+#[cfg(not(target_os = "macos"))]
 const TERMINALS: &[&str] = &["ghostty", "konsole", "kitty", "wezterm", "alacritty", "foot"];
+
+/// An app to open: its command on Linux, its bundle id on macOS.
+struct App {
+    command: &'static str,
+    bundle_id: &'static str,
+}
+
+const VSCODE: App = App { command: "code", bundle_id: "com.microsoft.VSCode" };
+const CURSOR: App = App { command: "cursor", bundle_id: "com.todesktop.230313mzl4w4u92" };
+const CLAUDE_DESKTOP: App = App { command: "claude-desktop", bundle_id: "com.anthropic.claudefordesktop" };
+
+/// Opens `app`, on `folder` if given.
+fn open_app(app: &App, folder: Option<&str>) -> anyhow::Result<()> {
+    let folder = folder.into_iter();
+    if cfg!(target_os = "macos") {
+        let args = ["-b", app.bundle_id].into_iter().chain(folder);
+        return spawn("open", args);
+    }
+    spawn(app.command, folder)
+}
 
 /// What the UI knows about the clicked chat.
 pub struct ChatTarget<'a> {
@@ -40,13 +67,7 @@ pub struct ChatTarget<'a> {
 pub fn open_chat(target: &ChatTarget) -> anyhow::Result<()> {
     match target.provider {
         ProviderId::ClaudeCode => open_claude(target),
-        ProviderId::Cursor => {
-            match target.cwd {
-                Some(cwd) => spawn("cursor", [cwd])?,
-                None => spawn("cursor", [] as [&str; 0])?,
-            }
-            Ok(())
-        }
+        ProviderId::Cursor => open_app(&CURSOR, target.cwd),
         other => bail!("{other:?} chats cannot be opened"),
     }
 }
@@ -77,7 +98,7 @@ fn open_claude(target: &ChatTarget) -> anyhow::Result<()> {
             ring_bell(session.pid);
             Ok(())
         }
-        ("claude-desktop" | "claude-desktop-3p", None) => spawn("claude-desktop", [] as [&str; 0]),
+        ("claude-desktop" | "claude-desktop-3p", None) => open_app(&CLAUDE_DESKTOP, None),
         (_, None) => resume_in_terminal(target.id, cwd.as_deref()),
     }
 }
@@ -104,14 +125,14 @@ fn open_in_vscode(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
         .is_some_and(|folder| raise_vscode_window(&folder));
     if !raised {
         if let Some(cwd) = cwd.filter(|c| Path::new(c).is_dir()) {
-            spawn("code", [cwd])?;
+            open_app(&VSCODE, Some(cwd))?;
             // Give a new window time to come up before the link arrives.
             std::thread::sleep(Duration::from_millis(1500));
         }
     } else {
         std::thread::sleep(Duration::from_millis(150));
     }
-    spawn("xdg-open", [format!("{VSCODE_SESSION_URI}{id}")])
+    spawn(platform::OPENER, [format!("{VSCODE_SESSION_URI}{id}")])
 }
 
 fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
@@ -122,10 +143,14 @@ fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
         .unwrap_or_else(|| "/".into());
     let claude = which("claude").context("claude is not on PATH")?;
     let claude = claude.as_str();
+    #[cfg(target_os = "macos")]
+    if std::env::var("TERMINAL").ok().and_then(|t| which(&t)).is_none() {
+        return resume_in_terminal_app(&dir, claude, id);
+    }
     let terminal = std::env::var("TERMINAL")
         .ok()
         .and_then(|t| which(&t).map(|_| t))
-        .or_else(|| TERMINALS.iter().find(|t| which(t).is_some()).map(|t| t.to_string()))
+        .or_else(default_terminal)
         .context("no terminal emulator found")?;
     let name = Path::new(&terminal)
         .file_name()
@@ -152,6 +177,34 @@ fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
     detach(command)
 }
 
+#[cfg(not(target_os = "macos"))]
+fn default_terminal() -> Option<String> {
+    TERMINALS.iter().find(|t| which(t).is_some()).map(|t| t.to_string())
+}
+
+/// `$TERMINAL` is checked before this is reached; without it, Terminal.app.
+#[cfg(target_os = "macos")]
+fn default_terminal() -> Option<String> {
+    None
+}
+
+/// Opens a Terminal.app window running `claude --resume <id>` in `dir`. The
+/// values reach AppleScript as arguments, and `quoted form of` quotes them
+/// for the shell, so none of them is ever spliced into a script.
+#[cfg(target_os = "macos")]
+fn resume_in_terminal_app(dir: &str, claude: &str, id: &str) -> anyhow::Result<()> {
+    const SCRIPT: &str = r#"on run argv
+    set {dir, claude, sessionId} to argv
+    tell application "Terminal"
+        activate
+        do script "cd " & quoted form of dir & " && " & quoted form of claude & " --resume " & quoted form of sessionId
+    end tell
+end run"#;
+    let mut command = Command::new("/usr/bin/osascript");
+    command.args(["-e", SCRIPT, dir, claude, id]);
+    detach(command)
+}
+
 /// Words a window caption may carry for this chat, best first.
 fn window_hints(session: Option<&LiveSession>, title: Option<&str>, cwd: Option<&str>) -> Vec<String> {
     let mut hints = Vec::new();
@@ -175,14 +228,7 @@ fn ancestors(pid: u32) -> Vec<u32> {
     let mut current = pid;
     while current > 1 && out.len() < 32 {
         out.push(current);
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{current}/stat")) else {
-            break;
-        };
-        // `pid (comm) state ppid …`; comm may hold spaces or parentheses.
-        let Some(rest) = stat.rfind(')').map(|i| &stat[i + 1..]) else {
-            break;
-        };
-        let Some(ppid) = rest.split_whitespace().nth(1).and_then(|p| p.parse().ok()) else {
+        let Some(ppid) = platform::parent(current) else {
             break;
         };
         current = ppid;
@@ -190,9 +236,29 @@ fn ancestors(pid: u32) -> Vec<u32> {
     out
 }
 
+/// Brings forward the app of the first pid in `pids` that runs from an app
+/// bundle: the terminal or editor hosting the session. Which of its windows
+/// comes forward is up to the app.
+#[cfg(target_os = "macos")]
+fn raise_window(pids: &[u32], _hints: &[String]) -> anyhow::Result<()> {
+    let bundle = pids
+        .iter()
+        .find_map(|pid| platform::app_bundle(*pid))
+        .context("the session runs in no app")?;
+    spawn("open", [bundle])
+}
+
+/// The app shell picks the VS Code window on macOS; here there is no way to
+/// tell which one shows the folder.
+#[cfg(target_os = "macos")]
+fn raise_vscode_window(_folder: &str) -> bool {
+    false
+}
+
 /// Raises the best window of the first pid in `pids` that has one. Among
 /// that pid's windows the caption matching the earliest hint wins, then the
 /// one stacked highest.
+#[cfg(not(target_os = "macos"))]
 fn raise_window(pids: &[u32], hints: &[String]) -> anyhow::Result<()> {
     let script = format!(
         r#"
@@ -232,6 +298,7 @@ if (target) {{
 
 /// Raises the VS Code window whose workspace is `folder`, through KWin's
 /// window runner, which also tells us whether there is one.
+#[cfg(not(target_os = "macos"))]
 fn raise_vscode_window(folder: &str) -> bool {
     let Ok(reply) = gdbus(&[
         "--dest", "org.kde.KWin", "--object-path", "/WindowsRunner",
@@ -255,8 +322,9 @@ fn raise_vscode_window(folder: &str) -> bool {
     .is_ok()
 }
 
+#[cfg(not(target_os = "macos"))]
 fn run_kwin_script(source: &str) -> anyhow::Result<()> {
-    let dir = paths::xdg_runtime_dir().join("omega-notch");
+    let dir = paths::runtime_dir().join("omega-notch");
     std::fs::create_dir_all(&dir)?;
     let plugin = format!("omega-notch-jump-{}", uuid::Uuid::new_v4().simple());
     let path = dir.join(format!("{plugin}.js"));
@@ -294,6 +362,7 @@ fn run_kwin_script(source: &str) -> anyhow::Result<()> {
     result
 }
 
+#[cfg(not(target_os = "macos"))]
 fn gdbus(args: &[&str]) -> anyhow::Result<String> {
     let out = Command::new("gdbus")
         .args(["call", "--session"])
@@ -310,12 +379,9 @@ fn gdbus(args: &[&str]) -> anyhow::Result<String> {
 /// Rings the terminal bell on the session's tty, which most terminals show on
 /// its tab (Ghostty adds a bell to the title, Konsole marks the tab).
 fn ring_bell(pid: u32) {
-    let Ok(tty) = std::fs::read_link(format!("/proc/{pid}/fd/0")) else {
+    let Some(tty) = platform::tty(pid) else {
         return;
     };
-    if !tty.starts_with("/dev/pts") {
-        return;
-    }
     if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open(&tty) {
         let _ = file.write_all(b"\x07");
     }
@@ -325,10 +391,18 @@ fn which(program: &str) -> Option<String> {
     if program.contains('/') {
         return Path::new(program).is_file().then(|| program.to_string());
     }
-    let path = std::env::var_os("PATH")?;
-    let home_bin = dirs::home_dir().map(|h| h.join(".local/bin"));
+    // Apps started from the desktop get a short PATH, without Homebrew or
+    // the places Claude Code installs itself.
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let home = dirs::home_dir();
+    let extra = [".local/bin", ".claude/local"]
+        .into_iter()
+        .filter_map(|dir| home.as_ref().map(|h| h.join(dir)))
+        .chain(["/opt/homebrew/bin", "/usr/local/bin"].map(std::path::PathBuf::from));
+    // An empty entry would mean the current folder; never look there.
     std::env::split_paths(&path)
-        .chain(home_bin)
+        .filter(|dir| dir.is_absolute())
+        .chain(extra)
         .map(|dir| dir.join(program))
         .find(|candidate| candidate.is_file())
         .map(|p| p.display().to_string())

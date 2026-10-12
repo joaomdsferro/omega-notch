@@ -39,6 +39,13 @@ pub async fn run_doctor() -> String {
                     creds.display(),
                     creds.exists()
                 );
+                #[cfg(target_os = "macos")]
+                let _ = writeln!(
+                    out,
+                    "  keychain: \"{}\" exists={}",
+                    paths::CLAUDE_KEYCHAIN_SERVICE,
+                    crate::platform::keychain_item_exists(paths::CLAUDE_KEYCHAIN_SERVICE)
+                );
                 let projects = paths::claude_projects();
                 let _ = writeln!(
                     out,

@@ -7,6 +7,7 @@ pub mod doctor;
 pub mod history;
 pub mod jump;
 pub mod paths;
+pub mod platform;
 pub mod pricing;
 pub mod protocol;
 pub mod providers;

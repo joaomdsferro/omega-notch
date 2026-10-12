@@ -3,8 +3,12 @@
 Newline-delimited JSON over a Unix domain socket:
 
 ```
-$XDG_RUNTIME_DIR/omega-notch.sock
+$XDG_RUNTIME_DIR/omega-notch.sock                                  (Linux)
+~/Library/Application Support/omega-notch/omega-notch.sock          (macOS)
 ```
+
+Only its owner can connect: the socket is `0600`, in a folder only its owner
+can open.
 
 Protocol version: **3**
 
@@ -76,7 +80,8 @@ counted once, at its final size.
 
 ## Dashboard history
 
-Persisted by the engine in `~/.local/share/omega-notch/history.db`. Every
+Persisted by the engine in `~/.local/share/omega-notch/history.db`
+(`~/Library/Application Support/omega-notch/history.db` on macOS). Every
 activity refresh rewrites the days it covers (the last seven), and on first
 start the engine backfills every older Claude Code day still on disk.
 `daily_tokens` holds one row per tool and day (`points`):

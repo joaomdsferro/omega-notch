@@ -10,6 +10,7 @@ repository.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 dirs.workspace = true
+libc.workspace = true
 notify.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
@@ -20,3 +21,6 @@ tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 walkdir.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
