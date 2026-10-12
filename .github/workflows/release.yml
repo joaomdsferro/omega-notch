@@ -1,5 +1,5 @@
 # Builds the Linux download (prebuilt binaries + installer) and attaches it to
-# a draft pre-release. Push a tag such as v0.0.2, or run it by hand; the
+# a draft pre-release. Push a tag such as v0.0.3, or run it by hand; the
 # release stays a draft until it is published on GitHub.
 name: Release
 
@@ -30,6 +30,8 @@ jobs:
       - name: Version
         id: version
         run: echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+
+      - run: cargo fmt --all --check
 
       - run: cargo test -p omega-notch-core --locked
 

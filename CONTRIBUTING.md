@@ -73,15 +73,11 @@ cargo test --workspace
 
 ## Formatting
 
-Rust code is formatted with `rustfmt` (`cargo fmt`), with its default settings. This starts with
-v0.0.3:
+Rust code is formatted with `rustfmt` (`cargo fmt`), with its default settings. Every change must pass
+`cargo fmt --all --check`, which CI and the release workflow run, so run `cargo fmt` before committing.
 
-- **Until v0.0.3:** the existing code is not formatted yet. Run `rustfmt` only on files you add, so a
-  pull request never mixes a change with unrelated reformatting.
-- **In v0.0.3:** one commit formats the whole workspace with `cargo fmt` and changes nothing else. Its
-  hash goes in `.git-blame-ignore-revs`, so `git blame` skips it. The release workflow starts running
-  `cargo fmt --check`.
-- **From then on:** every change must pass `cargo fmt --check`. Run `cargo fmt` before committing.
+The whole workspace was formatted in one commit for v0.0.3. It is listed in `.git-blame-ignore-revs`;
+to have `git blame` skip it, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
 
 QML, C++ and Swift have no enforced formatter: match the style of the file around you.
 
@@ -99,7 +95,7 @@ QML, C++ and Swift have no enforced formatter: match the style of the file aroun
 
 ## Releasing
 
-Bump `version` in `Cargo.toml` and `ui/plasma/CMakeLists.txt`, then push a tag such as `v0.0.2`. The
+Bump `version` in `Cargo.toml` and `ui/plasma/CMakeLists.txt`, then push a tag such as `v0.0.3`. The
 [release workflow](.github/workflows/release.yml) builds the download with `make dist` and attaches it
 to a draft pre-release, which stays a draft until it is published on GitHub.
 
