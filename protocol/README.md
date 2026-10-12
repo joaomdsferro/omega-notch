@@ -123,3 +123,8 @@ per-model price table (cache-aware) — never a bill.
 ```json
 { "provider": "claude_code", "kind": "busy|waiting_you|idle", "label": "optional" }
 ```
+
+Only local tools may post, never a web page. A request must send
+`Content-Type: application/json` (otherwise `415`), a `Host` of
+`127.0.0.1:17337` or `localhost:17337`, and no `Origin` header (otherwise
+`403`). curl does all of that by default once given the content type.
