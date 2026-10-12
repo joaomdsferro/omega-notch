@@ -1,3 +1,4 @@
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use omega_notch_core::protocol::{
@@ -12,6 +13,8 @@ use tracing::{debug, info, warn};
 
 pub async fn serve(path: PathBuf, store: UsageStore) -> anyhow::Result<()> {
     let listener = UnixListener::bind(&path)?;
+    // Only this user may talk to the engine.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     info!(path = %path.display(), "unix socket ready");
 
     loop {

@@ -1,33 +1,52 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub fn xdg_config_home() -> PathBuf {
+/// The user's config folder: `~/.config` on Linux,
+/// `~/Library/Application Support` on macOS.
+pub fn config_home() -> PathBuf {
     dirs::config_dir().unwrap_or_else(|| PathBuf::from(".").join(".config"))
 }
 
-pub fn xdg_data_home() -> PathBuf {
+/// The user's data folder: `~/.local/share` on Linux,
+/// `~/Library/Application Support` on macOS.
+pub fn data_home() -> PathBuf {
     dirs::data_dir().unwrap_or_else(|| PathBuf::from(".").join(".local/share"))
 }
 
-pub fn xdg_runtime_dir() -> PathBuf {
+/// Where the socket and other per-session files go. On Linux that is
+/// `$XDG_RUNTIME_DIR`. macOS has no such folder, and `$TMPDIR` is not set for
+/// every way the engine can be started, so it uses the app's own data folder,
+/// which the engine keeps private.
+pub fn runtime_dir() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return app_data_dir();
+    }
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir())
 }
 
+/// Creates `dir` if needed and makes it readable by its owner only: it holds
+/// the socket and sign-in tokens.
+pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
 pub fn app_config_dir() -> PathBuf {
-    xdg_config_home().join("omega-notch")
+    config_home().join("omega-notch")
 }
 
 pub fn app_data_dir() -> PathBuf {
-    xdg_data_home().join("omega-notch")
+    data_home().join("omega-notch")
 }
 
 /// Moves the config and data folders from the app's old name (Mega Notch)
 /// to the new one, once, so settings and the Copilot sign-in carry over.
 pub fn migrate_legacy_dirs() {
     for (base, new_dir) in [
-        (xdg_config_home(), app_config_dir()),
-        (xdg_data_home(), app_data_dir()),
+        (config_home(), app_config_dir()),
+        (data_home(), app_data_dir()),
     ] {
         let old_dir = base.join("mega-notch");
         if old_dir.is_dir() && !new_dir.exists() {
@@ -46,19 +65,23 @@ pub fn socket_path() -> PathBuf {
     if let Some(path) = std::env::var_os("OMEGA_NOTCH_SOCKET").filter(|p| !p.is_empty()) {
         return PathBuf::from(path);
     }
-    xdg_runtime_dir().join("omega-notch.sock")
+    runtime_dir().join("omega-notch.sock")
 }
 
 pub fn cursor_state_db() -> PathBuf {
-    xdg_config_home()
+    config_home()
         .join("Cursor/User/globalStorage/state.vscdb")
 }
 
+/// Where Claude Code keeps its sign-in on Linux. On macOS it is in the login
+/// Keychain instead, under [`CLAUDE_KEYCHAIN_SERVICE`].
 pub fn claude_credentials() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".claude/.credentials.json")
 }
+
+pub const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
 pub fn claude_home() -> PathBuf {
     dirs::home_dir()
@@ -75,7 +98,7 @@ pub fn claude_sessions() -> PathBuf {
 }
 
 pub fn claude_desktop_dir() -> PathBuf {
-    xdg_config_home().join("Claude")
+    config_home().join("Claude")
 }
 
 pub fn claude_desktop_usage_history() -> PathBuf {
@@ -106,14 +129,26 @@ pub fn codex_auth() -> PathBuf {
 
 /// Where the Copilot editor plugins (Neovim, JetBrains, Xcode…) keep their
 /// GitHub OAuth token, as `apps.json` or the older `hosts.json`.
+/// They use `~/.config` on macOS too, not `~/Library/Application Support`.
 pub fn github_copilot_dir() -> PathBuf {
-    xdg_config_home().join("github-copilot")
+    if cfg!(target_os = "macos") {
+        return home().join(".config/github-copilot");
+    }
+    config_home().join("github-copilot")
 }
 
 /// opencode's credential store; its `github-copilot` entry holds the same
 /// GitHub OAuth token as its `refresh` field.
+/// opencode uses `~/.local/share` on macOS too.
 pub fn opencode_auth() -> PathBuf {
-    xdg_data_home().join("opencode/auth.json")
+    if cfg!(target_os = "macos") {
+        return home().join(".local/share/opencode/auth.json");
+    }
+    data_home().join("opencode/auth.json")
+}
+
+fn home() -> PathBuf {
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// The GitHub token from signing in to Copilot through the notch.
@@ -123,9 +158,10 @@ pub fn copilot_token_file() -> PathBuf {
 
 /// VS Code product config roots that may hold Copilot Chat storage.
 ///
-/// Covers the stable, Insiders, OSS, and VSCodium layouts under XDG config.
+/// Covers the stable, Insiders, OSS, and VSCodium layouts under the config
+/// folder.
 pub fn vscode_product_dirs() -> Vec<PathBuf> {
-    let config = xdg_config_home();
+    let config = config_home();
     [
         "Code",
         "Code - Insiders",

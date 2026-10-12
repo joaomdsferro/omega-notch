@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 use crate::config::AppConfig;
 use crate::paths;
+use crate::platform;
 use crate::protocol::{
     Activity, ChatSummary, DayModelTokens, DayTokens, ModelTokens, ProviderId, SessionKind,
     TokenStats, TokenTotals,
@@ -69,7 +70,7 @@ pub fn read_claude_sessions() -> Option<Vec<LiveSession>> {
             continue;
         };
         // A crashed process leaves its record behind.
-        if !Path::new("/proc").join(pid.to_string()).exists() {
+        if !u32::try_from(pid).is_ok_and(platform::is_alive) {
             continue;
         }
         let Some(cwd) = value.get("cwd").and_then(Value::as_str) else {

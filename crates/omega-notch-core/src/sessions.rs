@@ -383,7 +383,7 @@ fn cursor_agent_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let home = dirs::home_dir().unwrap_or_default();
     dirs.push(home.join(".cursor/projects"));
-    dirs.push(paths::xdg_config_home().join("Cursor/User/globalStorage/anysphere.cursor-retrieval"));
+    dirs.push(paths::config_home().join("Cursor/User/globalStorage/anysphere.cursor-retrieval"));
     // Not `Cursor/logs`: the editor writes there whenever it is open, which
     // would read as an agent that never stops working.
     dirs

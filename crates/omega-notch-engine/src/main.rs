@@ -49,8 +49,8 @@ fn init_tracing() {
 
 async fn serve() -> anyhow::Result<()> {
     paths::migrate_legacy_dirs();
-    std::fs::create_dir_all(paths::app_config_dir())?;
-    std::fs::create_dir_all(paths::app_data_dir())?;
+    paths::create_private_dir(&paths::app_config_dir())?;
+    paths::create_private_dir(&paths::app_data_dir())?;
     std::fs::create_dir_all(paths::app_data_dir().join("hooks"))?;
 
     let config = AppConfig::load();
