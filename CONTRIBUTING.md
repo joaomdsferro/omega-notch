@@ -42,6 +42,20 @@ cargo test -p omega-notch-core
 make engine ui
 ```
 
+## Formatting
+
+Rust code is formatted with `rustfmt` (`cargo fmt`), with its default settings. This starts with
+v0.0.3:
+
+- **Until v0.0.3:** the existing code is not formatted yet. Run `rustfmt` only on files you add, so a
+  pull request never mixes a change with unrelated reformatting.
+- **In v0.0.3:** one commit formats the whole workspace with `cargo fmt` and changes nothing else. Its
+  hash goes in `.git-blame-ignore-revs`, so `git blame` skips it. The release workflow starts running
+  `cargo fmt --check`.
+- **From then on:** every change must pass `cargo fmt --check`. Run `cargo fmt` before committing.
+
+QML and C++ have no formatter: match the style of the file around you.
+
 ## Pull requests
 
 - Branch from `main` and keep each pull request to one change.
