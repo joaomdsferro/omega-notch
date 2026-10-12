@@ -233,7 +233,7 @@ Each phase is one or more pull requests from its own branch, reviewed and merged
 | 5 | Release | `make macos`, signing, notarisation, `.dmg`, `release.yml` job | M |
 | 6 | Docs | README (platform badge, install, privacy prompts), `CONTRIBUTING.md` (macOS setup), `protocol/README.md` (socket per OS, v4) | S |
 
-Phase 1 helps Linux too: it adds `is_alive` without `/proc` tightens the socket permissions, and adds the hook token. It
+Phase 1 helps Linux too: it adds `is_alive` without `/proc`, tightens the socket permissions, and adds the hook token. It
 can merge before any Swift code exists.
 
 ## Decisions
