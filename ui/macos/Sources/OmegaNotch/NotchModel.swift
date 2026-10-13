@@ -57,8 +57,11 @@ final class NotchModel {
   // MARK: Metrics (medium preset, scaled by s)
 
   var config: NotchConfig { client.config }
-  var edge: String { config.edge }
-  var vertical: Bool { config.isVertical }
+  /// The edge the panel sits on: the config's, once `NotchPanel.place()` has
+  /// moved the panel there, so the notch is never drawn for one edge in a
+  /// panel shaped for another.
+  var edge = "top"
+  var vertical: Bool { edge == "left" || edge == "right" }
   var s: CGFloat { Theme.scale(for: config.size) }
   var notchColor: String { config.notchColor }
 

@@ -48,6 +48,8 @@ final class NotchPanelController {
   /// with the defaults, so a missing engine never leaves it invisible.
   private static let configWait: Duration = .seconds(3)
   private var presented = false
+  /// The screen the panel was last placed on, by name.
+  private var placedScreen: String?
 
   func show() {
     // Shown only once the engine's config is here: drawn with the defaults
@@ -112,12 +114,22 @@ final class NotchPanelController {
   }
 
   /// Follows the chosen screen (the main one while it is unplugged or none
-  /// is chosen), edge and size.
+  /// is chosen), edge and size. Moving to another edge or screen is a jump,
+  /// not an animation: the notch would otherwise sweep across the screen
+  /// from where it was.
   func place() {
     let screens = NSScreen.screens
     let name = model.config.screen
     guard let screen = screens.first(where: { $0.localizedName == name }) ?? NSScreen.main ?? screens.first
     else { return }
+    var transaction = Transaction()
+    transaction.disablesAnimations = model.edge != model.config.edge || placedScreen != screen.localizedName
+    placedScreen = screen.localizedName
+    withTransaction(transaction) { place(on: screen) }
+  }
+
+  private func place(on screen: NSScreen) {
+    model.edge = model.config.edge
     let frame = screen.frame
 
     // The camera housing: the gap between the two menu bar areas beside it.
