@@ -271,10 +271,13 @@ struct SwatchPicker: View {
   }
 }
 
-/// One screen per row; the chosen one carries a tick.
-struct ScreenRow: View {
+/// One screen as a tile: its kind, its name, and a tick on the chosen one;
+/// the details are in the tip.
+struct ScreenTile: View {
   var title: String
-  var subtitle: String
+  var icon: String
+  var detail: String
+  var badge = ""
   var chosen: Bool
   var enabled = true
   var action: () -> Void = {}
@@ -282,28 +285,265 @@ struct ScreenRow: View {
   @State private var hovered = false
 
   var body: some View {
-    HStack {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.notch(14, chosen ? .semibold : .regular)).foregroundStyle(Theme.text)
-          .lineLimit(1)
-        if !subtitle.isEmpty {
-          Text(subtitle).font(.notch(12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+    VStack(alignment: .leading, spacing: 1) {
+      HStack(alignment: .top) {
+        Image(systemName: icon)
+          .font(.system(size: 18))
+          .foregroundStyle(chosen ? Theme.text : Theme.textSecondary)
+        Spacer(minLength: 0)
+        if chosen {
+          Image(systemName: "checkmark")
+            .font(.system(size: 9, weight: .heavy))
+            .foregroundStyle(Theme.panel)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(Theme.text))
         }
       }
-      Spacer(minLength: 12)
-      Text("✓").font(.notch(15)).foregroundStyle(Theme.text).opacity(chosen ? 1 : 0)
+      Spacer(minLength: 0)
+      Text(title)
+        .font(.notch(13, chosen ? .semibold : .regular))
+        .foregroundStyle(Theme.text)
+        .lineLimit(1)
+        .truncationMode(.tail)
+      if !badge.isEmpty {
+        Text(badge).font(.notch(11)).foregroundStyle(Theme.watch)
+      }
     }
-    .frame(minHeight: 40)
-    .padding(.horizontal, 8)
+    .padding(.horizontal, 12)
+    .padding(.top, 12)
+    .padding(.bottom, 10)
+    .frame(width: 118, height: 78, alignment: .leading)
     .background(
-      RoundedRectangle(cornerRadius: 8)
-        .fill(chosen ? Color.white.opacity(0x1A / 255) : hovered ? Theme.panelHover : .clear)
+      RoundedRectangle(cornerRadius: 10)
+        .fill(chosen ? Theme.controlChosen : hovered && enabled ? Theme.panelHover : Theme.controlFill)
+        .strokeBorder(Color.white.opacity(chosen ? 0x40 / 255 : 0), lineWidth: 1)
     )
-    .padding(.horizontal, -8)
+    .animation(.easeOut(duration: 0.12), value: chosen)
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
     .clickable(enabled: enabled)
     .onTapGesture { if enabled { action() } }
+    .help(detail)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(title)
+    .accessibilityHint(detail)
+    .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+  }
+}
+
+/// The screen in miniature, shaped like the one the notch lives on (its
+/// proportions, its camera housing, and a stand or a laptop's base under it),
+/// with the notch drawn where it sits. The whole screen is the target: a click
+/// moves the notch to the nearest edge, where the pointer is, and a drag
+/// slides it along that edge. The same as the Plasma shell's EdgePicker.
+struct EdgePicker: View {
+  var screen: ScreenInfo?
+  var edge: String
+  var position: Double
+  var size: String
+  var notchColor: String
+  /// On a camera housing the notch sits in the middle of the top edge.
+  var pinned: Bool
+  /// The edge and the position along it, saved together.
+  var place: (String, Double) -> Void
+
+  /// The edge and position while the pointer is down; saving refetches every
+  /// provider, so they are only committed on release.
+  @State private var dragEdge: String?
+  @State private var dragPosition: Double?
+  @State private var hover: (edge: String, position: Double)?
+
+  private static let edgeNames = [("top", "Top edge"), ("left", "Left edge"), ("right", "Right edge"), ("bottom", "Bottom edge")]
+  private let bezel: CGFloat = 6
+  private let displayWidth: CGFloat = 300
+  private let notchDepth: CGFloat = 9
+  private let notchCurl: CGFloat = 6
+  /// How close to the middle a position snaps to it.
+  private let snap = 0.04
+
+  private var laptop: Bool { screen?.builtIn ?? false }
+  private var housing: Bool { screen?.housing ?? false }
+  private var displayHeight: CGFloat {
+    guard let size = screen?.size, size.width > 0, size.height > 0 else { return 188 }
+    return max(140, min(220, displayWidth * size.height / size.width))
+  }
+  private var lid: CGSize { CGSize(width: displayWidth + 2 * bezel, height: displayHeight + 2 * bezel) }
+  private var standHeight: CGFloat { laptop ? 8 : 20 }
+  private var pill: CGFloat { 40 * Theme.scale(for: size) }
+  private var shownEdge: String { dragEdge ?? edge }
+  private var shownPosition: Double {
+    if let dragEdge, let dragPosition { return pinnedOn(dragEdge) ? 0.5 : dragPosition }
+    return pinned ? 0.5 : position
+  }
+
+  var body: some View {
+    let width = laptop ? lid.width + 32 : lid.width
+    ZStack(alignment: .top) {
+      stand
+      RoundedRectangle(cornerRadius: 16)
+        .fill(Color(hex: "#050506"))
+        .strokeBorder(Theme.cardStroke, lineWidth: 1)
+        .frame(width: lid.width, height: lid.height)
+      display
+        .frame(width: displayWidth, height: displayHeight)
+        .padding(.top, bezel)
+      surface
+    }
+    .frame(width: width, height: lid.height + standHeight, alignment: .top)
+  }
+
+  /// A monitor stands on a neck and a foot; a laptop sits on its base.
+  @ViewBuilder private var stand: some View {
+    if laptop {
+      RoundedRectangle(cornerRadius: 4.5)
+        .fill(LinearGradient(colors: [Color(hex: "#3A3A42"), Color(hex: "#202026")], startPoint: .top, endPoint: .bottom))
+        .overlay(alignment: .top) {
+          RoundedRectangle(cornerRadius: 1.5).fill(Color(hex: "#1E1E24")).frame(width: 40, height: 3)
+        }
+        .frame(height: 9)
+        .padding(.top, lid.height - 1)
+        .allowsHitTesting(false)
+    } else {
+      Rectangle().fill(Color(hex: "#1E1E24")).frame(width: 30, height: 14).padding(.top, lid.height - 1)
+      RoundedRectangle(cornerRadius: 3).fill(Color(hex: "#2A2A31")).frame(width: 84, height: 6)
+        .padding(.top, lid.height + 12)
+    }
+  }
+
+  /// Drawn only; the pointer is handled by `surface` above it.
+  private var display: some View {
+    ZStack(alignment: .topLeading) {
+      RoundedRectangle(cornerRadius: 11)
+        .fill(LinearGradient(colors: [Color(hex: "#2C303C"), Color(hex: "#17181E")], startPoint: .top, endPoint: .bottom))
+
+      // The camera housing, where the notch goes on the top edge.
+      if housing {
+        let width = displayWidth * (screen?.housingShare ?? 0.12)
+        UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3)
+          .fill(Color(hex: "#050506"))
+          .frame(width: width, height: notchDepth - 2)
+          .offset(x: (displayWidth - width) / 2)
+      }
+
+      // A ghost of the notch where a click would put it.
+      if dragEdge == nil, let hover, hover.edge != edge || !pinned {
+        notch(on: hover.edge).fill(Color.white.opacity(0x4D / 255))
+          .frame(width: notchSize(hover.edge).width, height: notchSize(hover.edge).height)
+          .offset(notchOrigin(hover.edge, pinnedOn(hover.edge) ? 0.5 : hover.position))
+      }
+      // The notch itself, in its own colour, fused to the bezel.
+      notch(on: shownEdge).fill(Color(hex: notchColor))
+        .frame(width: notchSize(shownEdge).width, height: notchSize(shownEdge).height)
+        .offset(notchOrigin(shownEdge, shownPosition))
+        .animation(dragPosition == nil ? .easeOut(duration: 0.16) : nil, value: shownPosition)
+        .animation(.easeOut(duration: 0.16), value: shownEdge)
+
+      Text(pinnedOn(shownEdge) ? "Camera" : "\(Int((shownPosition * 100).rounded()))%")
+        .font(.system(size: 12, design: .monospaced))
+        .foregroundStyle(Theme.textSecondary)
+        .frame(width: displayWidth, height: displayHeight)
+        .opacity(dragPosition == nil ? 0 : 1)
+        .animation(.easeOut(duration: 0.12), value: dragPosition == nil)
+    }
+    .allowsHitTesting(false)
+  }
+
+  /// The whole lid, bezel included, as one target: no thin bands to aim at.
+  private var surface: some View {
+    Color.clear
+      .frame(width: lid.width, height: lid.height)
+      .contentShape(RoundedRectangle(cornerRadius: 16))
+      .coordinateSpace(name: "lid")
+      .onContinuousHover(coordinateSpace: .named("lid")) { phase in
+        switch phase {
+        case .active(let point):
+          let at = inDisplay(point)
+          let zone = nearestEdge(at)
+          hover = (zone, positionAt(zone, at))
+        case .ended:
+          hover = nil
+        }
+      }
+      .clickable()
+      .gesture(
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("lid"))
+          .onChanged { drag in
+            let zone = dragEdge ?? nearestEdge(inDisplay(drag.startLocation))
+            dragEdge = zone
+            dragPosition = positionAt(zone, inDisplay(drag.location))
+          }
+          .onEnded { drag in
+            let zone = dragEdge ?? nearestEdge(inDisplay(drag.startLocation))
+            let at = pinnedOn(zone) ? 0.5 : positionAt(zone, inDisplay(drag.location))
+            dragEdge = nil
+            dragPosition = nil
+            if zone != edge || abs(at - position) > 0.001 { place(zone, at) }
+          }
+      )
+      .help(pinned ? "Click another edge to move the notch off the camera" : "Click an edge, or drag along it")
+      .accessibilityElement()
+      .accessibilityLabel("Notch position")
+      .accessibilityValue(
+        pinned ? "Camera housing" : "\(Self.edgeNames.first { $0.0 == edge }?.1 ?? edge), \(Int((position * 100).rounded())) percent"
+      )
+      .accessibilityActions {
+        ForEach(Self.edgeNames.filter { $0.0 != edge }, id: \.0) { zone, name in
+          Button("Move to the \(name.lowercased())") { place(zone, 0.5) }
+        }
+      }
+      .accessibilityAdjustableAction { direction in
+        guard !pinned else { return }
+        let step = direction == .increment ? 0.05 : -0.05
+        place(edge, max(0, min(1, position + step)))
+      }
+  }
+
+  /// The top edge of a screen with a camera housing has one place: the housing.
+  private func pinnedOn(_ edge: String) -> Bool { edge == "top" && housing }
+
+  private func inDisplay(_ point: CGPoint) -> CGPoint {
+    CGPoint(x: point.x - bezel, y: point.y - bezel)
+  }
+
+  /// The edge nearest a point, so every point on the screen picks one.
+  private func nearestEdge(_ point: CGPoint) -> String {
+    let distances = [
+      ("top", point.y), ("left", point.x),
+      ("right", displayWidth - point.x), ("bottom", displayHeight - point.y),
+    ]
+    return distances.min { $0.1 < $1.1 }?.0 ?? "top"
+  }
+
+  private func notch(on edge: String) -> NotchShape {
+    NotchShape(edge: edge, curl: notchCurl, radius: notchDepth / 2)
+  }
+
+  private func notchSize(_ edge: String) -> CGSize {
+    let along = pill + 2 * notchCurl
+    return edge == "left" || edge == "right"
+      ? CGSize(width: notchDepth, height: along) : CGSize(width: along, height: notchDepth)
+  }
+
+  /// Where the notch sits on an edge, from a position along it.
+  private func notchOrigin(_ edge: String, _ position: Double) -> CGSize {
+    let vertical = edge == "left" || edge == "right"
+    let length = vertical ? displayHeight : displayWidth
+    let start = 8 + CGFloat(position) * (length - pill - 2 * notchCurl - 16)
+    switch edge {
+    case "left": return CGSize(width: 0, height: start)
+    case "right": return CGSize(width: displayWidth - notchDepth, height: start)
+    case "bottom": return CGSize(width: start, height: displayHeight - notchDepth)
+    default: return CGSize(width: start, height: 0)
+    }
+  }
+
+  /// The position under a point, snapped to the middle when close to it.
+  private func positionAt(_ edge: String, _ point: CGPoint) -> Double {
+    let vertical = edge == "left" || edge == "right"
+    let length = vertical ? displayHeight : displayWidth
+    let at = (vertical ? point.y : point.x) - 8 - notchCurl - pill / 2
+    let position = max(0, min(1, Double(at / (length - pill - 2 * notchCurl - 16))))
+    return abs(position - 0.5) < snap ? 0.5 : position
   }
 }
 
@@ -388,6 +628,117 @@ struct SoundRow: View {
         .onTapGesture(perform: action)
         .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
         .accessibilityHint("Plays the sound")
+    }
+  }
+}
+
+/// One tab in Settings' sidebar: an icon and its name, the chosen one raised.
+struct TabRow: View {
+  var title: String
+  var icon: String
+  var chosen: Bool
+  var action: () -> Void
+
+  @State private var hovered = false
+
+  var body: some View {
+    HStack(spacing: 11) {
+      Image(systemName: icon)
+        .font(.system(size: 14))
+        .frame(width: 18)
+        .foregroundStyle(chosen ? Theme.text : Theme.textSecondary)
+      Text(title)
+        .font(.notch(13, chosen ? .semibold : .regular))
+        .foregroundStyle(chosen || hovered ? Theme.text : Theme.textSecondary)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 12)
+    .frame(height: 38)
+    .background(
+      RoundedRectangle(cornerRadius: 9)
+        .fill(chosen ? Theme.controlChosen : hovered ? Theme.controlHover : .clear)
+    )
+    .animation(.easeOut(duration: 0.12), value: chosen)
+    .contentShape(Rectangle())
+    .onHover { hovered = $0 }
+    .clickable()
+    .onTapGesture(perform: action)
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+  }
+}
+
+/// Every motion for the nub, side by side, each playing on a sliver of screen
+/// edge so the tile shows what it does; the chosen one raised.
+struct MotionPicker: View {
+  var value: String
+  var enabled = true
+  var pick: (String) -> Void
+
+  var body: some View {
+    HStack(spacing: 6) {
+      ForEach(NubMotion.styles, id: \.value) { style in
+        MotionTile(style: style, chosen: style.value == value, enabled: enabled) { pick(style.value) }
+      }
+    }
+  }
+
+  private struct MotionTile: View {
+    var style: NubMotion.Style
+    var chosen: Bool
+    var enabled: Bool
+    var action: () -> Void
+
+    @State private var hovered = false
+    @State private var start = Date.now
+
+    var body: some View {
+      let ink = chosen ? Theme.text : Theme.textSecondary
+      VStack(spacing: 0) {
+        TimelineView(.animation(paused: !enabled || style.value == "none")) { context in
+          let pose = NubMotion.pose(style.value, at: context.date.timeIntervalSince(start), unit: 1.3)
+          let length = 22 * pose.lengthScale
+          let depth = 7 * pose.depthScale
+          // The edge of the screen, and the nub hanging from it.
+          ZStack(alignment: .top) {
+            Rectangle().fill(Theme.track).frame(height: 1).padding(.horizontal, 8)
+            NotchShape(
+              edge: "top", curl: depth / 2, radius: depth / 2, wave: pose.wave * depth,
+              wavePhase: pose.wavePhase
+            )
+            .fill(ink.opacity(pose.fade))
+            .frame(width: length + depth, height: depth)
+            .offset(x: pose.along)
+          }
+          .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .frame(height: 30)
+        .padding(.top, 12)
+        Text(style.label)
+          .font(.notch(11, chosen ? .semibold : .regular))
+          .foregroundStyle(ink)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+          .padding(.bottom, 9)
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: 66)
+      .background(
+        RoundedRectangle(cornerRadius: 10)
+          .fill(chosen ? Theme.controlChosen : hovered && enabled ? Theme.panelHover : Theme.controlFill)
+          .strokeBorder(Color.white.opacity(chosen ? 0x40 / 255 : 0), lineWidth: 1)
+      )
+      .opacity(enabled ? 1 : 0.45)
+      .animation(.easeOut(duration: 0.12), value: chosen)
+      .contentShape(Rectangle())
+      .onHover { hovered = $0 }
+      .clickable(enabled: enabled)
+      .onTapGesture { if enabled { action() } }
+      .help(style.tip)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(style.label)
+      .accessibilityHint(style.tip)
+      .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
     }
   }
 }

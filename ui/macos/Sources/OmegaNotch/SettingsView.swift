@@ -3,11 +3,13 @@ import OmegaNotchKit
 import ServiceManagement
 import SwiftUI
 
-/// Placement, the notch's look, providers, alerts and login: the same choices
-/// as the Plasma shell's Settings window, plus starting at login.
+/// Placement, the notch's look, providers, alerts and login: the same tabs as
+/// the Plasma shell's Settings window, plus a General tab for what only macOS
+/// has (opening chats, starting at login).
 struct SettingsView: View {
   var client: EngineClient
 
+  @State private var tab: Tab = .placement
   @State private var screens = NSScreen.screens.map(ScreenInfo.init)
   @State private var openAtLogin = SMAppService.mainApp.status == .enabled
   @State private var loginError = ""
@@ -15,6 +17,26 @@ struct SettingsView: View {
   @State private var openSound: AlertSound.Kind?
   @State private var windowsAllowed = WindowRaiser.trusted
   @AppStorage(WindowRaiser.pickTabKey) private var pickTab = false
+
+  enum Tab: String, CaseIterable, Identifiable {
+    case placement = "Placement"
+    case notch = "Notch"
+    case providers = "Providers"
+    case alerts = "Alerts"
+    case general = "General"
+
+    var id: Self { self }
+
+    var icon: String {
+      switch self {
+      case .placement: "display"
+      case .notch: "rectangle.topthird.inset.filled"
+      case .providers: "square.grid.2x2"
+      case .alerts: "bell"
+      case .general: "gearshape"
+      }
+    }
+  }
 
   private static let providers = [
     ("cursor", "Cursor"), ("claude_code", "Claude Code"), ("claude_desktop", "Claude Desktop"),
@@ -24,26 +46,28 @@ struct SettingsView: View {
   private var config: NotchConfig { client.config }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 14) {
-        header
-        placement
-        notch
-        providers
-        alerts
-        windows
-        startup
-        HStack {
-          SettingsButton(title: "Refresh all now", enabled: client.connected) { client.refresh() }
-          Spacer()
-          SettingsButton(title: "Quit Omega Notch", destructive: true) { NSApp.terminate(nil) }
+    HStack(spacing: 0) {
+      sidebar
+      Rectangle().fill(Theme.hairline).frame(width: 1)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          switch tab {
+          case .placement: placement
+          case .notch: notch
+          case .providers: providers
+          case .alerts: alerts
+          case .general:
+            windows
+            startup
+          }
         }
+        .padding(.horizontal, 22)
+        .padding(.top, 36)
+        .padding(.bottom, 24)
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 36)
-      .padding(.bottom, 24)
+      .id(tab)  // each tab opens at its top
     }
-    .frame(minWidth: 400, idealWidth: 440, minHeight: 360)
+    .frame(minWidth: 620, idealWidth: 680, minHeight: 480)
     .background(Theme.panel)
     .onReceive(
       NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
@@ -58,20 +82,44 @@ struct SettingsView: View {
     client.updateConfig(change)
   }
 
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text("Omega Notch").font(.notch(22, .semibold)).foregroundStyle(Theme.text)
-        Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"))
-          .font(.notch(12)).foregroundStyle(Theme.textSecondary)
+  /// The name and the engine's state, the tabs, and Refresh and Quit at the
+  /// foot.
+  private var sidebar: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text("Omega Notch").font(.notch(16, .semibold)).foregroundStyle(Theme.text)
+          Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"))
+            .font(.notch(11)).foregroundStyle(Theme.textSecondary)
+        }
+        HStack(spacing: 6) {
+          Circle().fill(client.connected ? Theme.ample : Theme.critical).frame(width: 7, height: 7)
+          Text(client.connected ? "Connected" : "Engine offline")
+            .font(.notch(11)).foregroundStyle(Theme.textSecondary)
+        }
       }
-      HStack(spacing: 7) {
-        Circle().fill(client.connected ? Theme.ample : Theme.critical).frame(width: 7, height: 7)
-        Text(client.connected ? "Engine connected" : "Engine offline — waiting for it to start")
-          .font(.notch(12)).foregroundStyle(Theme.textSecondary)
+      .padding(.horizontal, 12)
+      .padding(.bottom, 24)
+
+      VStack(spacing: 2) {
+        ForEach(Tab.allCases) { item in
+          TabRow(title: item.rawValue, icon: item.icon, chosen: item == tab) { tab = item }
+        }
+      }
+
+      Spacer(minLength: 16)
+      HStack(spacing: 8) {
+        SettingsButton(title: "Refresh", enabled: client.connected) { client.refresh() }
+          .help("Fetch every provider's usage now")
+        Spacer(minLength: 0)
+        SettingsButton(title: "Quit", destructive: true) { NSApp.terminate(nil) }
+          .help("Quit Omega Notch")
       }
     }
-    .padding(.bottom, 4)
+    .padding(.horizontal, 10)
+    .padding(.top, 40)
+    .padding(.bottom, 16)
+    .frame(width: 190)
   }
 
   // MARK: Placement
@@ -87,54 +135,68 @@ struct SettingsView: View {
     return screen?.housing ?? false
   }
 
-  private var placement: some View {
-    SettingsSection(heading: "Placement") {
-      FieldLabel(text: "Screen")
-      ScreenRow(
-        title: "Main screen", subtitle: "Follows whichever screen has the menu bar",
-        chosen: config.screen.isEmpty
-      ) { update { $0.screen = "" } }
-      ForEach(screens) { screen in
-        ScreenRow(title: screen.name, subtitle: screen.subtitle, chosen: screen.name == config.screen) {
-          update { $0.screen = screen.name }
+  /// The screen the notch is on: the chosen one, else the main one.
+  private var targetScreen: ScreenInfo? {
+    screens.first { $0.name == config.screen } ?? screens.first { $0.main }
+  }
+
+  @ViewBuilder private var placement: some View {
+    SettingsSection(heading: "Screen") {
+      FlowLayout(spacing: 8, lineSpacing: 8) {
+        ScreenTile(
+          title: "Main screen", icon: "star", detail: "Follows whichever screen has the menu bar",
+          chosen: config.screen.isEmpty
+        ) { update { $0.screen = "" } }
+        ForEach(screens) { screen in
+          ScreenTile(
+            title: screen.name, icon: screen.builtIn ? "laptopcomputer" : "display",
+            detail: screen.subtitle, chosen: screen.name == config.screen
+          ) { update { $0.screen = screen.name } }
+        }
+        if chosenScreenMissing {
+          ScreenTile(
+            title: config.screen, icon: "powerplug", detail: "Not plugged in. The notch stays on the main screen until it is",
+            badge: "Not connected", chosen: true, enabled: false)
         }
       }
-      if chosenScreenMissing {
-        ScreenRow(
-          title: config.screen, subtitle: "Not connected — on the main screen until it is",
-          chosen: true, enabled: false)
-      }
-
-      FieldLabel(text: "Screen edge")
-      Segmented(
-        options: [("left", "Left"), ("right", "Right"), ("top", "Top"), ("bottom", "Bottom")],
-        value: config.edge
-      ) { edge in update { $0.edge = edge } }
+      .padding(.top, 4)
+    }
+    SettingsSection(heading: "On screen") {
+      EdgePicker(
+        screen: targetScreen, edge: config.edge, position: config.edgePosition, size: config.size,
+        notchColor: config.notchColor, pinned: pinnedByHousing,
+        place: { edge, position in
+          update {
+            $0.edge = edge
+            $0.edgePosition = position
+          }
+        }
+      )
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 8)
 
       FieldLabel(text: "Size")
-      Segmented(options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")], value: config.size) {
-        size in update { $0.size = size }
-      }
-
-      if pinnedByHousing {
-        Hint(text: "On this screen the notch grows out of the camera housing, in the middle of the top edge.")
-      } else {
-        FieldLabel(text: "Position along the edge")
-        HStack(spacing: 12) {
-          SettingsSlider(value: config.edgePosition, range: 0...1) { value in
-            update { $0.edgePosition = value }
-          }
-          SettingsButton(title: "Recentre") { update { $0.edgePosition = 0.5 } }
+      HStack(spacing: 12) {
+        Segmented(options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")], value: config.size) {
+          size in update { $0.size = size }
         }
-        Hint(text: "Or drag the grip that appears beside the rings.")
+        if !pinnedByHousing {
+          SettingsButton(title: "Recentre") { update { $0.edgePosition = 0.5 } }
+            .help("Put the notch in the middle of its edge")
+        }
       }
+      Hint(
+        text: pinnedByHousing
+          ? "On this screen the notch grows out of the camera housing, in the middle of the top edge. Click another edge to move it."
+          : "Click near an edge of the little screen to move the notch there, or drag along it; it snaps to the middle. You can also drag the grip beside the rings."
+      )
     }
   }
 
   // MARK: Notch
 
-  private var notch: some View {
-    SettingsSection(heading: "Notch") {
+  @ViewBuilder private var notch: some View {
+    SettingsSection(heading: "Behaviour") {
       SettingsSwitch(
         title: "Hide when idle",
         subtitle: config.autoHide
@@ -153,14 +215,6 @@ struct SettingsView: View {
         }
       }
 
-      FieldLabel(text: "Notch colour")
-      SwatchPicker(value: config.notchColor) { color in update { $0.notchColor = color } }
-
-      if config.autoHide && !pinnedByHousing {
-        FieldLabel(text: "Nub colour when idle")
-        SwatchPicker(value: config.idleColor) { color in update { $0.idleColor = color } }
-      }
-
       FieldLabel(text: "Providers shown at once")
       Segmented(options: (1...5).map { ("\($0)", "\($0)") }, value: "\(config.maxProviders)") { value in
         update { $0.maxProviders = Int(value) ?? 1 }
@@ -169,6 +223,35 @@ struct SettingsView: View {
         text:
           "Working providers come first, then the most recently used. Scroll on the notch to bring up another."
       )
+    }
+
+    SettingsSection(heading: "Colours") {
+      FieldLabel(text: "Notch colour")
+      SwatchPicker(value: config.notchColor) { color in update { $0.notchColor = color } }
+
+      if config.autoHide && !pinnedByHousing {
+        FieldLabel(text: "Nub colour when idle")
+        SwatchPicker(value: config.idleColor) { color in update { $0.idleColor = color } }
+      }
+    }
+
+    // On a camera housing there is no nub to move.
+    if !pinnedByHousing {
+      let usable = config.autoHide
+      SettingsSection(heading: "Nub motion") {
+        FieldLabel(text: "While working")
+        MotionPicker(value: config.nubWorking, enabled: usable) { value in
+          update { $0.nubWorking = value }
+        }
+        FieldLabel(text: "Needs you")
+        MotionPicker(value: config.nubWaiting, enabled: usable) { value in
+          update { $0.nubWaiting = value }
+        }
+        Hint(
+          text: usable
+            ? "Waiting for your answer takes over from working. Hover a motion for what it does."
+            : "Used only while Hide when idle is on.")
+      }
     }
   }
 
@@ -203,7 +286,7 @@ struct SettingsView: View {
 
   // MARK: Alerts and startup
 
-  private var alerts: some View {
+  @ViewBuilder private var alerts: some View {
     SettingsSection(heading: "Alerts") {
       SettingsSwitch(
         title: "Notify me", subtitle: "When a session finishes or stops to ask you something",
@@ -213,8 +296,10 @@ struct SettingsView: View {
         title: "Play a sound", subtitle: config.alertsEnabled ? "" : "Notifications are off",
         isOn: config.soundEnabled
       ) { on in update { $0.soundEnabled = on } }
+    }
 
-      if config.soundEnabled {
+    if config.soundEnabled {
+      SettingsSection(heading: "Sounds") {
         SoundRow(
           title: "When a session finishes", kind: .finished, value: config.soundFinished,
           open: $openSound
@@ -287,6 +372,12 @@ struct ScreenInfo: Identifiable {
   var subtitle: String
   var main: Bool
   var housing: Bool
+  /// How much of the screen's width the housing takes, for drawing it.
+  var housingShare: CGFloat
+  /// A laptop's own display, drawn on its base rather than on a stand.
+  var builtIn: Bool
+  /// Its size in points, for the proportions of the little screen.
+  var size: CGSize
   var id: String { name }
 
   @MainActor
@@ -296,6 +387,14 @@ struct ScreenInfo: Identifiable {
     let scale = screen.backingScaleFactor
     main = screen == NSScreen.screens.first
     housing = screen.safeAreaInsets.top > 0
+    if housing, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea, size.width > 0 {
+      housingShare = (right.minX - left.maxX) / size.width
+    } else {
+      housingShare = 0.12
+    }
+    self.size = size
+    let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    builtIn = number.map { CGDisplayIsBuiltin($0.uint32Value) != 0 } ?? false
     var parts = ["\(Int(size.width * scale))×\(Int(size.height * scale))"]
     if main { parts.append("main") }
     if housing { parts.append("camera housing") }

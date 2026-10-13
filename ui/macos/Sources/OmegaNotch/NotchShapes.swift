@@ -9,6 +9,10 @@ struct NotchShape: Shape {
   var edge: String
   var curl: CGFloat
   var radius: CGFloat
+  /// A ripple along the outer side, in points, travelling as `wavePhase`
+  /// turns; it fades out towards the corners so they stay round.
+  var wave: CGFloat = 0
+  var wavePhase: CGFloat = 0
 
   func path(in rect: CGRect) -> Path {
     let vertical = edge == "left" || edge == "right"
@@ -36,7 +40,18 @@ struct NotchShape: Shape {
     path.addCurve(to: p(0, C), control1: p(-C + k * C, 0), control2: p(0, C - k * C))
     path.addLine(to: p(0, D - R))
     path.addCurve(to: p(R, D), control1: p(0, D - R + k * R), control2: p(R - k * R, D))
-    path.addLine(to: p(L - R, D))
+    if wave > 0 && L - 2 * R >= 4 {
+      let n = 32
+      let span = L - 2 * R
+      let crests: CGFloat = 1.25
+      for i in 1...n {
+        let t = CGFloat(i) / CGFloat(n)
+        let v = D + wave * sin(.pi * t) * sin(2 * .pi * crests * t - wavePhase)
+        path.addLine(to: p(R + span * t, v))
+      }
+    } else {
+      path.addLine(to: p(L - R, D))
+    }
     path.addCurve(to: p(L, D - R), control1: p(L - R + k * R, D), control2: p(L, D - R + k * R))
     path.addLine(to: p(L, C))
     path.addCurve(to: p(L + C, 0), control1: p(L, C - k * C), control2: p(L + C - k * C, 0))
