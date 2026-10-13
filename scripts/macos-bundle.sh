@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Builds the engine and the Swift shell, and puts them together as
-# target/macos/Omega Notch.app, signed ad hoc for running on this Mac.
-# Signing with a Developer ID and notarising are the release workflow's job.
+# target/macos/Omega Notch.app, signed for running on this Mac.
+#
+# Set CODESIGN_IDENTITY to a code signing identity in your Keychain (an Apple
+# Development certificate, say; `security find-identity -v -p codesigning`
+# lists them) and macOS keeps your "Always Allow" for the Keychain across
+# rebuilds. Without it the build is signed ad hoc, which macOS sees as a new
+# program after every rebuild. Signing with a Developer ID and notarising are
+# the release workflow's job.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)"
 BUNDLE_ID="app.wisething.omeganotch"
 APP="$ROOT/target/macos/Omega Notch.app"
+IDENTITY="${CODESIGN_IDENTITY:--}"
 
 echo "Building engine…"
 (cd "$ROOT" && cargo build --release -p omega-notch-engine)
@@ -68,9 +75,15 @@ cat > "$ENTITLEMENTS" <<EOF
 </plist>
 EOF
 
-# Inside out: the helper first, then the app around it.
-codesign --force --options runtime --sign - "$APP/Contents/Helpers/omega-notch-engine"
-codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
+# Inside out: the helper first, then the app around it. The identifiers are
+# fixed so that, with a real identity, what macOS remembers stays the same from
+# one build to the next. No timestamp: a local build should not need Apple's
+# timestamp server.
+echo "Signing with ${CODESIGN_IDENTITY:-an ad hoc signature}…"
+codesign --force --options runtime --timestamp=none --sign "$IDENTITY" \
+  --identifier "$BUNDLE_ID.engine" "$APP/Contents/Helpers/omega-notch-engine"
+codesign --force --options runtime --timestamp=none --sign "$IDENTITY" \
+  --identifier "$BUNDLE_ID" --entitlements "$ENTITLEMENTS" "$APP"
 rm -f "$ENTITLEMENTS"
 codesign --verify --deep --strict "$APP"
 
