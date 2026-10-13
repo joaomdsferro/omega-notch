@@ -8,7 +8,7 @@ struct NotchView: View {
   var openSettings: () -> Void
   var openDashboard: () -> Void
 
-  @State private var buzz: CGFloat = 0
+  @State private var motionStart = Date.now
   @State private var dragStart: Double = 0
 
   private var client: EngineClient { model.client }
@@ -31,37 +31,41 @@ struct NotchView: View {
   // MARK: The nub
 
   /// What is left on the edge while the notch is tucked away; on a screen
-  /// with a camera housing, the housing plays that part.
+  /// with a camera housing, the housing plays that part. It moves while a
+  /// session works or waits for you, in the motion chosen in Settings.
   @ViewBuilder private var nub: some View {
     if model.housing == .zero {
-      let length = 30 * s * model.config.idleSize
-      let depth = model.nubDepth
-      let centre = model.bodyStart + model.collapsedLength / 2 + buzz
-      let frame = edgeFrame(start: centre - length / 2 - depth / 2, length: length + depth, depth: depth)
-      NotchShape(edge: model.edge, curl: depth / 2, radius: depth / 2)
-        .fill(Color(hex: model.config.idleColor))
+      TimelineView(.animation(paused: motion.isEmpty)) { context in
+        let pose = NubMotion.pose(motion, at: context.date.timeIntervalSince(motionStart), unit: s)
+        let length = 30 * s * model.config.idleSize * pose.lengthScale
+        let depth = model.nubDepth * pose.depthScale
+        let centre = model.bodyStart + model.collapsedLength / 2 + pose.along
+        let frame = edgeFrame(start: centre - length / 2 - depth / 2, length: length + depth, depth: depth)
+        // Breathing fades the paint; the nub's own opacity belongs to hiding
+        // and showing.
+        NotchShape(
+          edge: model.edge, curl: depth / 2, radius: depth / 2, wave: pose.wave * depth,
+          wavePhase: pose.wavePhase
+        )
+        .fill(Color(hex: model.config.idleColor).opacity(pose.fade))
         .frame(width: frame.width, height: frame.height)
         .offset(x: frame.minX, y: frame.minY)
-        .opacity(model.revealed ? 0 : 1)
-        .task(id: working) { await shiver() }
-    }
-  }
-
-  /// A session is working somewhere: the nub shivers to say so.
-  private var working: Bool {
-    client.activeReadings.contains { client.session(for: $0.provider)?.kind == .busy }
-  }
-
-  /// A short shiver along the edge, then a rest, for as long as something
-  /// is working.
-  private func shiver() async {
-    while working && !Task.isCancelled {
-      for (to, ms) in [(1.6, 45), (-1.6, 90), (1.2, 90), (-1.2, 90), (0, 45)] {
-        withAnimation(.linear(duration: Double(ms) / 1000)) { buzz = to * s }
-        try? await Task.sleep(for: .milliseconds(ms))
       }
-      try? await Task.sleep(for: .milliseconds(1500))
+      .opacity(model.revealed ? 0 : 1)
+      // Each motion starts from rest, so switching never leaves it half way.
+      .onChange(of: motion, initial: true) { motionStart = .now }
     }
+  }
+
+  /// The motion the nub plays now, or empty to keep it still. Waiting for you
+  /// outranks working.
+  private var motion: String {
+    guard !model.revealed else { return "" }
+    let kinds = client.activeReadings.compactMap { client.session(for: $0.provider)?.kind }
+    let style =
+      kinds.contains(.waitingYou)
+      ? model.config.nubWaiting : kinds.contains(.busy) ? model.config.nubWorking : "none"
+    return style == "none" ? "" : style
   }
 
   /// A frame along the edge, in panel coordinates, flush with the edge.

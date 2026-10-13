@@ -391,3 +391,114 @@ struct SoundRow: View {
     }
   }
 }
+
+/// One tab in Settings' sidebar: an icon and its name, the chosen one raised.
+struct TabRow: View {
+  var title: String
+  var icon: String
+  var chosen: Bool
+  var action: () -> Void
+
+  @State private var hovered = false
+
+  var body: some View {
+    HStack(spacing: 11) {
+      Image(systemName: icon)
+        .font(.system(size: 14))
+        .frame(width: 18)
+        .foregroundStyle(chosen ? Theme.text : Theme.textSecondary)
+      Text(title)
+        .font(.notch(13, chosen ? .semibold : .regular))
+        .foregroundStyle(chosen || hovered ? Theme.text : Theme.textSecondary)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 12)
+    .frame(height: 38)
+    .background(
+      RoundedRectangle(cornerRadius: 9)
+        .fill(chosen ? Theme.controlChosen : hovered ? Theme.controlHover : .clear)
+    )
+    .animation(.easeOut(duration: 0.12), value: chosen)
+    .contentShape(Rectangle())
+    .onHover { hovered = $0 }
+    .clickable()
+    .onTapGesture(perform: action)
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+  }
+}
+
+/// Every motion for the nub, side by side, each playing on a sliver of screen
+/// edge so the tile shows what it does; the chosen one raised.
+struct MotionPicker: View {
+  var value: String
+  var enabled = true
+  var pick: (String) -> Void
+
+  var body: some View {
+    HStack(spacing: 6) {
+      ForEach(NubMotion.styles, id: \.value) { style in
+        MotionTile(style: style, chosen: style.value == value, enabled: enabled) { pick(style.value) }
+      }
+    }
+  }
+
+  private struct MotionTile: View {
+    var style: NubMotion.Style
+    var chosen: Bool
+    var enabled: Bool
+    var action: () -> Void
+
+    @State private var hovered = false
+    @State private var start = Date.now
+
+    var body: some View {
+      let ink = chosen ? Theme.text : Theme.textSecondary
+      VStack(spacing: 0) {
+        TimelineView(.animation(paused: !enabled || style.value == "none")) { context in
+          let pose = NubMotion.pose(style.value, at: context.date.timeIntervalSince(start), unit: 1.3)
+          let length = 22 * pose.lengthScale
+          let depth = 7 * pose.depthScale
+          // The edge of the screen, and the nub hanging from it.
+          ZStack(alignment: .top) {
+            Rectangle().fill(Theme.track).frame(height: 1).padding(.horizontal, 8)
+            NotchShape(
+              edge: "top", curl: depth / 2, radius: depth / 2, wave: pose.wave * depth,
+              wavePhase: pose.wavePhase
+            )
+            .fill(ink.opacity(pose.fade))
+            .frame(width: length + depth, height: depth)
+            .offset(x: pose.along)
+          }
+          .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .frame(height: 30)
+        .padding(.top, 12)
+        Text(style.label)
+          .font(.notch(11, chosen ? .semibold : .regular))
+          .foregroundStyle(ink)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+          .padding(.bottom, 9)
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: 66)
+      .background(
+        RoundedRectangle(cornerRadius: 10)
+          .fill(chosen ? Theme.controlChosen : hovered && enabled ? Theme.panelHover : Theme.controlFill)
+          .strokeBorder(Color.white.opacity(chosen ? 0x40 / 255 : 0), lineWidth: 1)
+      )
+      .opacity(enabled ? 1 : 0.45)
+      .animation(.easeOut(duration: 0.12), value: chosen)
+      .contentShape(Rectangle())
+      .onHover { hovered = $0 }
+      .clickable(enabled: enabled)
+      .onTapGesture { if enabled { action() } }
+      .help(style.tip)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(style.label)
+      .accessibilityHint(style.tip)
+      .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+    }
+  }
+}

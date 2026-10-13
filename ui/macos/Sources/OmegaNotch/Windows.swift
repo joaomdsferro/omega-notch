@@ -17,7 +17,7 @@ final class Windows {
   func showSettings() {
     if settings == nil {
       settings = makeWindow(
-        title: "Omega Notch Settings", size: CGSize(width: 460, height: 760),
+        title: "Omega Notch Settings", size: CGSize(width: 700, height: 640),
         content: SettingsView(client: client))
     }
     bringForward(settings)

@@ -55,6 +55,19 @@ public struct NotchConfig: Equatable, Sendable {
     set { if Self.isHexColor(newValue) { raw["idle_color"] = .string(newValue.uppercased()) } }
   }
 
+  /// How the nub moves while a session works, by name (see `NubMotion`); an
+  /// unknown name reads as the engine's default.
+  public var nubWorking: String {
+    get { Self.motionOr(raw["nub_working"]?.string, "shiver") }
+    set { if NubMotion.names.contains(newValue) { raw["nub_working"] = .string(newValue) } }
+  }
+
+  /// The same, while a session waits for you.
+  public var nubWaiting: String {
+    get { Self.motionOr(raw["nub_waiting"]?.string, "pulse") }
+    set { if NubMotion.names.contains(newValue) { raw["nub_waiting"] = .string(newValue) } }
+  }
+
   public var notchColor: String {
     get { Self.hexOrBlack(raw["notch_color"]?.string) }
     set { if Self.isHexColor(newValue) { raw["notch_color"] = .string(newValue.uppercased()) } }
@@ -113,6 +126,11 @@ public struct NotchConfig: Equatable, Sendable {
 
   public static func isHexColor(_ value: String) -> Bool {
     value.count == 7 && value.hasPrefix("#") && value.dropFirst().allSatisfy(\.isHexDigit)
+  }
+
+  private static func motionOr(_ value: String?, _ fallback: String) -> String {
+    guard let value, NubMotion.names.contains(value) else { return fallback }
+    return value
   }
 
   private static func hexOrBlack(_ value: String?) -> String {
