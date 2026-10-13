@@ -332,9 +332,10 @@ struct ScreenTile: View {
 }
 
 /// The screen in miniature, shaped like the one the notch lives on (its
-/// proportions, and a stand or a laptop's base under it), with the notch
-/// drawn where it sits. Click an edge to move the notch there; on its edge,
-/// click or drag to slide it. The same as the Plasma shell's EdgePicker.
+/// proportions, its camera housing, and a stand or a laptop's base under it),
+/// with the notch drawn where it sits. The whole screen is the target: a click
+/// moves the notch to the nearest edge, where the pointer is, and a drag
+/// slides it along that edge. The same as the Plasma shell's EdgePicker.
 struct EdgePicker: View {
   var screen: ScreenInfo?
   var edge: String
@@ -343,22 +344,25 @@ struct EdgePicker: View {
   var notchColor: String
   /// On a camera housing the notch sits in the middle of the top edge.
   var pinned: Bool
-  var setEdge: (String) -> Void
-  var setPosition: (Double) -> Void
+  /// The edge and the position along it, saved together.
+  var place: (String, Double) -> Void
 
-  /// Where the notch is while it is dragged; saving refetches every
-  /// provider, so it is only committed on release.
+  /// The edge and position while the pointer is down; saving refetches every
+  /// provider, so they are only committed on release.
+  @State private var dragEdge: String?
   @State private var dragPosition: Double?
-  @State private var hoverEdge: String?
+  @State private var hover: (edge: String, position: Double)?
 
-  private static let edges = [("left", "Left edge"), ("right", "Right edge"), ("top", "Top edge"), ("bottom", "Bottom edge")]
+  private static let edgeNames = [("top", "Top edge"), ("left", "Left edge"), ("right", "Right edge"), ("bottom", "Bottom edge")]
   private let bezel: CGFloat = 6
   private let displayWidth: CGFloat = 300
-  private let band: CGFloat = 26  // hit area along each edge
   private let notchDepth: CGFloat = 9
   private let notchCurl: CGFloat = 6
+  /// How close to the middle a position snaps to it.
+  private let snap = 0.04
 
   private var laptop: Bool { screen?.builtIn ?? false }
+  private var housing: Bool { screen?.housing ?? false }
   private var displayHeight: CGFloat {
     guard let size = screen?.size, size.width > 0, size.height > 0 else { return 188 }
     return max(140, min(220, displayWidth * size.height / size.width))
@@ -366,7 +370,11 @@ struct EdgePicker: View {
   private var lid: CGSize { CGSize(width: displayWidth + 2 * bezel, height: displayHeight + 2 * bezel) }
   private var standHeight: CGFloat { laptop ? 8 : 20 }
   private var pill: CGFloat { 40 * Theme.scale(for: size) }
-  private var shownPosition: Double { pinned ? 0.5 : dragPosition ?? position }
+  private var shownEdge: String { dragEdge ?? edge }
+  private var shownPosition: Double {
+    if let dragEdge, let dragPosition { return pinnedOn(dragEdge) ? 0.5 : dragPosition }
+    return pinned ? 0.5 : position
+  }
 
   var body: some View {
     let width = laptop ? lid.width + 32 : lid.width
@@ -379,6 +387,7 @@ struct EdgePicker: View {
       display
         .frame(width: displayWidth, height: displayHeight)
         .padding(.top, bezel)
+      surface
     }
     .frame(width: width, height: lid.height + standHeight, alignment: .top)
   }
@@ -393,6 +402,7 @@ struct EdgePicker: View {
         }
         .frame(height: 9)
         .padding(.top, lid.height - 1)
+        .allowsHitTesting(false)
     } else {
       Rectangle().fill(Color(hex: "#1E1E24")).frame(width: 30, height: 14).padding(.top, lid.height - 1)
       RoundedRectangle(cornerRadius: 3).fill(Color(hex: "#2A2A31")).frame(width: 84, height: 6)
@@ -400,36 +410,108 @@ struct EdgePicker: View {
     }
   }
 
+  /// Drawn only; the pointer is handled by `surface` above it.
   private var display: some View {
     ZStack(alignment: .topLeading) {
       RoundedRectangle(cornerRadius: 11)
         .fill(LinearGradient(colors: [Color(hex: "#2C303C"), Color(hex: "#17181E")], startPoint: .top, endPoint: .bottom))
 
-      // A ghost of the notch on the hovered edge.
-      if let hoverEdge, hoverEdge != edge {
-        notch(on: hoverEdge).fill(Color.white.opacity(0x4D / 255))
-          .frame(width: notchSize(hoverEdge).width, height: notchSize(hoverEdge).height)
-          .offset(notchOrigin(hoverEdge, 0.5))
+      // The camera housing, where the notch goes on the top edge.
+      if housing {
+        let width = displayWidth * (screen?.housingShare ?? 0.12)
+        UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3)
+          .fill(Color(hex: "#050506"))
+          .frame(width: width, height: notchDepth - 2)
+          .offset(x: (displayWidth - width) / 2)
+      }
+
+      // A ghost of the notch where a click would put it.
+      if dragEdge == nil, let hover, hover.edge != edge || !pinned {
+        notch(on: hover.edge).fill(Color.white.opacity(0x4D / 255))
+          .frame(width: notchSize(hover.edge).width, height: notchSize(hover.edge).height)
+          .offset(notchOrigin(hover.edge, pinnedOn(hover.edge) ? 0.5 : hover.position))
       }
       // The notch itself, in its own colour, fused to the bezel.
-      notch(on: edge).fill(Color(hex: notchColor))
-        .frame(width: notchSize(edge).width, height: notchSize(edge).height)
-        .offset(notchOrigin(edge, shownPosition))
+      notch(on: shownEdge).fill(Color(hex: notchColor))
+        .frame(width: notchSize(shownEdge).width, height: notchSize(shownEdge).height)
+        .offset(notchOrigin(shownEdge, shownPosition))
         .animation(dragPosition == nil ? .easeOut(duration: 0.16) : nil, value: shownPosition)
-        .animation(.easeOut(duration: 0.16), value: edge)
+        .animation(.easeOut(duration: 0.16), value: shownEdge)
 
-      Text("\(Int((shownPosition * 100).rounded()))%")
+      Text(pinnedOn(shownEdge) ? "Camera" : "\(Int((shownPosition * 100).rounded()))%")
         .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(Theme.textSecondary)
         .frame(width: displayWidth, height: displayHeight)
         .opacity(dragPosition == nil ? 0 : 1)
         .animation(.easeOut(duration: 0.12), value: dragPosition == nil)
-
-      ForEach(Self.edges, id: \.0) { zone, tip in
-        hitZone(zone, tip: tip)
-      }
     }
-    .coordinateSpace(name: "display")
+    .allowsHitTesting(false)
+  }
+
+  /// The whole lid, bezel included, as one target: no thin bands to aim at.
+  private var surface: some View {
+    Color.clear
+      .frame(width: lid.width, height: lid.height)
+      .contentShape(RoundedRectangle(cornerRadius: 16))
+      .coordinateSpace(name: "lid")
+      .onContinuousHover(coordinateSpace: .named("lid")) { phase in
+        switch phase {
+        case .active(let point):
+          let at = inDisplay(point)
+          let zone = nearestEdge(at)
+          hover = (zone, positionAt(zone, at))
+        case .ended:
+          hover = nil
+        }
+      }
+      .clickable()
+      .gesture(
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("lid"))
+          .onChanged { drag in
+            let zone = dragEdge ?? nearestEdge(inDisplay(drag.startLocation))
+            dragEdge = zone
+            dragPosition = positionAt(zone, inDisplay(drag.location))
+          }
+          .onEnded { drag in
+            let zone = dragEdge ?? nearestEdge(inDisplay(drag.startLocation))
+            let at = pinnedOn(zone) ? 0.5 : positionAt(zone, inDisplay(drag.location))
+            dragEdge = nil
+            dragPosition = nil
+            if zone != edge || abs(at - position) > 0.001 { place(zone, at) }
+          }
+      )
+      .help(pinned ? "Click another edge to move the notch off the camera" : "Click an edge, or drag along it")
+      .accessibilityElement()
+      .accessibilityLabel("Notch position")
+      .accessibilityValue(
+        pinned ? "Camera housing" : "\(Self.edgeNames.first { $0.0 == edge }?.1 ?? edge), \(Int((position * 100).rounded())) percent"
+      )
+      .accessibilityActions {
+        ForEach(Self.edgeNames.filter { $0.0 != edge }, id: \.0) { zone, name in
+          Button("Move to the \(name.lowercased())") { place(zone, 0.5) }
+        }
+      }
+      .accessibilityAdjustableAction { direction in
+        guard !pinned else { return }
+        let step = direction == .increment ? 0.05 : -0.05
+        place(edge, max(0, min(1, position + step)))
+      }
+  }
+
+  /// The top edge of a screen with a camera housing has one place: the housing.
+  private func pinnedOn(_ edge: String) -> Bool { edge == "top" && housing }
+
+  private func inDisplay(_ point: CGPoint) -> CGPoint {
+    CGPoint(x: point.x - bezel, y: point.y - bezel)
+  }
+
+  /// The edge nearest a point, so every point on the screen picks one.
+  private func nearestEdge(_ point: CGPoint) -> String {
+    let distances = [
+      ("top", point.y), ("left", point.x),
+      ("right", displayWidth - point.x), ("bottom", displayHeight - point.y),
+    ]
+    return distances.min { $0.1 < $1.1 }?.0 ?? "top"
   }
 
   private func notch(on edge: String) -> NotchShape {
@@ -455,56 +537,13 @@ struct EdgePicker: View {
     }
   }
 
+  /// The position under a point, snapped to the middle when close to it.
   private func positionAt(_ edge: String, _ point: CGPoint) -> Double {
     let vertical = edge == "left" || edge == "right"
     let length = vertical ? displayHeight : displayWidth
     let at = (vertical ? point.y : point.x) - 8 - notchCurl - pill / 2
-    return max(0, min(1, Double(at / (length - pill - 2 * notchCurl - 16))))
-  }
-
-  private func zoneFrame(_ zone: String) -> CGRect {
-    switch zone {
-    case "left": CGRect(x: 0, y: band * 0.6, width: band, height: displayHeight - 1.2 * band)
-    case "right": CGRect(x: displayWidth - band, y: band * 0.6, width: band, height: displayHeight - 1.2 * band)
-    case "bottom": CGRect(x: band, y: displayHeight - band, width: displayWidth - 2 * band, height: band)
-    default: CGRect(x: band, y: 0, width: displayWidth - 2 * band, height: band)
-    }
-  }
-
-  private func hitZone(_ zone: String, tip: String) -> some View {
-    let frame = zoneFrame(zone)
-    let current = zone == edge
-    let slides = current && !pinned
-    return Color.clear
-      .contentShape(Rectangle())
-      .frame(width: frame.width, height: frame.height)
-      .offset(x: frame.minX, y: frame.minY)
-      .onHover { inside in
-        if inside { hoverEdge = zone } else if hoverEdge == zone { hoverEdge = nil }
-      }
-      .clickable(enabled: !current || slides)
-      .gesture(
-        DragGesture(minimumDistance: 0, coordinateSpace: .named("display"))
-          .onChanged { drag in if slides { dragPosition = positionAt(zone, drag.location) } }
-          .onEnded { drag in
-            if !current {
-              setEdge(zone)
-            } else if slides {
-              setPosition(positionAt(zone, drag.location))
-              dragPosition = nil
-            }
-          }
-      )
-      .help(slides ? "Click or drag to slide the notch along this edge" : tip)
-      .accessibilityElement()
-      .accessibilityLabel(tip)
-      .accessibilityAddTraits(current ? [.isButton, .isSelected] : .isButton)
-      .accessibilityAction { if !current { setEdge(zone) } }
-      .accessibilityAdjustableAction { direction in
-        guard slides else { return }
-        let step = direction == .increment ? 0.05 : -0.05
-        setPosition(max(0, min(1, position + step)))
-      }
+    let position = max(0, min(1, Double(at / (length - pill - 2 * notchCurl - 16))))
+    return abs(position - 0.5) < snap ? 0.5 : position
   }
 }
 

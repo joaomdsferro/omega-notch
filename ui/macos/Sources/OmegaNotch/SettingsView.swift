@@ -165,8 +165,12 @@ struct SettingsView: View {
       EdgePicker(
         screen: targetScreen, edge: config.edge, position: config.edgePosition, size: config.size,
         notchColor: config.notchColor, pinned: pinnedByHousing,
-        setEdge: { edge in update { $0.edge = edge } },
-        setPosition: { position in update { $0.edgePosition = position } }
+        place: { edge, position in
+          update {
+            $0.edge = edge
+            $0.edgePosition = position
+          }
+        }
       )
       .frame(maxWidth: .infinity)
       .padding(.vertical, 8)
@@ -183,8 +187,8 @@ struct SettingsView: View {
       }
       Hint(
         text: pinnedByHousing
-          ? "On this screen the notch grows out of the camera housing, in the middle of the top edge."
-          : "Click an edge of the little screen to move the notch there, or drag it along its edge. You can also drag the grip beside the rings."
+          ? "On this screen the notch grows out of the camera housing, in the middle of the top edge. Click another edge to move it."
+          : "Click near an edge of the little screen to move the notch there, or drag along it; it snaps to the middle. You can also drag the grip beside the rings."
       )
     }
   }
@@ -368,6 +372,8 @@ struct ScreenInfo: Identifiable {
   var subtitle: String
   var main: Bool
   var housing: Bool
+  /// How much of the screen's width the housing takes, for drawing it.
+  var housingShare: CGFloat
   /// A laptop's own display, drawn on its base rather than on a stand.
   var builtIn: Bool
   /// Its size in points, for the proportions of the little screen.
@@ -381,6 +387,11 @@ struct ScreenInfo: Identifiable {
     let scale = screen.backingScaleFactor
     main = screen == NSScreen.screens.first
     housing = screen.safeAreaInsets.top > 0
+    if housing, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea, size.width > 0 {
+      housingShare = (right.minX - left.maxX) / size.width
+    } else {
+      housingShare = 0.12
+    }
     self.size = size
     let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
     builtIn = number.map { CGDisplayIsBuiltin($0.uint32Value) != 0 } ?? false
