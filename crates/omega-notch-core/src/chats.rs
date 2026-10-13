@@ -178,6 +178,8 @@ struct Transcript {
     ai_title: Option<String>,
     last_prompt: Option<String>,
     first_prompt: Option<String>,
+    /// A slash command with arguments, for a chat with no typed prompt.
+    command_prompt: Option<String>,
     cwd: Option<String>,
     model: Option<String>,
     entrypoint: Option<String>,
@@ -236,7 +238,9 @@ impl Transcript {
                 self.last_at = Some(at);
             }
         }
-        if line.cwd.is_some() {
+        // Where the session started: the project, even after a `cd` into one
+        // of its folders.
+        if self.cwd.is_none() {
             self.cwd = line.cwd;
         }
         if line.entrypoint.is_some() {
@@ -248,19 +252,27 @@ impl Transcript {
             Some("custom-title") => self.custom_title = clean_title(line.custom_title.as_deref()),
             Some("last-prompt") => self.last_prompt = clean_title(line.last_prompt.as_deref()),
             Some("user") if line.is_meta != Some(true) => {
-                let text = match line.message.and_then(|m| m.content) {
-                    Some(RawContent::Text(text)) => Some(text),
+                let texts: Vec<String> = match line.message.and_then(|m| m.content) {
+                    Some(RawContent::Text(text)) => vec![text],
                     Some(RawContent::Blocks(blocks)) => blocks
                         .into_iter()
                         .filter(|b| b.kind.as_deref() == Some("text"))
-                        .find_map(|b| b.text),
-                    None => None,
+                        .filter_map(|b| b.text)
+                        .collect(),
+                    None => Vec::new(),
                 };
                 // Tool results are user lines too; only typed prompts count.
-                if let Some(title) = clean_title(text.as_deref()) {
+                // The editor's context comes first in its own block, so the
+                // prompt is the first block that reads as one.
+                if let Some(title) = texts.iter().find_map(|t| clean_title(Some(t))) {
                     self.prompts += 1;
                     if self.first_prompt.is_none() {
                         self.first_prompt = Some(title);
+                    }
+                } else if let Some(title) = texts.iter().find_map(|t| command_title(t)) {
+                    self.prompts += 1;
+                    if self.command_prompt.is_none() {
+                        self.command_prompt = Some(title);
                     }
                 }
             }
@@ -314,6 +326,7 @@ impl Transcript {
             .or_else(|| self.ai_title.clone())
             .or_else(|| self.last_prompt.clone())
             .or_else(|| self.first_prompt.clone())
+            .or_else(|| self.command_prompt.clone())
     }
 }
 
@@ -711,6 +724,30 @@ pub(crate) fn folder_name(path: &str) -> String {
         .to_string()
 }
 
+/// A slash command typed with something to do, such as `/goal ship it`, as
+/// the transcript keeps it (`<command-name>/goal</command-name>` …
+/// `<command-args>ship it</command-args>`). One without arguments (`/clear`,
+/// `/compact`) says nothing about the chat.
+fn command_title(text: &str) -> Option<String> {
+    fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+        let open = format!("<{name}>");
+        let start = text.find(&open)? + open.len();
+        let end = text[start..].find(&format!("</{name}>"))? + start;
+        Some(text[start..end].trim())
+    }
+    let name = tag(text, "command-name")?;
+    let args = tag(text, "command-args")?;
+    if args.is_empty() {
+        return None;
+    }
+    let name = if name.starts_with('/') {
+        name.to_string()
+    } else {
+        format!("/{name}")
+    };
+    clean_title(Some(&format!("{name} {args}")))
+}
+
 /// One line, trimmed and bounded. Harness-injected text (`<command-name>`,
 /// `<system-reminder>`…) is not something the user typed, so it is no title.
 fn clean_title(raw: Option<&str>) -> Option<String> {
@@ -792,6 +829,17 @@ mod tests {
             None
         );
         assert_eq!(clean_title(Some("   ")), None);
+        assert_eq!(
+            command_title(
+                "<command-message>goal</command-message>\n<command-name>/goal</command-name>\n<command-args>ship  the\n release</command-args>"
+            )
+            .as_deref(),
+            Some("/goal ship the release")
+        );
+        assert_eq!(
+            command_title("<command-name>/compact</command-name><command-args></command-args>"),
+            None
+        );
         let long = "a".repeat(200);
         assert_eq!(
             clean_title(Some(&long)).unwrap().chars().count(),
@@ -834,5 +882,26 @@ mod tests {
             .map(TokenTotals::total)
             .sum();
         assert_eq!(summed, 1752);
+    }
+
+    #[test]
+    fn project_and_title_survive_a_cd_and_a_slash_command() {
+        let mut t = Transcript::default();
+        t.ingest(line(
+            r#"{"type":"user","cwd":"/w/organizer","message":{"content":"<command-name>/goal</command-name><command-args>tidy the inbox</command-args>"}}"#,
+        ));
+        t.ingest(line(
+            r#"{"type":"user","cwd":"/w/organizer/web","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#,
+        ));
+        assert_eq!(t.cwd.as_deref(), Some("/w/organizer"));
+        assert_eq!(t.prompts, 1);
+        assert_eq!(t.title().as_deref(), Some("/goal tidy the inbox"));
+
+        // A prompt typed later reads better than the command.
+        t.ingest(line(
+            r#"{"type":"user","message":{"content":[{"type":"text","text":"<ide_opened_file>a.ts</ide_opened_file>"},{"type":"text","text":"add a filter"}]}}"#,
+        ));
+        assert_eq!(t.prompts, 2);
+        assert_eq!(t.title().as_deref(), Some("add a filter"));
     }
 }
