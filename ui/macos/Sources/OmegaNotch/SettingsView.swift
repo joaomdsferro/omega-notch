@@ -135,47 +135,57 @@ struct SettingsView: View {
     return screen?.housing ?? false
   }
 
+  /// The screen the notch is on: the chosen one, else the main one.
+  private var targetScreen: ScreenInfo? {
+    screens.first { $0.name == config.screen } ?? screens.first { $0.main }
+  }
+
   @ViewBuilder private var placement: some View {
     SettingsSection(heading: "Screen") {
-      ScreenRow(
-        title: "Main screen", subtitle: "Follows whichever screen has the menu bar",
-        chosen: config.screen.isEmpty
-      ) { update { $0.screen = "" } }
-      ForEach(screens) { screen in
-        ScreenRow(title: screen.name, subtitle: screen.subtitle, chosen: screen.name == config.screen) {
-          update { $0.screen = screen.name }
+      FlowLayout(spacing: 8, lineSpacing: 8) {
+        ScreenTile(
+          title: "Main screen", icon: "star", detail: "Follows whichever screen has the menu bar",
+          chosen: config.screen.isEmpty
+        ) { update { $0.screen = "" } }
+        ForEach(screens) { screen in
+          ScreenTile(
+            title: screen.name, icon: screen.builtIn ? "laptopcomputer" : "display",
+            detail: screen.subtitle, chosen: screen.name == config.screen
+          ) { update { $0.screen = screen.name } }
+        }
+        if chosenScreenMissing {
+          ScreenTile(
+            title: config.screen, icon: "powerplug", detail: "Not plugged in. The notch stays on the main screen until it is",
+            badge: "Not connected", chosen: true, enabled: false)
         }
       }
-      if chosenScreenMissing {
-        ScreenRow(
-          title: config.screen, subtitle: "Not connected — on the main screen until it is",
-          chosen: true, enabled: false)
-      }
+      .padding(.top, 4)
     }
     SettingsSection(heading: "On screen") {
-      FieldLabel(text: "Screen edge")
-      Segmented(
-        options: [("left", "Left"), ("right", "Right"), ("top", "Top"), ("bottom", "Bottom")],
-        value: config.edge
-      ) { edge in update { $0.edge = edge } }
+      EdgePicker(
+        screen: targetScreen, edge: config.edge, position: config.edgePosition, size: config.size,
+        notchColor: config.notchColor, pinned: pinnedByHousing,
+        setEdge: { edge in update { $0.edge = edge } },
+        setPosition: { position in update { $0.edgePosition = position } }
+      )
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 8)
 
       FieldLabel(text: "Size")
-      Segmented(options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")], value: config.size) {
-        size in update { $0.size = size }
-      }
-
-      if pinnedByHousing {
-        Hint(text: "On this screen the notch grows out of the camera housing, in the middle of the top edge.")
-      } else {
-        FieldLabel(text: "Position along the edge")
-        HStack(spacing: 12) {
-          SettingsSlider(value: config.edgePosition, range: 0...1) { value in
-            update { $0.edgePosition = value }
-          }
-          SettingsButton(title: "Recentre") { update { $0.edgePosition = 0.5 } }
+      HStack(spacing: 12) {
+        Segmented(options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")], value: config.size) {
+          size in update { $0.size = size }
         }
-        Hint(text: "Or drag the grip that appears beside the rings.")
+        if !pinnedByHousing {
+          SettingsButton(title: "Recentre") { update { $0.edgePosition = 0.5 } }
+            .help("Put the notch in the middle of its edge")
+        }
       }
+      Hint(
+        text: pinnedByHousing
+          ? "On this screen the notch grows out of the camera housing, in the middle of the top edge."
+          : "Click an edge of the little screen to move the notch there, or drag it along its edge. You can also drag the grip beside the rings."
+      )
     }
   }
 
@@ -358,6 +368,10 @@ struct ScreenInfo: Identifiable {
   var subtitle: String
   var main: Bool
   var housing: Bool
+  /// A laptop's own display, drawn on its base rather than on a stand.
+  var builtIn: Bool
+  /// Its size in points, for the proportions of the little screen.
+  var size: CGSize
   var id: String { name }
 
   @MainActor
@@ -367,6 +381,9 @@ struct ScreenInfo: Identifiable {
     let scale = screen.backingScaleFactor
     main = screen == NSScreen.screens.first
     housing = screen.safeAreaInsets.top > 0
+    self.size = size
+    let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    builtIn = number.map { CGDisplayIsBuiltin($0.uint32Value) != 0 } ?? false
     var parts = ["\(Int(size.width * scale))×\(Int(size.height * scale))"]
     if main { parts.append("main") }
     if housing { parts.append("camera housing") }
