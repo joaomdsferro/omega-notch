@@ -137,6 +137,17 @@ pub struct AlertSettings {
     /// The same, for a session that stopped to ask you something.
     #[serde(default)]
     pub sound_waiting: String,
+    /// Whether the notch also opens for a few seconds with each alert. Off,
+    /// the notification and its sound are the whole alert.
+    #[serde(default = "default_true")]
+    pub open_notch: bool,
+    /// Decide that per alert instead, with the two below.
+    #[serde(default)]
+    pub open_notch_split: bool,
+    #[serde(default = "default_true")]
+    pub open_notch_finished: bool,
+    #[serde(default = "default_true")]
+    pub open_notch_waiting: bool,
     pub mute_cursor: bool,
     pub mute_claude_code: bool,
     pub mute_claude_desktop: bool,
@@ -173,6 +184,10 @@ impl Default for AppConfig {
                 sound: true,
                 sound_finished: String::new(),
                 sound_waiting: String::new(),
+                open_notch: true,
+                open_notch_split: false,
+                open_notch_finished: true,
+                open_notch_waiting: true,
                 mute_cursor: false,
                 mute_claude_code: false,
                 mute_claude_desktop: false,
@@ -287,6 +302,24 @@ mod tests {
         serde_json::from_value::<AppConfig>(value)
             .unwrap()
             .normalized()
+    }
+
+    #[test]
+    fn alerts_open_the_notch_unless_told_not_to() {
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["alerts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("open_notch");
+        let old: AppConfig = serde_json::from_value(value).unwrap();
+        assert!(old.alerts.open_notch);
+        assert!(!old.alerts.open_notch_split);
+        assert!(old.alerts.open_notch_finished && old.alerts.open_notch_waiting);
+        let off = parse(
+            r#"{"alerts":{"enabled":true,"sound":true,"open_notch":false,
+            "mute_cursor":false,"mute_claude_code":false,"mute_claude_desktop":false}}"#,
+        );
+        assert!(!off.alerts.open_notch);
     }
 
     #[test]

@@ -36,6 +36,10 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
     Q_PROPERTY(bool soundEnabled READ soundEnabled NOTIFY configChanged)
+    Q_PROPERTY(bool openNotchOnAlert READ openNotchOnAlert NOTIFY configChanged)
+    Q_PROPERTY(bool openNotchSplit READ openNotchSplit NOTIFY configChanged)
+    Q_PROPERTY(bool openNotchFinished READ openNotchFinished NOTIFY configChanged)
+    Q_PROPERTY(bool openNotchWaiting READ openNotchWaiting NOTIFY configChanged)
     // Sound names as saved; empty means the default for that alert.
     Q_PROPERTY(QString soundFinished READ soundFinished NOTIFY configChanged)
     Q_PROPERTY(QString soundWaiting READ soundWaiting NOTIFY configChanged)
@@ -80,6 +84,10 @@ public:
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
     bool soundEnabled() const { return m_soundEnabled; }
+    bool openNotchOnAlert() const { return m_openNotchOnAlert; }
+    bool openNotchSplit() const { return m_openNotchSplit; }
+    bool openNotchFinished() const { return m_openNotchFinished; }
+    bool openNotchWaiting() const { return m_openNotchWaiting; }
     QString soundFinished() const { return m_soundFinished; }
     QString soundWaiting() const { return m_soundWaiting; }
     bool providerCursor() const { return m_providerCursor; }
@@ -117,6 +125,10 @@ public:
     Q_INVOKABLE void setProviderEnabled(const QString &id, bool enabled);
     Q_INVOKABLE void setAlertsEnabled(bool enabled);
     Q_INVOKABLE void setSoundEnabled(bool enabled);
+    Q_INVOKABLE void setOpenNotchOnAlert(bool open);
+    Q_INVOKABLE void setOpenNotchSplit(bool split);
+    Q_INVOKABLE void setOpenNotchFinished(bool open);
+    Q_INVOKABLE void setOpenNotchWaiting(bool open);
     Q_INVOKABLE void setSoundFinished(const QString &name);
     Q_INVOKABLE void setSoundWaiting(const QString &name);
     // Starts GitHub's device flow; once the code arrives it is copied and the
@@ -197,6 +209,10 @@ private:
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;
+    bool m_openNotchOnAlert = true;
+    bool m_openNotchSplit = false;
+    bool m_openNotchFinished = true;
+    bool m_openNotchWaiting = true;
     QString m_soundFinished;
     QString m_soundWaiting;
     bool m_providerCursor = true;

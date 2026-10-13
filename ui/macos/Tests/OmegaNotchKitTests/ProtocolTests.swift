@@ -50,7 +50,20 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(chat.linesAdded, 120)
 
     XCTAssertEqual(tokens.first?.modelsToday.first?.model, "Opus 5.5")
-    XCTAssertEqual(NotchConfig(raw: config).edge, "right")
+    var notch = NotchConfig(raw: config)
+    XCTAssertEqual(notch.edge, "right")
+    XCTAssertTrue(notch.openNotchOnAlert)
+    XCTAssertTrue(notch.opensNotch(for: "finished"))
+    notch.openNotchOnAlert = false
+    XCTAssertEqual(notch.raw["alerts"]?["open_notch"], .bool(false))
+    XCTAssertEqual(notch.raw["alerts"]?["sound"], .bool(true))
+    XCTAssertFalse(notch.opensNotch(for: "waiting_you"))
+
+    // Per alert, the single switch no longer decides.
+    notch.openNotchSplit = true
+    notch.openNotchFinished = false
+    XCTAssertFalse(notch.opensNotch(for: "finished"))
+    XCTAssertTrue(notch.opensNotch(for: "waiting_you"))
   }
 
   func testDashboardAndCopilotLogin() throws {

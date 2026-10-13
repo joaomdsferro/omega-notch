@@ -112,6 +112,35 @@ public struct NotchConfig: Equatable, Sendable {
     set { setAlertSound("sound_waiting", newValue) }
   }
 
+  /// Whether the notch also opens for a few seconds with each alert.
+  public var openNotchOnAlert: Bool {
+    get { raw["alerts"]?["open_notch"]?.bool ?? true }
+    set { setAlert("open_notch", newValue) }
+  }
+
+  /// Decide that per alert instead, with the two below.
+  public var openNotchSplit: Bool {
+    get { raw["alerts"]?["open_notch_split"]?.bool ?? false }
+    set { setAlert("open_notch_split", newValue) }
+  }
+
+  public var openNotchFinished: Bool {
+    get { raw["alerts"]?["open_notch_finished"]?.bool ?? true }
+    set { setAlert("open_notch_finished", newValue) }
+  }
+
+  public var openNotchWaiting: Bool {
+    get { raw["alerts"]?["open_notch_waiting"]?.bool ?? true }
+    set { setAlert("open_notch_waiting", newValue) }
+  }
+
+  /// Whether an alert of this kind (`finished` or `waiting_you`) opens the
+  /// notch.
+  public func opensNotch(for kind: String) -> Bool {
+    guard openNotchSplit else { return openNotchOnAlert }
+    return kind == "finished" ? openNotchFinished : openNotchWaiting
+  }
+
   private mutating func setAlertSound(_ key: String, _ value: String) {
     var alerts = raw["alerts"] ?? .object([:])
     alerts[key] = .string(value)
