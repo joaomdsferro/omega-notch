@@ -46,8 +46,12 @@ final class NotchModel {
     clock = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.now = Date() }
     }
-    // Shows itself once at launch, then tucks away.
-    scheduleHide()
+  }
+
+  /// Shows itself once when it first appears, then tucks away.
+  func showOnce() {
+    revealed = true
+    updateWanted()
   }
 
   // MARK: Metrics (medium preset, scaled by s)

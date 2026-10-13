@@ -44,14 +44,47 @@ final class NotchPanelController {
     self.model = model
   }
 
+  /// How long to wait for the engine's config before showing the notch
+  /// with the defaults, so a missing engine never leaves it invisible.
+  private static let configWait: Duration = .seconds(3)
+  private var presented = false
+
   func show() {
+    // Shown only once the engine's config is here: drawn with the defaults
+    // first, it would appear in the wrong place and then animate across to
+    // the right one.
+    if model.client.hasConfig {
+      present()
+    } else {
+      waitForConfig()
+      Task { @MainActor [weak self] in
+        try? await Task.sleep(for: Self.configWait)
+        self?.present()
+      }
+    }
+  }
+
+  private func waitForConfig() {
+    withObservationTracking {
+      _ = model.client.hasConfig
+    } onChange: { [weak self] in
+      Task { @MainActor in self?.present() }
+    }
+  }
+
+  /// Places the panel, then builds the view in it, so its first frame already
+  /// has the right geometry and nothing animates into place.
+  private func present() {
+    guard !presented else { return }
+    presented = true
+    place()
     let view = NotchView(
       model: model,
       openSettings: { [weak self] in self?.openSettings() },
       openDashboard: { [weak self] in self?.openDashboard() })
     panel.contentView = FirstMouseHostingView(rootView: view)
-    place()
     panel.orderFrontRegardless()
+    model.showOnce()
 
     // Mouse moves anywhere (no permission needed for these) and inside the
     // panel once it takes the pointer.
