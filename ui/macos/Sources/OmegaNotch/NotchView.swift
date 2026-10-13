@@ -114,12 +114,35 @@ struct NotchView: View {
   /// Unfolds after the rings when the pointer arrives: a pair of buttons
   /// across the notch and the grip after them, so it fits the notch's depth
   /// on any edge.
-  private var footer: some View {
+  @ViewBuilder private var footer: some View {
+    if model.onHousing { wings } else { footerBlock }
+  }
+
+  /// On a camera housing: the dashboard on the left of the rings and Settings
+  /// on the right, level with the rings, so the notch stays symmetric.
+  private var wings: some View {
+    let side = 26 * s
+    let gap = model.wingLength - side
+    let y = model.notchRect.minY + model.padAcross + 22 * s - side / 2
+    let left = model.ringsStart - gap - side
+    let right = model.ringsStart + model.ringsSpan + gap
+    return ZStack(alignment: .topLeading) {
+      ToolButton(icon: .dashboard, s: s, surface: model.notchColor, action: openDashboard)
+        .offset(x: left, y: y)
+      ToolButton(icon: .settings, s: s, surface: model.notchColor, action: openSettings)
+        .offset(x: right, y: y)
+    }
+    .opacity(model.expanded ? 1 : 0)
+    .animation(.easeOut(duration: 0.16), value: model.expanded)
+    .allowsHitTesting(model.expanded)
+  }
+
+  private var footerBlock: some View {
     let spacing = 6 * s
     let side = 26 * s
     let block = 2 * side + spacing
     let body = model.notchRect
-    let across = model.vertical ? model.depth : model.depth - model.housing.height
+    let across = model.depth
     let origin: CGPoint =
       model.vertical
       ? CGPoint(
@@ -127,7 +150,7 @@ struct NotchView: View {
         y: body.minY + model.collapsedLength + (model.footerLength - block) / 2 - 6 * s)
       : CGPoint(
         x: body.minX + model.collapsedLength + (model.footerLength - block) / 2 - 8 * s,
-        y: body.minY + (model.edge == "top" ? model.housing.height : 0) + (across - block) / 2)
+        y: body.minY + (across - block) / 2)
 
     let pair = Group {
       ToolButton(icon: .dashboard, s: s, surface: model.notchColor, action: openDashboard)
@@ -138,19 +161,16 @@ struct NotchView: View {
       cursor: model.vertical ? .resizeUpDown : .resizeLeftRight
     )
     .gesture(dragGrip)
-    // Centred on the camera housing, the notch has nowhere to slide.
-    let canSlide = model.housing == .zero
-
     return Group {
       if model.vertical {
         VStack(spacing: spacing) {
           HStack(spacing: spacing) { pair }
-          if canSlide { grip }
+          grip
         }
       } else {
         HStack(spacing: spacing) {
           VStack(spacing: spacing) { pair }
-          if canSlide { grip }
+          grip
         }
       }
     }

@@ -77,12 +77,24 @@ final class NotchModel {
   var cardWidth: CGFloat { 320 * s }
 
   var cellCount: Int { max(1, shownReadings.count) }
+  /// The rings alone, end to end.
+  var ringsSpan: CGFloat { CGFloat(cellCount) * cellAlong + CGFloat(cellCount - 1) * cellSpacing }
+  /// Grown out of a camera housing, the notch is symmetric about it: the
+  /// rings in the middle, under the camera, and a button on either side.
+  var onHousing: Bool { housing.width > 0 }
+  /// One of those buttons and its gap to the rings.
+  var wingLength: CGFloat { (26 + 14) * s }
+  /// Never narrower than the housing it grows out of.
+  private var housingMinimum: CGFloat { housing.width - 2 * curl + 24 * s }
   var collapsedLength: CGFloat {
-    let rings = padStart + CGFloat(cellCount) * cellAlong + CGFloat(cellCount - 1) * cellSpacing + padEnd
-    // Never narrower than the housing it grows out of.
-    return max(rings, housing.width - 2 * curl + 24 * s)
+    let rings = padStart + ringsSpan + padEnd
+    return onHousing ? max(rings, housingMinimum) : rings
   }
-  var expandedLength: CGFloat { collapsedLength + footerLength }
+  var expandedLength: CGFloat {
+    onHousing
+      ? max(padStart + ringsSpan + padEnd + 2 * wingLength, housingMinimum)
+      : collapsedLength + footerLength
+  }
   var expanded: Bool { notchHovered || dragging || client.peekOpen }
   var bodyLength: CGFloat { expanded ? expandedLength : collapsedLength }
 
@@ -91,8 +103,8 @@ final class NotchModel {
   /// pushes the rings out from under the pointer.
   var travel: CGFloat { max(0, axisLength - expandedLength - 2 * curl) }
   var bodyStart: CGFloat {
-    // With a housing, the notch is centred on it and stays there.
-    if housing.width > 0 { return (axisLength - collapsedLength) / 2 }
+    // With a housing, the notch is centred on it and grows both ways.
+    if onHousing { return (axisLength - bodyLength) / 2 }
     return curl + CGFloat(dragging ? dragPosition : config.edgePosition) * travel
   }
 
@@ -117,8 +129,10 @@ final class NotchModel {
   var maskRect: CGRect {
     let d = revealed ? depth : nubDepth
     let span = expandedLength + 2 * curl
-    let start = housing.width > 0 && !revealed ? (axisLength - housing.width) / 2 : bodyStart - curl
-    let length = housing.width > 0 && !revealed ? housing.width : span
+    let start =
+      onHousing
+      ? (axisLength - (revealed ? span : housing.width)) / 2 : bodyStart - curl
+    let length = onHousing && !revealed ? housing.width : span
     switch edge {
     case "left": return CGRect(x: 0, y: start, width: d, height: length)
     case "right": return CGRect(x: panelSize.width - d, y: start, width: d, height: length)
@@ -151,16 +165,21 @@ final class NotchModel {
     maskRect.contains(point) || (cardActive && cardMask.contains(point))
   }
 
+  /// Where along the edge the first ring starts: after the padding, or
+  /// centred under the camera housing, where it stays as the notch unfolds.
+  var ringsStart: CGFloat {
+    onHousing ? (axisLength - ringsSpan) / 2 : bodyStart + padStart
+  }
+
   /// A ring's cell, in panel coordinates.
   func cellRect(_ index: Int) -> CGRect {
-    let along = padStart + CGFloat(index) * (cellAlong + cellSpacing)
+    let along = ringsStart + CGFloat(index) * (cellAlong + cellSpacing)
     let body = notchRect
     if vertical {
       return CGRect(
-        x: body.minX + (depth - cellWidth) / 2, y: body.minY + along, width: cellWidth,
-        height: cellHeight)
+        x: body.minX + (depth - cellWidth) / 2, y: along, width: cellWidth, height: cellHeight)
     }
-    return CGRect(x: body.minX + along, y: body.minY + padAcross, width: cellWidth, height: cellHeight)
+    return CGRect(x: along, y: body.minY + padAcross, width: cellWidth, height: cellHeight)
   }
 
   // MARK: Which providers the notch shows
@@ -243,7 +262,7 @@ final class NotchModel {
   /// Where along the edge the card points: the middle of its ring.
   var cardAim: CGFloat {
     let index = CGFloat(shownIndex(of: cardProvider) ?? 0)
-    return bodyStart + padStart + index * (cellAlong + cellSpacing)
+    return ringsStart + index * (cellAlong + cellSpacing)
       + (vertical ? 22 * s : cellWidth / 2)
   }
 
