@@ -10,6 +10,7 @@ use tracing::{info, warn};
 use crate::chats::{self, ActivityIndex};
 use crate::config::AppConfig;
 use crate::copilot_auth;
+use crate::limits::LimitWatch;
 use crate::protocol::{
     Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus,
     ServerMessage, SessionKind, SessionState, UsageReading,
@@ -34,6 +35,9 @@ struct Inner {
     copilot_login: Arc<Mutex<()>>,
     /// Set once the history backfill has been looked at this run.
     backfill_checked: AtomicBool,
+    /// The usage thresholds already announced, per provider. Never held
+    /// across an await.
+    limits: std::sync::Mutex<LimitWatch>,
     events: broadcast::Sender<ServerMessage>,
 }
 
@@ -49,6 +53,7 @@ impl UsageStore {
                 index: Arc::new(Mutex::new(ActivityIndex::new())),
                 copilot_login: Arc::new(Mutex::new(())),
                 backfill_checked: AtomicBool::new(false),
+                limits: std::sync::Mutex::new(LimitWatch::default()),
                 events,
             }),
         }
@@ -184,10 +189,29 @@ impl UsageStore {
             }
             guard.insert(reading.provider, reading.clone());
         }
+        // Followed even while muted, so unmuting does not announce a
+        // threshold passed long ago.
+        let limit = self
+            .inner
+            .limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .check(&reading);
         let _ = self
             .inner
             .events
             .send(ServerMessage::UsageUpdated { reading });
+
+        if let Some(limit) = limit {
+            let config = self.config().await;
+            if config.alerts.limits && !config.alerts_muted(limit.provider) {
+                info!(provider = ?limit.provider, threshold = limit.threshold, "usage limit");
+                let _ = self
+                    .inner
+                    .events
+                    .send(ServerMessage::LimitReached { limit });
+            }
+        }
     }
 
     /// Re-reads recent chats and token totals; publishes only when they moved.

@@ -71,6 +71,17 @@ public enum Format {
     return "Resets " + formatted(date, "d MMM")
   }
 
+  /// The notification for a usage threshold: "Claude Code: 81% of Current
+  /// session used. Resets in 2h 10m".
+  public static func limitAlert(_ limit: LimitAlert, now: Date = Date()) -> String {
+    let what =
+      limit.threshold >= 100
+      ? "\(limit.displayName): \(limit.label) limit reached"
+      : "\(limit.displayName): \(Int(limit.usedPct.rounded(.down)))% of \(limit.label) used"
+    let reset = resetsIn(limit.resetsAt, now: now)
+    return reset.isEmpty ? what : "\(what). \(reset)"
+  }
+
   public static func formatted(_ date: Date, _ pattern: String) -> String {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")

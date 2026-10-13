@@ -27,6 +27,18 @@ final class FormatTests: XCTestCase {
     XCTAssertEqual(Format.niceCeil(4_100_000), 5_000_000)
   }
 
+  func testLimitAlert() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    var limit = LimitAlert(
+      provider: "claude_code", displayName: "Claude Code", label: "Current session", usedPct: 81.9,
+      threshold: 80, resetsAt: now.addingTimeInterval(2 * 3600 + 10 * 60))
+    XCTAssertEqual(
+      Format.limitAlert(limit, now: now), "Claude Code: 81% of Current session used. Resets in 2h 10m")
+    limit.threshold = 100
+    limit.resetsAt = nil
+    XCTAssertEqual(Format.limitAlert(limit, now: now), "Claude Code: Current session limit reached")
+  }
+
   func testAgoAndResets() {
     let now = Date(timeIntervalSince1970: 1_000_000)
     XCTAssertEqual(Format.ago(now.addingTimeInterval(-30), now: now), "now")

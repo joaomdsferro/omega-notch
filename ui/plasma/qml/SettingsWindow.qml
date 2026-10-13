@@ -1444,6 +1444,20 @@ Window {
                     }
                 }
                 FormRow {
+                    icon: "activity"
+                    title: "Usage limits"
+                    hint: Engine.alertsEnabled ? "When a provider passes 80% and when it reaches 100%"
+                                               : "Notifications are off, so no limit alerts"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled
+                        checked: Engine.limitAlerts
+                        accessibleName: "Usage limits"
+                        onToggled: (checked) => Engine.setLimitAlerts(checked)
+                    }
+                }
+                FormRow {
                     icon: "volume"
                     title: "Sound"
                     hint: Engine.alertsEnabled ? "Play a sound with each notification"

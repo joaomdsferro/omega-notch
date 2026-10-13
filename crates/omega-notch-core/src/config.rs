@@ -137,6 +137,9 @@ pub struct AlertSettings {
     /// The same, for a session that stopped to ask you something.
     #[serde(default)]
     pub sound_waiting: String,
+    /// Whether to announce a provider's usage passing 80% and reaching 100%.
+    #[serde(default = "default_true")]
+    pub limits: bool,
     pub mute_cursor: bool,
     pub mute_claude_code: bool,
     pub mute_claude_desktop: bool,
@@ -173,6 +176,7 @@ impl Default for AppConfig {
                 sound: true,
                 sound_finished: String::new(),
                 sound_waiting: String::new(),
+                limits: true,
                 mute_cursor: false,
                 mute_claude_code: false,
                 mute_claude_desktop: false,

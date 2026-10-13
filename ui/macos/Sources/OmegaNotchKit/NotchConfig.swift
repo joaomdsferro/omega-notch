@@ -112,6 +112,12 @@ public struct NotchConfig: Equatable, Sendable {
     set { setAlertSound("sound_waiting", newValue) }
   }
 
+  /// Whether to announce a provider's usage passing 80% and reaching 100%.
+  public var limitAlerts: Bool {
+    get { raw["alerts"]?["limits"]?.bool ?? true }
+    set { setAlert("limits", newValue) }
+  }
+
   private mutating func setAlertSound(_ key: String, _ value: String) {
     var alerts = raw["alerts"] ?? .object([:])
     alerts[key] = .string(value)

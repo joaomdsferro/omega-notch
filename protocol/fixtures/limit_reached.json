@@ -1,0 +1,11 @@
+{
+  "type": "limit_reached",
+  "limit": {
+    "provider": "claude_code",
+    "display_name": "Claude Code",
+    "label": "Current session",
+    "used_pct": 81.5,
+    "threshold": 80,
+    "resets_at": "2026-10-01T18:50:00Z"
+  }
+}

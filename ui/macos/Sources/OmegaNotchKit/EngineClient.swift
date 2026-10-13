@@ -26,6 +26,7 @@ public final class EngineClient {
   /// Called with the provider's display name and the session label.
   @ObservationIgnored public var onSessionFinished: ((String, String) -> Void)?
   @ObservationIgnored public var onSessionWaiting: ((String, String) -> Void)?
+  @ObservationIgnored public var onLimitReached: ((LimitAlert) -> Void)?
   /// Called when the device code is ready, to copy it and open GitHub.
   @ObservationIgnored public var onCopilotCode: ((CopilotLogin) -> Void)?
   /// Called when a clicked chat's window is the shell's to bring forward.
@@ -171,6 +172,8 @@ public final class EngineClient {
     case .sessionWaiting(let session):
       triggerPeek(session, kind: "waiting_you")
       onSessionWaiting?(displayName(session.provider), session.label ?? "")
+    case .limitReached(let limit):
+      onLimitReached?(limit)
     case .configUpdated(let config):
       applyConfig(config)
     case .dashboard(let dashboard):

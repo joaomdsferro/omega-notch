@@ -67,6 +67,17 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(login.userCode, "ABCD-1234")
   }
 
+  func testLimitReached() throws {
+    guard case .limitReached(let limit) = try fixture("limit_reached") else {
+      return XCTFail("not a limit_reached")
+    }
+    XCTAssertEqual(limit.provider, "claude_code")
+    XCTAssertEqual(limit.label, "Current session")
+    XCTAssertEqual(limit.threshold, 80)
+    XCTAssertEqual(limit.usedPct, 81.5)
+    XCTAssertNotNil(limit.resetsAt)
+  }
+
   func testRaiseWindowAndItsTty() throws {
     guard case .raiseWindow(let request) = try fixture("raise_window") else {
       return XCTFail("not a raise_window")

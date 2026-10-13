@@ -36,6 +36,7 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
     Q_PROPERTY(bool soundEnabled READ soundEnabled NOTIFY configChanged)
+    Q_PROPERTY(bool limitAlerts READ limitAlerts NOTIFY configChanged)
     // Sound names as saved; empty means the default for that alert.
     Q_PROPERTY(QString soundFinished READ soundFinished NOTIFY configChanged)
     Q_PROPERTY(QString soundWaiting READ soundWaiting NOTIFY configChanged)
@@ -80,6 +81,7 @@ public:
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
     bool soundEnabled() const { return m_soundEnabled; }
+    bool limitAlerts() const { return m_limitAlerts; }
     QString soundFinished() const { return m_soundFinished; }
     QString soundWaiting() const { return m_soundWaiting; }
     bool providerCursor() const { return m_providerCursor; }
@@ -117,6 +119,7 @@ public:
     Q_INVOKABLE void setProviderEnabled(const QString &id, bool enabled);
     Q_INVOKABLE void setAlertsEnabled(bool enabled);
     Q_INVOKABLE void setSoundEnabled(bool enabled);
+    Q_INVOKABLE void setLimitAlerts(bool enabled);
     Q_INVOKABLE void setSoundFinished(const QString &name);
     Q_INVOKABLE void setSoundWaiting(const QString &name);
     // Starts GitHub's device flow; once the code arrives it is copied and the
@@ -143,6 +146,8 @@ signals:
     void copilotLoginChanged();
     void sessionFinished(const QString &provider, const QString &label);
     void sessionWaiting(const QString &provider, const QString &label);
+    /// A usage threshold passed; `message` is ready to show.
+    void limitReached(const QString &message);
     void openSettingsRequested();
     void openDashboardRequested();
 
@@ -197,6 +202,7 @@ private:
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;
+    bool m_limitAlerts = true;
     QString m_soundFinished;
     QString m_soundWaiting;
     bool m_providerCursor = true;

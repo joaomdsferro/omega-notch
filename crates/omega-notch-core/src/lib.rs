@@ -6,6 +6,7 @@ pub mod copilot_auth;
 pub mod doctor;
 pub mod history;
 pub mod jump;
+pub mod limits;
 pub mod paths;
 pub mod platform;
 pub mod pricing;

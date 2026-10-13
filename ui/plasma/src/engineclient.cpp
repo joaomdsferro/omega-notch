@@ -13,8 +13,43 @@
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QDateTime>
+#include <QLocale>
 
 #include <LayerShellQt/Window>
+
+// "Claude Code: 81% of Current session used. Resets in 2h 10m", the same
+// text as the macOS shell's, with the reset worded as Theme.resetsIn words it.
+static QString limitMessage(const QJsonObject &limit, const QDateTime &now)
+{
+    const QString name = limit.value(QStringLiteral("display_name")).toString();
+    const QString label = limit.value(QStringLiteral("label")).toString();
+    const int pct = static_cast<int>(limit.value(QStringLiteral("used_pct")).toDouble());
+    QString text = limit.value(QStringLiteral("threshold")).toInt() >= 100
+        ? QStringLiteral("%1: %2 limit reached").arg(name, label)
+        : QStringLiteral("%1: %2% of %3 used").arg(name).arg(pct).arg(label);
+
+    // chrono may write up to nine digits of a second; minutes are enough.
+    static const QRegularExpression fraction(QStringLiteral("\\.\\d+"));
+    QString raw = limit.value(QStringLiteral("resets_at")).toString();
+    raw.remove(fraction);
+    const QDateTime resets = QDateTime::fromString(raw, Qt::ISODate);
+    if (!resets.isValid()) {
+        return text;
+    }
+    const qint64 mins = qRound64(now.secsTo(resets) / 60.0);
+    if (mins <= 0) {
+        text += QStringLiteral(". Resets now");
+    } else if (mins < 60) {
+        text += QStringLiteral(". Resets in %1 min").arg(mins);
+    } else if (mins < 24 * 60) {
+        text += QStringLiteral(". Resets in %1h %2m").arg(mins / 60).arg(mins % 60);
+    } else {
+        const QString pattern = mins < 6 * 24 * 60 ? QStringLiteral("ddd HH:mm") : QStringLiteral("d MMM");
+        text += QStringLiteral(". Resets %1").arg(QLocale().toString(resets.toLocalTime(), pattern));
+    }
+    return text;
+}
 
 static bool isHexColor(const QString &color)
 {
@@ -150,6 +185,9 @@ void EngineClient::handleServerMessage(const QJsonObject &obj)
             triggerPeek(session, QStringLiteral("waiting_you"));
             emit sessionWaiting(displayName(provider), label);
         }
+    } else if (type == QLatin1String("limit_reached")) {
+        emit limitReached(limitMessage(obj.value(QStringLiteral("limit")).toObject(),
+                                       QDateTime::currentDateTimeUtc()));
     } else if (type == QLatin1String("activity_updated")) {
         applyActivity(obj);
     } else if (type == QLatin1String("dashboard")) {
@@ -268,6 +306,7 @@ void EngineClient::applyConfig(const QJsonObject &config)
     const QJsonObject alerts = config.value(QStringLiteral("alerts")).toObject();
     m_alertsEnabled = alerts.value(QStringLiteral("enabled")).toBool(true);
     m_soundEnabled = alerts.value(QStringLiteral("sound")).toBool(true);
+    m_limitAlerts = alerts.value(QStringLiteral("limits")).toBool(true);
     m_soundFinished = alerts.value(QStringLiteral("sound_finished")).toString();
     m_soundWaiting = alerts.value(QStringLiteral("sound_waiting")).toString();
 
@@ -359,6 +398,7 @@ void EngineClient::pushConfig()
                  {QStringLiteral("sound"), m_soundEnabled},
                  {QStringLiteral("sound_finished"), m_soundFinished},
                  {QStringLiteral("sound_waiting"), m_soundWaiting},
+                 {QStringLiteral("limits"), m_limitAlerts},
                  {QStringLiteral("mute_cursor"), false},
                  {QStringLiteral("mute_claude_code"), false},
                  {QStringLiteral("mute_claude_desktop"), false},
@@ -393,6 +433,7 @@ void EngineClient::pushConfig()
         alerts.insert(QStringLiteral("sound"), m_soundEnabled);
         alerts.insert(QStringLiteral("sound_finished"), m_soundFinished);
         alerts.insert(QStringLiteral("sound_waiting"), m_soundWaiting);
+        alerts.insert(QStringLiteral("limits"), m_limitAlerts);
         m_rawConfig.insert(QStringLiteral("alerts"), alerts);
     }
 
@@ -579,6 +620,13 @@ void EngineClient::setAlertsEnabled(bool enabled)
 void EngineClient::setSoundEnabled(bool enabled)
 {
     m_soundEnabled = enabled;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setLimitAlerts(bool enabled)
+{
+    m_limitAlerts = enabled;
     emit configChanged();
     pushConfig();
 }
