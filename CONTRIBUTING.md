@@ -48,14 +48,22 @@ Requirements: Rust (stable) and Xcode 16 or later (for Swift and the macOS SDK),
 The shell lives in `ui/macos`, a Swift package.
 
 ```sh
-make macos                         # builds target/macos/Omega Notch.app, signed ad hoc
+make macos                         # builds target/macos/Omega Notch.app
 open "target/macos/Omega Notch.app"
 ```
 
 The app starts the engine inside it, and logs the engine to `~/Library/Logs/Omega Notch/engine.log`.
 Config, data and the socket live in `~/Library/Application Support/omega-notch/`. The first time the
-engine reads the Claude Code sign-in, macOS asks for Keychain access. A build signed ad hoc asks again
-after every rebuild.
+engine reads the Claude Code sign-in, macOS asks for Keychain access. By default the build is signed ad
+hoc, and macOS asks again after every rebuild. To sign it with a certificate of your own, so "Always
+Allow" lasts across rebuilds, name it in `CODESIGN_IDENTITY`:
+
+```sh
+security find-identity -v -p codesigning     # lists the identities you have
+CODESIGN_IDENTITY="Apple Development: Your Name (TEAMID)" make macos
+```
+
+A free Apple Account in Xcode gives you an Apple Development certificate.
 
 To work on the shell without bundling it, start an engine yourself and point the shell at it:
 
