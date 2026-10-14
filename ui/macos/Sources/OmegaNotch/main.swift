@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         label.isEmpty ? "\(provider) is waiting on you" : "\(provider) · \(label) is waiting on you",
         .waiting)
     }
+    client.onLimitReached = { [weak self] limit in
+      self?.announce(Format.limitAlert(limit), .waiting)
+    }
     client.onCopilotCode = { login in Windows.finishCopilotSignIn(login) }
     client.onRaiseWindow = { request in WindowRaiser.raise(request) }
     client.start()

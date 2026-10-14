@@ -50,6 +50,17 @@ int main(int argc, char *argv[])
                          notifications.notify(QStringLiteral("Omega Notch"), body, sound);
                      });
 
+    QObject::connect(&engineClient, &EngineClient::limitReached, &notifications,
+                     [&](const QString &message) {
+                         if (!engineClient.alertsEnabled()) {
+                             return;
+                         }
+                         const QString sound = engineClient.soundEnabled()
+                             ? Notifications::waitingSound(engineClient.soundWaiting())
+                             : QString();
+                         notifications.notify(QStringLiteral("Omega Notch"), message, sound);
+                     });
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("Engine"), &engineClient);
     engine.rootContext()->setContextProperty(QStringLiteral("Notify"), &notifications);

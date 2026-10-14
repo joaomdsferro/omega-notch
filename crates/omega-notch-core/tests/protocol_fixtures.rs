@@ -151,6 +151,19 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
             },
         ),
         (
+            "limit_reached",
+            ServerMessage::LimitReached {
+                limit: LimitAlert {
+                    provider: ProviderId::ClaudeCode,
+                    display_name: "Claude Code".into(),
+                    label: "Current session".into(),
+                    used_pct: 81.5,
+                    threshold: 80,
+                    resets_at: Some(at(18, 50)),
+                },
+            },
+        ),
+        (
             "config_updated",
             ServerMessage::ConfigUpdated { config: config() },
         ),

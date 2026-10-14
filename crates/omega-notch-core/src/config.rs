@@ -148,6 +148,9 @@ pub struct AlertSettings {
     pub open_notch_finished: bool,
     #[serde(default = "default_true")]
     pub open_notch_waiting: bool,
+    /// Whether to announce a provider's usage passing 80% and reaching 100%.
+    #[serde(default = "default_true")]
+    pub limits: bool,
     pub mute_cursor: bool,
     pub mute_claude_code: bool,
     pub mute_claude_desktop: bool,
@@ -188,6 +191,7 @@ impl Default for AppConfig {
                 open_notch_split: false,
                 open_notch_finished: true,
                 open_notch_waiting: true,
+                limits: true,
                 mute_cursor: false,
                 mute_claude_code: false,
                 mute_claude_desktop: false,

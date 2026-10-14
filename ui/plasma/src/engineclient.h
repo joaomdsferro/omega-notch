@@ -40,6 +40,7 @@ class EngineClient : public QObject
     Q_PROPERTY(bool openNotchSplit READ openNotchSplit NOTIFY configChanged)
     Q_PROPERTY(bool openNotchFinished READ openNotchFinished NOTIFY configChanged)
     Q_PROPERTY(bool openNotchWaiting READ openNotchWaiting NOTIFY configChanged)
+    Q_PROPERTY(bool limitAlerts READ limitAlerts NOTIFY configChanged)
     // Sound names as saved; empty means the default for that alert.
     Q_PROPERTY(QString soundFinished READ soundFinished NOTIFY configChanged)
     Q_PROPERTY(QString soundWaiting READ soundWaiting NOTIFY configChanged)
@@ -88,6 +89,7 @@ public:
     bool openNotchSplit() const { return m_openNotchSplit; }
     bool openNotchFinished() const { return m_openNotchFinished; }
     bool openNotchWaiting() const { return m_openNotchWaiting; }
+    bool limitAlerts() const { return m_limitAlerts; }
     QString soundFinished() const { return m_soundFinished; }
     QString soundWaiting() const { return m_soundWaiting; }
     bool providerCursor() const { return m_providerCursor; }
@@ -129,6 +131,7 @@ public:
     Q_INVOKABLE void setOpenNotchSplit(bool split);
     Q_INVOKABLE void setOpenNotchFinished(bool open);
     Q_INVOKABLE void setOpenNotchWaiting(bool open);
+    Q_INVOKABLE void setLimitAlerts(bool enabled);
     Q_INVOKABLE void setSoundFinished(const QString &name);
     Q_INVOKABLE void setSoundWaiting(const QString &name);
     // Starts GitHub's device flow; once the code arrives it is copied and the
@@ -155,6 +158,8 @@ signals:
     void copilotLoginChanged();
     void sessionFinished(const QString &provider, const QString &label);
     void sessionWaiting(const QString &provider, const QString &label);
+    /// A usage threshold passed; `message` is ready to show.
+    void limitReached(const QString &message);
     void openSettingsRequested();
     void openDashboardRequested();
 
@@ -213,6 +218,7 @@ private:
     bool m_openNotchSplit = false;
     bool m_openNotchFinished = true;
     bool m_openNotchWaiting = true;
+    bool m_limitAlerts = true;
     QString m_soundFinished;
     QString m_soundWaiting;
     bool m_providerCursor = true;

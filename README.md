@@ -70,6 +70,7 @@ To remove it, run `./uninstall.sh` from the same folder.
     Click one to jump to it: the terminal or VS Code window running it, or a new one resuming it
 - The card opens by itself for a few seconds when a session finishes or asks something, alongside a
   Plasma notification
+- A notification when a tool's main limit passes 80% and when it reaches 100%, with when it resets
 - A **dashboard** window, from the bars button in the notch's footer: every limit, estimated cost and
   tokens per day over 7, 30 or 90 days (by model, by tool or by kind), each model's share of the
   spend, today's mix and the recent chats. History starts with every Claude Code day still on disk.
