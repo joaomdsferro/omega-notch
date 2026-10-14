@@ -105,8 +105,13 @@ QML, C++ and Swift have no enforced formatter: match the style of the file aroun
 
 Bump `version` in `Cargo.toml` and `ui/plasma/CMakeLists.txt`, then push a tag such as `v0.0.3`. The
 [release workflow](.github/workflows/release.yml) builds the Linux download with `make dist` and the
-macOS disk image with `make macos-release`, and attaches both to a draft pre-release, which stays a
-draft until it is published on GitHub.
+macOS disk image with `make macos-release`, and attaches both to a draft release, which stays a
+draft until it is published on GitHub. Then update the version and `sha256` in
+[joaomdsferro/homebrew-tap](https://github.com/joaomdsferro/homebrew-tap)'s `Casks/omega-notch.rb`
+(the `.dmg.sha256` file in the release has it).
+
+To check the build and the secrets without releasing anything, run the workflow by hand from the
+Actions tab: it is a dry run unless you untick **dry run**.
 
 The macOS job signs with a Developer ID Application certificate and notarises with an App Store
 Connect API key, both kept as secrets of the `release` environment (the workflow lists them). To build

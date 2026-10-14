@@ -1,7 +1,11 @@
 # Builds the Linux download (prebuilt binaries + installer) and the macOS one
-# (a notarised disk image) and attaches them to a draft pre-release. Push a tag
+# (a notarised disk image) and attaches them to a draft release. Push a tag
 # such as v0.0.3, or run it by hand; the release stays a draft until it is
 # published on GitHub.
+#
+# Run by hand, it is a dry run unless told otherwise: everything is built,
+# signed and notarised, and nothing is released. That checks the secrets
+# without touching a published release.
 #
 # The macOS job signs with secrets kept in the "release" environment, which
 # should require a reviewer: MACOS_CERTIFICATE_P12 (the Developer ID
@@ -14,6 +18,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, sign and notarise only; release nothing"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -46,11 +55,14 @@ jobs:
       - run: make dist
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        if: ${{ !inputs.dry_run }}
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           name: Omega Notch v${{ steps.version.outputs.version }}
           draft: true
-          prerelease: true
+          # A pre-release is never "Latest", so it would hide behind the one
+          # before it.
+          prerelease: false
           files: |
             target/dist/*.tar.gz
             target/dist/*.tar.gz.sha256
@@ -113,6 +125,7 @@ jobs:
         run: ./scripts/macos-release.sh
 
       - name: Attach to the draft release
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
