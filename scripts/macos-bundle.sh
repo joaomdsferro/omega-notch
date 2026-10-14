@@ -6,27 +6,69 @@
 # Development certificate, say; `security find-identity -v -p codesigning`
 # lists them) and macOS keeps your "Always Allow" for the Keychain across
 # rebuilds. Without it the build is signed ad hoc, which macOS sees as a new
-# program after every rebuild. Signing with a Developer ID and notarising are
-# the release workflow's job.
+# program after every rebuild.
+#
+# RELEASE=1 builds the download instead, in target/macos-release: universal
+# (Apple silicon and Intel), signed with a Developer ID and a secure
+# timestamp, as notarisation needs.
+# scripts/macos-release.sh does that, then notarises and packs the disk image.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)"
 BUNDLE_ID="app.wisething.omeganotch"
-APP="$ROOT/target/macos/Omega Notch.app"
 IDENTITY="${CODESIGN_IDENTITY:--}"
+RELEASE="${RELEASE:-0}"
+# A release goes to its own folder. Replacing the files of an app that is
+# running makes macOS see it as an unknown program, and ask for the Keychain
+# password again.
+if [ "$RELEASE" = 1 ]; then
+  OUTDIR="$ROOT/target/macos-release"
+else
+  OUTDIR="$ROOT/target/macos"
+fi
+APP="$OUTDIR/Omega Notch.app"
+
+if [ "$RELEASE" = 1 ]; then
+  case "$IDENTITY" in
+    "Developer ID Application:"*) ;;
+    *)
+      echo "RELEASE=1 needs CODESIGN_IDENTITY set to a \"Developer ID Application: …\" identity." >&2
+      exit 1
+      ;;
+  esac
+  TIMESTAMP=--timestamp
+  RUST_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+  SWIFT_ARCHS=(--arch arm64 --arch x86_64)
+else
+  TIMESTAMP=--timestamp=none
+  RUST_TARGETS=()
+  SWIFT_ARCHS=()
+fi
 
 echo "Building engine…"
-(cd "$ROOT" && cargo build --release -p omega-notch-engine)
+if [ "$RELEASE" = 1 ]; then
+  ENGINE="$OUTDIR/omega-notch-engine"
+  mkdir -p "$OUTDIR"
+  for target in "${RUST_TARGETS[@]}"; do
+    (cd "$ROOT" && cargo build --release --locked -p omega-notch-engine --target "$target")
+  done
+  lipo -create -output "$ENGINE" \
+    "$ROOT/target/aarch64-apple-darwin/release/omega-notch-engine" \
+    "$ROOT/target/x86_64-apple-darwin/release/omega-notch-engine"
+else
+  ENGINE="$ROOT/target/release/omega-notch-engine"
+  (cd "$ROOT" && cargo build --release -p omega-notch-engine)
+fi
 
 echo "Building app…"
-(cd "$ROOT/ui/macos" && swift build -c release --product OmegaNotch)
-SHELL_BIN="$(cd "$ROOT/ui/macos" && swift build -c release --show-bin-path)/OmegaNotch"
+(cd "$ROOT/ui/macos" && swift build -c release ${SWIFT_ARCHS[@]+"${SWIFT_ARCHS[@]}"} --product OmegaNotch)
+SHELL_BIN="$(cd "$ROOT/ui/macos" && swift build -c release ${SWIFT_ARCHS[@]+"${SWIFT_ARCHS[@]}"} --show-bin-path)/OmegaNotch"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 install -m 755 "$SHELL_BIN" "$APP/Contents/MacOS/OmegaNotch"
-install -m 755 "$ROOT/target/release/omega-notch-engine" "$APP/Contents/Helpers/omega-notch-engine"
+install -m 755 "$ENGINE" "$APP/Contents/Helpers/omega-notch-engine"
 install -m 755 "$ROOT/scripts/claude-hook.sh" "$APP/Contents/Resources/claude-hook.sh"
 
 # The icon, from the PNGs the Linux build ships.
@@ -77,12 +119,12 @@ EOF
 
 # Inside out: the helper first, then the app around it. The identifiers are
 # fixed so that, with a real identity, what macOS remembers stays the same from
-# one build to the next. No timestamp: a local build should not need Apple's
-# timestamp server.
+# one build to the next. A local build has no timestamp, so it does not need
+# Apple's timestamp server; a release needs one to be notarised.
 echo "Signing with ${CODESIGN_IDENTITY:-an ad hoc signature}…"
-codesign --force --options runtime --timestamp=none --sign "$IDENTITY" \
+codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" \
   --identifier "$BUNDLE_ID.engine" "$APP/Contents/Helpers/omega-notch-engine"
-codesign --force --options runtime --timestamp=none --sign "$IDENTITY" \
+codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" \
   --identifier "$BUNDLE_ID" --entitlements "$ENTITLEMENTS" "$APP"
 rm -f "$ENTITLEMENTS"
 codesign --verify --deep --strict "$APP"

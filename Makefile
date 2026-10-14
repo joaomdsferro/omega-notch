@@ -1,4 +1,4 @@
-.PHONY: engine ui macos run doctor install uninstall dist clean
+.PHONY: engine ui macos macos-release run doctor install uninstall dist clean
 
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 ARCH := $(shell uname -m)
@@ -14,6 +14,11 @@ ui:
 # macOS: target/macos/Omega Notch.app, the engine inside it.
 macos:
 	./scripts/macos-bundle.sh
+
+# The macOS download: universal, signed with a Developer ID and notarised, in
+# a disk image in target/dist. See scripts/macos-release.sh for what it needs.
+macos-release:
+	./scripts/macos-release.sh
 
 run: engine ui
 	chmod +x scripts/run.sh

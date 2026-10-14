@@ -104,8 +104,18 @@ QML, C++ and Swift have no enforced formatter: match the style of the file aroun
 ## Releasing
 
 Bump `version` in `Cargo.toml` and `ui/plasma/CMakeLists.txt`, then push a tag such as `v0.0.3`. The
-[release workflow](.github/workflows/release.yml) builds the download with `make dist` and attaches it
-to a draft pre-release, which stays a draft until it is published on GitHub.
+[release workflow](.github/workflows/release.yml) builds the Linux download with `make dist` and the
+macOS disk image with `make macos-release`, and attaches both to a draft pre-release, which stays a
+draft until it is published on GitHub.
+
+The macOS job signs with a Developer ID Application certificate and notarises with an App Store
+Connect API key, both kept as secrets of the `release` environment (the workflow lists them). To build
+the same disk image on your Mac, with that certificate in your Keychain and the API key saved once
+with `xcrun notarytool store-credentials omega-notch`:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=omega-notch make macos-release
+```
 
 ## Icons
 

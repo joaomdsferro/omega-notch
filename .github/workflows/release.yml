@@ -1,6 +1,13 @@
-# Builds the Linux download (prebuilt binaries + installer) and attaches it to
-# a draft pre-release. Push a tag such as v0.0.3, or run it by hand; the
-# release stays a draft until it is published on GitHub.
+# Builds the Linux download (prebuilt binaries + installer) and the macOS one
+# (a notarised disk image) and attaches them to a draft pre-release. Push a tag
+# such as v0.0.3, or run it by hand; the release stays a draft until it is
+# published on GitHub.
+#
+# The macOS job signs with secrets kept in the "release" environment, which
+# should require a reviewer: MACOS_CERTIFICATE_P12 (the Developer ID
+# Application certificate and key, as base64), MACOS_CERTIFICATE_PASSWORD,
+# MACOS_NOTARY_KEY_P8 (an App Store Connect API key), MACOS_NOTARY_KEY_ID and
+# MACOS_NOTARY_ISSUER.
 name: Release
 
 on:
@@ -23,9 +30,10 @@ jobs:
           pacman -Syu --noconfirm --needed git rust cmake ninja \
             qt6-base qt6-declarative qt6-wayland layer-shell-qt
 
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to a commit; the comment names its tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Version
         id: version
@@ -37,7 +45,7 @@ jobs:
 
       - run: make dist
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           name: Omega Notch v${{ steps.version.outputs.version }}
@@ -50,5 +58,73 @@ jobs:
             A test version. Expect bugs, missing features and settings that change between versions.
             Omega Notch is an unofficial tool, not affiliated with Anthropic, Anysphere (Cursor), GitHub, OpenAI or xAI.
 
-            Needs KDE Plasma 6 on Wayland. The download is built for Arch-based distributions (Arch, CachyOS, EndeavourOS);
-            elsewhere, build from source. Unpack it and run `./install.sh`. See the README for how to install and how to report a problem.
+            On Linux: needs KDE Plasma 6 on Wayland. The download is built for Arch-based distributions (Arch, CachyOS, EndeavourOS);
+            elsewhere, build from source. Unpack it and run `./install.sh`.
+            On a Mac: macOS 14 or later, Apple silicon or Intel. Open the disk image and drag Omega Notch to Applications.
+            See the README for how to install and how to report a problem.
+
+  macos:
+    # After the Linux job, which creates the draft release this one adds to.
+    needs: linux
+    runs-on: macos-15
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # A keychain of its own, with a random password, that only this job
+      # uses and that is deleted at the end.
+      - name: Signing keychain
+        env:
+          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -base64 32)"
+          echo "::add-mask::$password"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          (umask 077 && printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12")
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
+          test -n "$identity"
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Notary key
+        env:
+          NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+        run: (umask 077 && printf '%s' "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8")
+
+      - name: Build, sign and notarise
+        env:
+          NOTARY_KEY: ${{ runner.temp }}/notary.p8
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+        run: ./scripts/macos-release.sh
+
+      - name: Attach to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+          gh release upload "$tag" target/dist/*.dmg target/dist/*.dmg.sha256 --clobber
+
+      - name: Clean up
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN:-}" ] && security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/certificate.p12"
