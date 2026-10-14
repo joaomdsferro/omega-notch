@@ -1460,7 +1460,7 @@ Window {
                 FormRow {
                     icon: "volume"
                     title: "Sound"
-                    hint: Engine.alertsEnabled ? "Play a sound with each notification"
+                    hint: Engine.alertsEnabled ? "Play a sound with each alert"
                                                : "Notifications are off, so no sound plays"
 
                     SettingsToggle {
@@ -1469,6 +1469,20 @@ Window {
                         checked: Engine.soundEnabled
                         accessibleName: "Sound"
                         onToggled: (checked) => Engine.setSoundEnabled(checked)
+                    }
+                }
+                FormRow {
+                    icon: "message"
+                    title: "System notifications"
+                    hint: Engine.alertsEnabled ? "Also show each alert as a desktop notification"
+                                               : "Notifications are off"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled
+                        checked: Engine.systemNotifications
+                        accessibleName: "System notifications"
+                        onToggled: (checked) => Engine.setSystemNotifications(checked)
                     }
                 }
                 // The rows keep their places: the per-alert switches are added
@@ -1492,7 +1506,7 @@ Window {
                 FormRow {
                     icon: "layers"
                     title: "Separately for each alert"
-                    hint: "Choose for finished and for needs-you on their own"
+                    hint: "Choose for each kind of alert on its own"
 
                     SettingsToggle {
                         anchors.right: parent.right
@@ -1526,6 +1540,19 @@ Window {
                         checked: Engine.openNotchWaiting
                         accessibleName: "Open the notch when a session needs you"
                         onToggled: (checked) => Engine.setOpenNotchWaiting(checked)
+                    }
+                }
+                FormRow {
+                    visible: Engine.openNotchSplit
+                    icon: "target"
+                    title: "For usage limits"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled
+                        checked: Engine.openNotchLimits
+                        accessibleName: "Open the notch for usage limits"
+                        onToggled: (checked) => Engine.setOpenNotchLimits(checked)
                     }
                 }
             }

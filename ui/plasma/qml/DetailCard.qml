@@ -88,7 +88,14 @@ Item {
             height: bannerText.implicitHeight + 12 * root.scale_
             radius: 9 * root.scale_
             visible: root.bannerKind.length > 0
-            readonly property color tint: root.bannerKind === "waiting_you" ? Theme.waiting : Theme.ample
+            readonly property color tint: root.bannerKind === "waiting_you" ? Theme.waiting
+                : root.bannerKind === "limit" ? Theme.watch
+                : root.bannerKind === "limit_reached" ? Theme.critical
+                : Theme.ample
+            // A limit's label already says it all.
+            readonly property string title: root.bannerKind === "waiting_you" ? "Needs you"
+                : root.bannerKind.startsWith("limit") ? ""
+                : "Finished"
             color: Qt.rgba(tint.r, tint.g, tint.b, 0.14)
 
             Text {
@@ -96,8 +103,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 x: 10 * root.scale_
                 width: parent.width - 20 * root.scale_
-                text: (root.bannerKind === "waiting_you" ? "Needs you" : "Finished")
-                      + (root.bannerLabel.length > 0 ? "  ·  " + root.bannerLabel : "")
+                text: [parent.title, root.bannerLabel].filter(t => t.length > 0).join("  ·  ")
                 color: parent.tint
                 font.pixelSize: 12 * root.scale_
                 font.weight: Font.DemiBold

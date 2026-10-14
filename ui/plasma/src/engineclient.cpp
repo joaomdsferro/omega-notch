@@ -18,16 +18,23 @@
 
 #include <LayerShellQt/Window>
 
+// "81% of Current session used", for the provider's card, which already
+// names it.
+static QString limitBanner(const QJsonObject &limit)
+{
+    const QString label = limit.value(QStringLiteral("label")).toString();
+    const int pct = static_cast<int>(limit.value(QStringLiteral("used_pct")).toDouble());
+    return limit.value(QStringLiteral("threshold")).toInt() >= 100
+        ? QStringLiteral("%1 limit reached").arg(label)
+        : QStringLiteral("%1% of %2 used").arg(pct).arg(label);
+}
+
 // "Claude Code: 81% of Current session used. Resets in 2h 10m", the same
 // text as the macOS shell's, with the reset worded as Theme.resetsIn words it.
 static QString limitMessage(const QJsonObject &limit, const QDateTime &now)
 {
     const QString name = limit.value(QStringLiteral("display_name")).toString();
-    const QString label = limit.value(QStringLiteral("label")).toString();
-    const int pct = static_cast<int>(limit.value(QStringLiteral("used_pct")).toDouble());
-    QString text = limit.value(QStringLiteral("threshold")).toInt() >= 100
-        ? QStringLiteral("%1: %2 limit reached").arg(name, label)
-        : QStringLiteral("%1: %2% of %3 used").arg(name).arg(pct).arg(label);
+    QString text = QStringLiteral("%1: %2").arg(name, limitBanner(limit));
 
     // chrono may write up to nine digits of a second; minutes are enough.
     static const QRegularExpression fraction(QStringLiteral("\\.\\d+"));
@@ -179,15 +186,18 @@ void EngineClient::handleServerMessage(const QJsonObject &obj)
         const QString provider = session.value(QStringLiteral("provider")).toString();
         const QString label = session.value(QStringLiteral("label")).toString();
         if (type == QLatin1String("session_finished")) {
-            triggerPeek(session, QStringLiteral("finished"));
+            triggerPeek(provider, label, QStringLiteral("finished"));
             emit sessionFinished(displayName(provider), label);
         } else {
-            triggerPeek(session, QStringLiteral("waiting_you"));
+            triggerPeek(provider, label, QStringLiteral("waiting_you"));
             emit sessionWaiting(displayName(provider), label);
         }
     } else if (type == QLatin1String("limit_reached")) {
-        emit limitReached(limitMessage(obj.value(QStringLiteral("limit")).toObject(),
-                                       QDateTime::currentDateTimeUtc()));
+        const QJsonObject limit = obj.value(QStringLiteral("limit")).toObject();
+        triggerPeek(limit.value(QStringLiteral("provider")).toString(), limitBanner(limit),
+                    limit.value(QStringLiteral("threshold")).toInt() >= 100 ? QStringLiteral("limit_reached")
+                                                                            : QStringLiteral("limit"));
+        emit limitReached(limitMessage(limit, QDateTime::currentDateTimeUtc()));
     } else if (type == QLatin1String("activity_updated")) {
         applyActivity(obj);
     } else if (type == QLatin1String("dashboard")) {
@@ -306,10 +316,12 @@ void EngineClient::applyConfig(const QJsonObject &config)
     const QJsonObject alerts = config.value(QStringLiteral("alerts")).toObject();
     m_alertsEnabled = alerts.value(QStringLiteral("enabled")).toBool(true);
     m_soundEnabled = alerts.value(QStringLiteral("sound")).toBool(true);
+    m_systemNotifications = alerts.value(QStringLiteral("system_notifications")).toBool(false);
     m_openNotchOnAlert = alerts.value(QStringLiteral("open_notch")).toBool(true);
     m_openNotchSplit = alerts.value(QStringLiteral("open_notch_split")).toBool(false);
     m_openNotchFinished = alerts.value(QStringLiteral("open_notch_finished")).toBool(true);
     m_openNotchWaiting = alerts.value(QStringLiteral("open_notch_waiting")).toBool(true);
+    m_openNotchLimits = alerts.value(QStringLiteral("open_notch_limits")).toBool(true);
     m_limitAlerts = alerts.value(QStringLiteral("limits")).toBool(true);
     m_soundFinished = alerts.value(QStringLiteral("sound_finished")).toString();
     m_soundWaiting = alerts.value(QStringLiteral("sound_waiting")).toString();
@@ -402,10 +414,12 @@ void EngineClient::pushConfig()
                  {QStringLiteral("sound"), m_soundEnabled},
                  {QStringLiteral("sound_finished"), m_soundFinished},
                  {QStringLiteral("sound_waiting"), m_soundWaiting},
+                 {QStringLiteral("system_notifications"), m_systemNotifications},
                  {QStringLiteral("open_notch"), m_openNotchOnAlert},
                  {QStringLiteral("open_notch_split"), m_openNotchSplit},
                  {QStringLiteral("open_notch_finished"), m_openNotchFinished},
                  {QStringLiteral("open_notch_waiting"), m_openNotchWaiting},
+                 {QStringLiteral("open_notch_limits"), m_openNotchLimits},
                  {QStringLiteral("limits"), m_limitAlerts},
                  {QStringLiteral("mute_cursor"), false},
                  {QStringLiteral("mute_claude_code"), false},
@@ -441,10 +455,12 @@ void EngineClient::pushConfig()
         alerts.insert(QStringLiteral("sound"), m_soundEnabled);
         alerts.insert(QStringLiteral("sound_finished"), m_soundFinished);
         alerts.insert(QStringLiteral("sound_waiting"), m_soundWaiting);
+        alerts.insert(QStringLiteral("system_notifications"), m_systemNotifications);
         alerts.insert(QStringLiteral("open_notch"), m_openNotchOnAlert);
         alerts.insert(QStringLiteral("open_notch_split"), m_openNotchSplit);
         alerts.insert(QStringLiteral("open_notch_finished"), m_openNotchFinished);
         alerts.insert(QStringLiteral("open_notch_waiting"), m_openNotchWaiting);
+        alerts.insert(QStringLiteral("open_notch_limits"), m_openNotchLimits);
         alerts.insert(QStringLiteral("limits"), m_limitAlerts);
         m_rawConfig.insert(QStringLiteral("alerts"), alerts);
     }
@@ -636,6 +652,13 @@ void EngineClient::setSoundEnabled(bool enabled)
     pushConfig();
 }
 
+void EngineClient::setSystemNotifications(bool enabled)
+{
+    m_systemNotifications = enabled;
+    emit configChanged();
+    pushConfig();
+}
+
 void EngineClient::setOpenNotchOnAlert(bool open)
 {
     m_openNotchOnAlert = open;
@@ -649,6 +672,7 @@ void EngineClient::setOpenNotchSplit(bool split)
     if (split) {
         m_openNotchFinished = m_openNotchOnAlert;
         m_openNotchWaiting = m_openNotchOnAlert;
+        m_openNotchLimits = m_openNotchOnAlert;
     }
     m_openNotchSplit = split;
     emit configChanged();
@@ -665,6 +689,13 @@ void EngineClient::setOpenNotchFinished(bool open)
 void EngineClient::setOpenNotchWaiting(bool open)
 {
     m_openNotchWaiting = open;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setOpenNotchLimits(bool open)
+{
+    m_openNotchLimits = open;
     emit configChanged();
     pushConfig();
 }
@@ -732,16 +763,23 @@ void EngineClient::openDashboard()
     emit openDashboardRequested();
 }
 
-void EngineClient::triggerPeek(const QJsonObject &session, const QString &kind)
+void EngineClient::triggerPeek(const QString &provider, const QString &label, const QString &kind)
 {
-    const bool open = !m_openNotchSplit ? m_openNotchOnAlert
-        : kind == QLatin1String("finished") ? m_openNotchFinished
-                                            : m_openNotchWaiting;
-    if (!open) {
+    bool open = m_openNotchOnAlert;
+    if (m_openNotchSplit) {
+        if (kind == QLatin1String("finished")) {
+            open = m_openNotchFinished;
+        } else if (kind.startsWith(QLatin1String("limit"))) {
+            open = m_openNotchLimits;
+        } else {
+            open = m_openNotchWaiting;
+        }
+    }
+    if (!m_alertsEnabled || !open) {
         return;
     }
-    m_peekProvider = session.value(QStringLiteral("provider")).toString();
-    m_peekLabel = session.value(QStringLiteral("label")).toString();
+    m_peekProvider = provider;
+    m_peekLabel = label;
     m_peekKind = kind;
     m_peekOpen = true;
     emit peekOpenChanged();

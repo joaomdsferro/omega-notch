@@ -37,6 +37,7 @@ final class FormatTests: XCTestCase {
     limit.threshold = 100
     limit.resetsAt = nil
     XCTAssertEqual(Format.limitAlert(limit, now: now), "Claude Code: Current session limit reached")
+    XCTAssertEqual(Format.limitBanner(limit), "Current session limit reached")
   }
 
   func testAgoAndResets() {

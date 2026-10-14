@@ -54,6 +54,10 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(notch.edge, "right")
     XCTAssertTrue(notch.openNotchOnAlert)
     XCTAssertTrue(notch.opensNotch(for: "finished"))
+    XCTAssertTrue(notch.opensNotch(for: "limit"))
+    XCTAssertFalse(notch.systemNotifications)
+    // Missing, as in a config from before the setting: still off.
+    XCTAssertFalse(NotchConfig(raw: .object([:])).systemNotifications)
     notch.openNotchOnAlert = false
     XCTAssertEqual(notch.raw["alerts"]?["open_notch"], .bool(false))
     XCTAssertEqual(notch.raw["alerts"]?["sound"], .bool(true))
@@ -63,6 +67,9 @@ final class ProtocolTests: XCTestCase {
     notch.openNotchSplit = true
     notch.openNotchFinished = false
     XCTAssertFalse(notch.opensNotch(for: "finished"))
+    XCTAssertTrue(notch.opensNotch(for: "waiting_you"))
+    notch.openNotchLimits = false
+    XCTAssertFalse(notch.opensNotch(for: "limit_reached"))
     XCTAssertTrue(notch.opensNotch(for: "waiting_you"))
   }
 
