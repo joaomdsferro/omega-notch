@@ -10,8 +10,9 @@
 # The macOS job signs with secrets kept in the "release" environment, which
 # should require a reviewer: MACOS_CERTIFICATE_P12 (the Developer ID
 # Application certificate and key, as base64), MACOS_CERTIFICATE_PASSWORD,
-# MACOS_NOTARY_KEY_P8 (an App Store Connect API key), MACOS_NOTARY_KEY_ID and
-# MACOS_NOTARY_ISSUER.
+# MACOS_NOTARY_KEY_P8 (an App Store Connect API key), MACOS_NOTARY_KEY_ID,
+# MACOS_NOTARY_ISSUER and SPARKLE_PRIVATE_KEY (the EdDSA key that signs
+# updates, as `generate_keys -x` writes it).
 name: Release
 
 on:
@@ -122,6 +123,7 @@ jobs:
           NOTARY_KEY: ${{ runner.temp }}/notary.p8
           NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: ./scripts/macos-release.sh
 
       - name: Attach to the draft release
@@ -134,7 +136,7 @@ jobs:
           else
             tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           fi
-          gh release upload "$tag" target/dist/*.dmg target/dist/*.dmg.sha256 --clobber
+          gh release upload "$tag" target/dist/*.dmg target/dist/*.dmg.sha256 target/dist/appcast.xml --clobber
 
       - name: Clean up
         if: always()

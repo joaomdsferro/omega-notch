@@ -113,6 +113,14 @@ draft until it is published on GitHub. Then update the version and `sha256` in
 To check the build and the secrets without releasing anything, run the workflow by hand from the
 Actions tab: it is a dry run unless you untick **dry run**.
 
+The macOS app updates itself with [Sparkle](https://sparkle-project.org). The release attaches an
+`appcast.xml` (written by `scripts/macos-appcast.sh`), and the app reads it from the latest release.
+Each update is signed with an EdDSA key: its public half is `SPARKLE_PUBLIC_KEY` in
+`scripts/macos-bundle.sh`, and its private half is the `SPARKLE_PRIVATE_KEY` secret. Building the
+disk image on your Mac signs it with the key in your login Keychain, where Sparkle's `generate_keys`
+keeps it. Losing the private key means no update can reach the apps already installed, so keep a
+copy somewhere safe.
+
 The macOS job signs with a Developer ID Application certificate and notarises with an App Store
 Connect API key, both kept as secrets of the `release` environment (the workflow lists them). To build
 the same disk image on your Mac, with that certificate in your Keychain and the API key saved once

@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     supervisor.start()
+    Updater.shared.start()
 
     client.onSessionFinished = { [weak self] provider, label in
       self?.announce(
