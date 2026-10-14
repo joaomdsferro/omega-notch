@@ -160,6 +160,21 @@ pub struct SessionState {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A provider's headline window passing a usage threshold (v5), to be
+/// announced; see `limits`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LimitAlert {
+    pub provider: ProviderId,
+    pub display_name: String,
+    /// The window's own name, such as "Current session".
+    pub label: String,
+    pub used_pct: f64,
+    /// 80 or 100.
+    pub threshold: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<DateTime<Utc>>,
+}
+
 /// Token counts as the vendor bills them. Cache reads and writes are kept
 /// apart from fresh input because they dominate agent sessions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,6 +405,10 @@ pub enum ServerMessage {
     SessionWaiting {
         session: SessionState,
     },
+    /// A usage threshold passed (v5, additive).
+    LimitReached {
+        limit: LimitAlert,
+    },
     ConfigUpdated {
         config: crate::config::AppConfig,
     },
@@ -418,7 +437,7 @@ pub enum ServerMessage {
     },
 }
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const ENGINE_NAME: &str = "omega-notch-engine";
 
 fn default_dashboard_days() -> u32 {

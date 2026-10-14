@@ -10,7 +10,7 @@ $XDG_RUNTIME_DIR/omega-notch.sock                                  (Linux)
 Only its owner can connect: the socket is `0600`, in a folder only its owner
 can open.
 
-Protocol version: **4**
+Protocol version: **5**
 
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
@@ -40,6 +40,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `session_updated` | `session` |
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
+| `limit_reached` | `limit` |
 | `config_updated` | `config` |
 | `raise_window` | `pids`, `hints`, `tty?` |
 | `pong` | — |
@@ -51,6 +52,14 @@ window. `pids` is the session's process and its parents, nearest first; the
 first one that is an app owns the window. `hints` are words its title may
 carry, best first. `tty` is the session's terminal (`/dev/ttys003`), for
 picking the tab. Other clients ignore it.
+
+`limit_reached` (v5) says a provider's headline window (its first) has passed
+80% or reached 100%: `limit` has `provider`, `display_name`, `label` (the
+window's name), `used_pct`, `threshold` (80 or 100) and `resets_at?`. Each
+threshold is sent once, and again only after usage falls 10 points below it
+(a new window); the engine's first reading of a provider sets the starting
+point without one. Muted providers, and `alerts.limits` off, send none. Older
+clients ignore it.
 
 `session_updated` carries a provider's overall state (waiting outranks busy,
 busy outranks idle). `session_finished` and `session_waiting` are about one

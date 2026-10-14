@@ -40,6 +40,17 @@ public struct SessionState: Codable, Equatable, Sendable {
   public var updatedAt: Date?
 }
 
+/// A provider's headline window passing 80% or reaching 100% (v5).
+public struct LimitAlert: Codable, Equatable, Sendable {
+  public var provider: String
+  public var displayName: String
+  /// The window's own name, such as "Current session".
+  public var label: String
+  public var usedPct: Double
+  public var threshold: Int
+  public var resetsAt: Date?
+}
+
 public struct TokenTotals: Codable, Equatable, Sendable {
   public var input: Double
   public var output: Double
@@ -171,6 +182,8 @@ public enum ServerMessage: Sendable {
   case sessionUpdated(SessionState)
   case sessionFinished(SessionState)
   case sessionWaiting(SessionState)
+  /// A usage threshold passed, to be announced (v5).
+  case limitReached(LimitAlert)
   case configUpdated(JSONValue)
   case dashboard(Dashboard)
   case copilotLogin(CopilotLogin)
@@ -230,6 +243,7 @@ extension ServerMessage {
   }
   private struct ReadingBody: Decodable { var reading: UsageReading }
   private struct SessionBody: Decodable { var session: SessionState }
+  private struct LimitBody: Decodable { var limit: LimitAlert }
   private struct ConfigBody: Decodable { var config: JSONValue }
   private struct HelloBody: Decodable { var `protocol`: Int }
   private struct ErrorBody: Decodable { var message: String }
@@ -263,6 +277,8 @@ extension ServerMessage {
       return .sessionFinished(try d.decode(SessionBody.self, from: line).session)
     case "session_waiting":
       return .sessionWaiting(try d.decode(SessionBody.self, from: line).session)
+    case "limit_reached":
+      return .limitReached(try d.decode(LimitBody.self, from: line).limit)
     case "config_updated":
       return .configUpdated(try d.decode(ConfigBody.self, from: line).config)
     case "dashboard":

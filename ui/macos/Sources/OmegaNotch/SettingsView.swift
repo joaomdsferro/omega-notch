@@ -293,6 +293,13 @@ struct SettingsView: View {
         isOn: config.alertsEnabled
       ) { on in update { $0.alertsEnabled = on } }
       SettingsSwitch(
+        title: "Usage limits",
+        subtitle: config.alertsEnabled
+          ? "When a provider passes 80% and when it reaches 100%"
+          : "Notifications are off",
+        isOn: config.limitAlerts
+      ) { on in update { $0.limitAlerts = on } }
+      SettingsSwitch(
         title: "Play a sound", subtitle: config.alertsEnabled ? "" : "Notifications are off",
         isOn: config.soundEnabled
       ) { on in update { $0.soundEnabled = on } }

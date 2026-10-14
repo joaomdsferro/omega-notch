@@ -2,5 +2,5 @@
   "type": "hello",
   "server": "omega-notch-engine",
   "version": 1,
-  "protocol": 4
+  "protocol": 5
 }
