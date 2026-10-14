@@ -45,7 +45,8 @@ With [Homebrew](https://brew.sh):
 brew install --cask joaomdsferro/tap/omega-notch
 ```
 
-`brew upgrade` brings later versions. Or download `omega-notch-<version>-macos-universal.dmg` from the
+`brew upgrade --cask omega-notch` brings later versions. Or download
+`omega-notch-<version>-macos-universal.dmg` from the
 [latest release](https://github.com/joaomdsferro/omega-notch/releases), open it and drag
 **Omega Notch** to Applications. Either way the app is signed and notarised, so it opens without
 warnings.
