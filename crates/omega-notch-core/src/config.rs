@@ -311,10 +311,15 @@ mod tests {
     #[test]
     fn alerts_open_the_notch_unless_told_not_to() {
         let mut value = serde_json::to_value(AppConfig::default()).unwrap();
-        value["alerts"]
-            .as_object_mut()
-            .unwrap()
-            .remove("open_notch");
+        let alerts = value["alerts"].as_object_mut().unwrap();
+        for key in [
+            "open_notch",
+            "open_notch_split",
+            "open_notch_finished",
+            "open_notch_waiting",
+        ] {
+            alerts.remove(key);
+        }
         let old: AppConfig = serde_json::from_value(value).unwrap();
         assert!(old.alerts.open_notch);
         assert!(!old.alerts.open_notch_split);
