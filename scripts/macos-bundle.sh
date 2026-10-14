@@ -21,7 +21,7 @@ BUNDLE_ID="app.wisething.omeganotch"
 # Sparkle reads the latest release's appcast, and installs only what is signed
 # with the private half of this key (kept in the `release` environment).
 SPARKLE_FEED="https://github.com/joaomdsferro/omega-notch/releases/latest/download/appcast.xml"
-SPARKLE_PUBLIC_KEY=""
+SPARKLE_PUBLIC_KEY="fhC4LvVcbYHI+SJ4AW+aDjAXeDNd3minNXv5g+/GGKk="
 IDENTITY="${CODESIGN_IDENTITY:--}"
 RELEASE="${RELEASE:-0}"
 # A release goes to its own folder. Replacing the files of an app that is
@@ -76,11 +76,12 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 install -m 755 "$SHELL_BIN" "$APP/Contents/MacOS/OmegaNotch"
 # Sparkle, where an app keeps its frameworks. Its XPC services are only for
 # sandboxed apps, which this is not. The build folder's own paths go from the
-# binary, so it neither looks there nor gives them away.
+# binary, so it neither looks there nor gives them away (a universal binary
+# lists each once per architecture).
 ditto "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 rm -rf "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices" \
   "$APP/Contents/Frameworks/Sparkle.framework/XPCServices"
-for rpath in $(otool -l "$APP/Contents/MacOS/OmegaNotch" | awk '$1 == "path" && $2 ~ /^\// && $2 !~ /^\/usr\// {print $2}'); do
+for rpath in $(otool -l "$APP/Contents/MacOS/OmegaNotch" | awk '$1 == "path" && $2 ~ /^\// && $2 !~ /^\/usr\// {print $2}' | sort -u); do
   install_name_tool -delete_rpath "$rpath" "$APP/Contents/MacOS/OmegaNotch"
 done
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/OmegaNotch"
