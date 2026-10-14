@@ -306,6 +306,10 @@ void EngineClient::applyConfig(const QJsonObject &config)
     const QJsonObject alerts = config.value(QStringLiteral("alerts")).toObject();
     m_alertsEnabled = alerts.value(QStringLiteral("enabled")).toBool(true);
     m_soundEnabled = alerts.value(QStringLiteral("sound")).toBool(true);
+    m_openNotchOnAlert = alerts.value(QStringLiteral("open_notch")).toBool(true);
+    m_openNotchSplit = alerts.value(QStringLiteral("open_notch_split")).toBool(false);
+    m_openNotchFinished = alerts.value(QStringLiteral("open_notch_finished")).toBool(true);
+    m_openNotchWaiting = alerts.value(QStringLiteral("open_notch_waiting")).toBool(true);
     m_limitAlerts = alerts.value(QStringLiteral("limits")).toBool(true);
     m_soundFinished = alerts.value(QStringLiteral("sound_finished")).toString();
     m_soundWaiting = alerts.value(QStringLiteral("sound_waiting")).toString();
@@ -398,6 +402,10 @@ void EngineClient::pushConfig()
                  {QStringLiteral("sound"), m_soundEnabled},
                  {QStringLiteral("sound_finished"), m_soundFinished},
                  {QStringLiteral("sound_waiting"), m_soundWaiting},
+                 {QStringLiteral("open_notch"), m_openNotchOnAlert},
+                 {QStringLiteral("open_notch_split"), m_openNotchSplit},
+                 {QStringLiteral("open_notch_finished"), m_openNotchFinished},
+                 {QStringLiteral("open_notch_waiting"), m_openNotchWaiting},
                  {QStringLiteral("limits"), m_limitAlerts},
                  {QStringLiteral("mute_cursor"), false},
                  {QStringLiteral("mute_claude_code"), false},
@@ -433,6 +441,10 @@ void EngineClient::pushConfig()
         alerts.insert(QStringLiteral("sound"), m_soundEnabled);
         alerts.insert(QStringLiteral("sound_finished"), m_soundFinished);
         alerts.insert(QStringLiteral("sound_waiting"), m_soundWaiting);
+        alerts.insert(QStringLiteral("open_notch"), m_openNotchOnAlert);
+        alerts.insert(QStringLiteral("open_notch_split"), m_openNotchSplit);
+        alerts.insert(QStringLiteral("open_notch_finished"), m_openNotchFinished);
+        alerts.insert(QStringLiteral("open_notch_waiting"), m_openNotchWaiting);
         alerts.insert(QStringLiteral("limits"), m_limitAlerts);
         m_rawConfig.insert(QStringLiteral("alerts"), alerts);
     }
@@ -624,6 +636,39 @@ void EngineClient::setSoundEnabled(bool enabled)
     pushConfig();
 }
 
+void EngineClient::setOpenNotchOnAlert(bool open)
+{
+    m_openNotchOnAlert = open;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setOpenNotchSplit(bool split)
+{
+    // Start from what the single switch said, so nothing changes yet.
+    if (split) {
+        m_openNotchFinished = m_openNotchOnAlert;
+        m_openNotchWaiting = m_openNotchOnAlert;
+    }
+    m_openNotchSplit = split;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setOpenNotchFinished(bool open)
+{
+    m_openNotchFinished = open;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setOpenNotchWaiting(bool open)
+{
+    m_openNotchWaiting = open;
+    emit configChanged();
+    pushConfig();
+}
+
 void EngineClient::setLimitAlerts(bool enabled)
 {
     m_limitAlerts = enabled;
@@ -689,6 +734,12 @@ void EngineClient::openDashboard()
 
 void EngineClient::triggerPeek(const QJsonObject &session, const QString &kind)
 {
+    const bool open = !m_openNotchSplit ? m_openNotchOnAlert
+        : kind == QLatin1String("finished") ? m_openNotchFinished
+                                            : m_openNotchWaiting;
+    if (!open) {
+        return;
+    }
     m_peekProvider = session.value(QStringLiteral("provider")).toString();
     m_peekLabel = session.value(QStringLiteral("label")).toString();
     m_peekKind = kind;

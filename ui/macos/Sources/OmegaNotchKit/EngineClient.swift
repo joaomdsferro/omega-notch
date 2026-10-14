@@ -195,6 +195,7 @@ public final class EngineClient {
   }
 
   private func triggerPeek(_ session: SessionState, kind: String) {
+    guard config.opensNotch(for: kind) else { return }
     peekProvider = session.provider
     peekLabel = session.label ?? ""
     peekKind = kind

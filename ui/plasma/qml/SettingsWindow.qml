@@ -1471,6 +1471,63 @@ Window {
                         onToggled: (checked) => Engine.setSoundEnabled(checked)
                     }
                 }
+                // The rows keep their places: the per-alert switches are added
+                // under the one that asks for them, and the single switch
+                // steps aside.
+                FormRow {
+                    icon: "notch"
+                    title: "Open the notch"
+                    hint: Engine.openNotchSplit ? "Set for each alert below"
+                        : Engine.alertsEnabled ? "For a few seconds, on the session that finished or needs you"
+                                               : "Notifications are off, so the notch stays as it is"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled && !Engine.openNotchSplit
+                        checked: Engine.openNotchOnAlert
+                        accessibleName: "Open the notch"
+                        onToggled: (checked) => Engine.setOpenNotchOnAlert(checked)
+                    }
+                }
+                FormRow {
+                    icon: "layers"
+                    title: "Separately for each alert"
+                    hint: "Choose for finished and for needs-you on their own"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled
+                        checked: Engine.openNotchSplit
+                        accessibleName: "Separately for each alert"
+                        onToggled: (checked) => Engine.setOpenNotchSplit(checked)
+                    }
+                }
+                FormRow {
+                    visible: Engine.openNotchSplit
+                    icon: "check-circle"
+                    title: "When a session finishes"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled
+                        checked: Engine.openNotchFinished
+                        accessibleName: "Open the notch when a session finishes"
+                        onToggled: (checked) => Engine.setOpenNotchFinished(checked)
+                    }
+                }
+                FormRow {
+                    visible: Engine.openNotchSplit
+                    icon: "message"
+                    title: "When a session needs you"
+
+                    SettingsToggle {
+                        anchors.right: parent.right
+                        enabled_: Engine.alertsEnabled
+                        checked: Engine.openNotchWaiting
+                        accessibleName: "Open the notch when a session needs you"
+                        onToggled: (checked) => Engine.setOpenNotchWaiting(checked)
+                    }
+                }
             }
             Card {
                 visible: root.tab === "alerts"

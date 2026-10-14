@@ -303,6 +303,39 @@ struct SettingsView: View {
         title: "Play a sound", subtitle: config.alertsEnabled ? "" : "Notifications are off",
         isOn: config.soundEnabled
       ) { on in update { $0.soundEnabled = on } }
+      // The rows keep their places: the per-alert switches are added under
+      // the one that asks for them, and the single switch steps aside.
+      SettingsSwitch(
+        title: "Open the notch",
+        subtitle: config.openNotchSplit
+          ? "Set for each alert below"
+          : config.alertsEnabled
+            ? "For a few seconds, on the session that finished or needs you"
+            : "Notifications are off",
+        isOn: config.openNotchOnAlert, enabled: !config.openNotchSplit
+      ) { on in update { $0.openNotchOnAlert = on } }
+      SettingsSwitch(
+        title: "Separately for each alert",
+        subtitle: "Choose for finished and for needs-you on their own",
+        isOn: config.openNotchSplit
+      ) { on in
+        update {
+          // Start from what the single switch said, so nothing changes yet.
+          if on {
+            $0.openNotchFinished = $0.openNotchOnAlert
+            $0.openNotchWaiting = $0.openNotchOnAlert
+          }
+          $0.openNotchSplit = on
+        }
+      }
+      if config.openNotchSplit {
+        SettingsSwitch(title: "When a session finishes", isOn: config.openNotchFinished, indent: 20) { on in
+          update { $0.openNotchFinished = on }
+        }
+        SettingsSwitch(title: "When a session needs you", isOn: config.openNotchWaiting, indent: 20) { on in
+          update { $0.openNotchWaiting = on }
+        }
+      }
     }
 
     if config.soundEnabled {

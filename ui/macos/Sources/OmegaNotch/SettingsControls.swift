@@ -53,6 +53,10 @@ struct SettingsSwitch: View {
   var provider: String = ""
   var subtitleIsError = false
   var isOn: Bool
+  /// Off, it is dimmed and does not toggle.
+  var enabled = true
+  /// Set in under the switch it belongs to.
+  var indent: CGFloat = 0
   var toggle: (Bool) -> Void
 
   @State private var hovered = false
@@ -80,17 +84,20 @@ struct SettingsSwitch: View {
       .frame(width: 38, height: 22)
       .animation(.easeOut(duration: 0.14), value: isOn)
     }
+    .opacity(enabled ? 1 : 0.45)
     .frame(minHeight: 44)
     .padding(.horizontal, 8)
-    .background(RoundedRectangle(cornerRadius: 8).fill(hovered ? Theme.panelHover : .clear))
+    .background(RoundedRectangle(cornerRadius: 8).fill(hovered && enabled ? Theme.panelHover : .clear))
+    .padding(.leading, indent)
     .padding(.horizontal, -8)
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
-    .clickable()
-    .onTapGesture { toggle(!isOn) }
+    .clickable(enabled: enabled)
+    .onTapGesture { if enabled { toggle(!isOn) } }
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(.isButton)
     .accessibilityValue(isOn ? "On" : "Off")
+    .accessibilityRespondsToUserInteraction(enabled)
   }
 }
 
