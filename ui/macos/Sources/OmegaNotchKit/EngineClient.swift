@@ -167,12 +167,15 @@ public final class EngineClient {
     // The provider's own state arrives as `session_updated`; these are about
     // one session, to be announced.
     case .sessionFinished(let session):
-      triggerPeek(session, kind: "finished")
+      triggerPeek(session.provider, label: session.label ?? "", kind: "finished")
       onSessionFinished?(displayName(session.provider), session.label ?? "")
     case .sessionWaiting(let session):
-      triggerPeek(session, kind: "waiting_you")
+      triggerPeek(session.provider, label: session.label ?? "", kind: "waiting_you")
       onSessionWaiting?(displayName(session.provider), session.label ?? "")
     case .limitReached(let limit):
+      triggerPeek(
+        limit.provider, label: Format.limitBanner(limit),
+        kind: limit.threshold >= 100 ? "limit_reached" : "limit")
       onLimitReached?(limit)
     case .configUpdated(let config):
       applyConfig(config)
@@ -194,10 +197,10 @@ public final class EngineClient {
     hasConfig = true
   }
 
-  private func triggerPeek(_ session: SessionState, kind: String) {
-    guard config.opensNotch(for: kind) else { return }
-    peekProvider = session.provider
-    peekLabel = session.label ?? ""
+  private func triggerPeek(_ provider: String, label: String, kind: String) {
+    guard config.alertsEnabled, config.opensNotch(for: kind) else { return }
+    peekProvider = provider
+    peekLabel = label
     peekKind = kind
     peekOpen = true
     peekTimer?.invalidate()

@@ -112,13 +112,20 @@ public struct NotchConfig: Equatable, Sendable {
     set { setAlertSound("sound_waiting", newValue) }
   }
 
-  /// Whether the notch also opens for a few seconds with each alert.
+  /// Whether each alert is also a system notification. Off by default: the
+  /// notch and the sound are the alert.
+  public var systemNotifications: Bool {
+    get { raw["alerts"]?["system_notifications"]?.bool ?? false }
+    set { setAlert("system_notifications", newValue) }
+  }
+
+  /// Whether the notch opens for a few seconds with each alert.
   public var openNotchOnAlert: Bool {
     get { raw["alerts"]?["open_notch"]?.bool ?? true }
     set { setAlert("open_notch", newValue) }
   }
 
-  /// Decide that per alert instead, with the two below.
+  /// Decide that per alert instead, with the three below.
   public var openNotchSplit: Bool {
     get { raw["alerts"]?["open_notch_split"]?.bool ?? false }
     set { setAlert("open_notch_split", newValue) }
@@ -134,11 +141,20 @@ public struct NotchConfig: Equatable, Sendable {
     set { setAlert("open_notch_waiting", newValue) }
   }
 
-  /// Whether an alert of this kind (`finished` or `waiting_you`) opens the
-  /// notch.
+  public var openNotchLimits: Bool {
+    get { raw["alerts"]?["open_notch_limits"]?.bool ?? true }
+    set { setAlert("open_notch_limits", newValue) }
+  }
+
+  /// Whether an alert of this kind (`finished`, `waiting_you`, `limit` or
+  /// `limit_reached`) opens the notch.
   public func opensNotch(for kind: String) -> Bool {
     guard openNotchSplit else { return openNotchOnAlert }
-    return kind == "finished" ? openNotchFinished : openNotchWaiting
+    switch kind {
+    case "finished": return openNotchFinished
+    case "limit", "limit_reached": return openNotchLimits
+    default: return openNotchWaiting
+    }
   }
 
   /// Whether to announce a provider's usage passing 80% and reaching 100%.

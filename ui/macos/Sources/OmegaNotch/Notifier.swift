@@ -31,23 +31,20 @@ enum AlertSound {
   }
 }
 
-/// macOS notifications for sessions that finish or need you. Permission is
+/// macOS notifications for alerts, when Settings asks for them. Permission is
 /// asked the first time there is something to say. Needs the app bundle:
 /// run from `swift run`, it only logs.
 ///
-/// The notification itself is silent and the app plays the chosen sound, so
-/// any system sound can be picked and previewed. It plays only when
-/// notifications are allowed.
+/// The notification itself is silent: the app plays the chosen sound, so any
+/// system sound can be picked and previewed, and it plays without the
+/// notification too.
 @MainActor
 final class Notifier {
   private var asked = false
 
-  /// `sound` is the configured name and the kind it is for, or nil for
-  /// silence.
-  func notify(title: String, body: String, sound: (String, AlertSound.Kind)?) {
+  func notify(title: String, body: String) {
     guard Bundle.main.bundleIdentifier != nil else {
       NSLog("Omega Notch: \(body)")
-      if let (name, kind) = sound { AlertSound.play(name, for: kind) }
       return
     }
     let center = UNUserNotificationCenter.current()
@@ -57,11 +54,7 @@ final class Notifier {
     let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
 
     let deliver: @Sendable (Bool) -> Void = { granted in
-      guard granted else { return }
-      center.add(request)
-      if let (name, kind) = sound {
-        Task { @MainActor in AlertSound.play(name, for: kind) }
-      }
+      if granted { center.add(request) }
     }
     if asked {
       center.getNotificationSettings { settings in
@@ -70,6 +63,6 @@ final class Notifier {
       return
     }
     asked = true
-    center.requestAuthorization(options: [.alert, .sound]) { granted, _ in deliver(granted) }
+    center.requestAuthorization(options: [.alert]) { granted, _ in deliver(granted) }
   }
 }

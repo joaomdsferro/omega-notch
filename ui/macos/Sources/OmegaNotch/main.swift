@@ -42,11 +42,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     supervisor.stop()
   }
 
+  /// The notch shows the alert on its own; this adds the sound and, when
+  /// asked for, a system notification.
   private func announce(_ body: String, _ kind: AlertSound.Kind) {
     let config = client.config
     guard config.alertsEnabled else { return }
-    let name = kind == .finished ? config.soundFinished : config.soundWaiting
-    notifications.notify(title: "Omega Notch", body: body, sound: config.soundEnabled ? (name, kind) : nil)
+    if config.soundEnabled {
+      AlertSound.play(kind == .finished ? config.soundFinished : config.soundWaiting, for: kind)
+    }
+    if config.systemNotifications {
+      notifications.notify(title: "Omega Notch", body: body)
+    }
   }
 }
 

@@ -74,12 +74,17 @@ public enum Format {
   /// The notification for a usage threshold: "Claude Code: 81% of Current
   /// session used. Resets in 2h 10m".
   public static func limitAlert(_ limit: LimitAlert, now: Date = Date()) -> String {
-    let what =
-      limit.threshold >= 100
-      ? "\(limit.displayName): \(limit.label) limit reached"
-      : "\(limit.displayName): \(Int(limit.usedPct.rounded(.down)))% of \(limit.label) used"
+    let what = "\(limit.displayName): \(limitBanner(limit))"
     let reset = resetsIn(limit.resetsAt, now: now)
     return reset.isEmpty ? what : "\(what). \(reset)"
+  }
+
+  /// The same on the provider's card, which already names it: "81% of
+  /// Current session used".
+  public static func limitBanner(_ limit: LimitAlert) -> String {
+    limit.threshold >= 100
+      ? "\(limit.label) limit reached"
+      : "\(Int(limit.usedPct.rounded(.down)))% of \(limit.label) used"
   }
 
   public static func formatted(_ date: Date, _ pattern: String) -> String {

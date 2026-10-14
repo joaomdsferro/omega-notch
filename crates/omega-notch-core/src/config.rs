@@ -137,17 +137,22 @@ pub struct AlertSettings {
     /// The same, for a session that stopped to ask you something.
     #[serde(default)]
     pub sound_waiting: String,
-    /// Whether the notch also opens for a few seconds with each alert. Off,
-    /// the notification and its sound are the whole alert.
+    /// Whether each alert is also a system notification. Off by default:
+    /// the notch and the sound are the alert.
+    #[serde(default)]
+    pub system_notifications: bool,
+    /// Whether the notch opens for a few seconds with each alert.
     #[serde(default = "default_true")]
     pub open_notch: bool,
-    /// Decide that per alert instead, with the two below.
+    /// Decide that per alert instead, with the three below.
     #[serde(default)]
     pub open_notch_split: bool,
     #[serde(default = "default_true")]
     pub open_notch_finished: bool,
     #[serde(default = "default_true")]
     pub open_notch_waiting: bool,
+    #[serde(default = "default_true")]
+    pub open_notch_limits: bool,
     /// Whether to announce a provider's usage passing 80% and reaching 100%.
     #[serde(default = "default_true")]
     pub limits: bool,
@@ -187,10 +192,12 @@ impl Default for AppConfig {
                 sound: true,
                 sound_finished: String::new(),
                 sound_waiting: String::new(),
+                system_notifications: false,
                 open_notch: true,
                 open_notch_split: false,
                 open_notch_finished: true,
                 open_notch_waiting: true,
+                open_notch_limits: true,
                 limits: true,
                 mute_cursor: false,
                 mute_claude_code: false,
@@ -317,6 +324,8 @@ mod tests {
             "open_notch_split",
             "open_notch_finished",
             "open_notch_waiting",
+            "open_notch_limits",
+            "system_notifications",
         ] {
             alerts.remove(key);
         }
@@ -324,6 +333,10 @@ mod tests {
         assert!(old.alerts.open_notch);
         assert!(!old.alerts.open_notch_split);
         assert!(old.alerts.open_notch_finished && old.alerts.open_notch_waiting);
+        assert!(old.alerts.open_notch_limits);
+        // An old config gets no system notifications either: the notch is the
+        // alert now.
+        assert!(!old.alerts.system_notifications);
         let off = parse(
             r#"{"alerts":{"enabled":true,"sound":true,"open_notch":false,
             "mute_cursor":false,"mute_claude_code":false,"mute_claude_desktop":false}}"#,

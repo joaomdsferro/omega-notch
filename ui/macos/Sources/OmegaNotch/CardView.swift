@@ -83,10 +83,15 @@ struct CardView: View {
 
   /// Peek: why the card opened on its own.
   private var banner: some View {
-    let tint = bannerKind == "waiting_you" ? Theme.waiting : Theme.ample
-    let text =
-      (bannerKind == "waiting_you" ? "Needs you" : "Finished")
-      + (bannerLabel.isEmpty ? "" : "  ·  " + bannerLabel)
+    let (tint, title): (Color, String) =
+      switch bannerKind {
+      case "waiting_you": (Theme.waiting, "Needs you")
+      case "limit": (Theme.watch, "")
+      case "limit_reached": (Theme.critical, "")
+      default: (Theme.ample, "Finished")
+      }
+    // A limit's label already says it all.
+    let text = [title, bannerLabel].filter { !$0.isEmpty }.joined(separator: "  ·  ")
     return Text(text)
       .font(.notch(12 * s, .semibold))
       .foregroundStyle(tint)
