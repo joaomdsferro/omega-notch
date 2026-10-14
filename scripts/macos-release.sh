@@ -48,6 +48,21 @@ notarise() {
   exit 1
 }
 
+# Stapling fetches the ticket from Apple's CloudKit, and a dropped connection
+# there fails the whole release after notarisation already passed. A few
+# tries, a little apart.
+staple() {
+  local try
+  for try in 1 2 3 4 5; do
+    if xcrun stapler staple "$1"; then return; fi
+    [ "$try" -eq 5 ] && break
+    echo "Stapling $(basename "$1") failed; trying again in $((try * 15))s…" >&2
+    sleep $((try * 15))
+  done
+  echo "Could not staple $(basename "$1")." >&2
+  exit 1
+}
+
 RELEASE=1 "$ROOT/scripts/macos-bundle.sh"
 
 # From here on, a copy of its own: another release build while Apple takes
@@ -61,7 +76,7 @@ APP="$WORK/Omega Notch.app"
 # network check once it is copied out of the disk image.
 ditto -c -k --keepParent "$APP" "$WORK/app.zip"
 notarise "$WORK/app.zip"
-xcrun stapler staple "$APP"
+staple "$APP"
 
 echo "Packing the disk image…"
 mkdir -p "$WORK/image" "$OUT"
@@ -72,7 +87,7 @@ hdiutil create -quiet -volname "Omega Notch" -srcfolder "$WORK/image" -fs HFS+ \
   -format UDZO -ov "$DMG"
 codesign --force --timestamp --sign "$CODESIGN_IDENTITY" "$DMG"
 notarise "$DMG"
-xcrun stapler staple "$DMG"
+staple "$DMG"
 
 # What Gatekeeper will say on someone else's Mac.
 spctl --assess --type execute "$APP"
