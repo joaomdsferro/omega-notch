@@ -39,17 +39,25 @@ desktop, Swift on macOS and Qt 6 / QML on KDE Plasma (Wayland).
 
 Omega Notch needs **macOS 14 Sonoma or later**, on Apple silicon or Intel.
 
-From v0.0.4, download `omega-notch-<version>-macos-universal.dmg` from the
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask joaomdsferro/tap/omega-notch
+```
+
+`brew upgrade --cask omega-notch` brings later versions. Or download
+`omega-notch-<version>-macos-universal.dmg` from the
 [latest release](https://github.com/joaomdsferro/omega-notch/releases), open it and drag
-**Omega Notch** to Applications. The app is signed and notarised, so it opens without warnings.
-Until then, [build it from source](CONTRIBUTING.md#on-macos).
+**Omega Notch** to Applications. Either way the app is signed and notarised, so it opens without
+warnings.
 
 - The first time it reads your Claude Code sign-in, macOS asks for Keychain access. Choose
   **Always Allow**.
 - Jumping to a chat's window needs Accessibility, which Settings asks for when you switch it on.
 - **Open at login** is in Settings.
 
-To remove it, quit it and move it to the Trash.
+To remove it, run `brew uninstall --cask omega-notch` (add `--zap` to delete its settings too), or
+quit it and move it to the Trash.
 
 ### KDE Plasma
 
@@ -220,8 +228,9 @@ first start.
 <details>
 <summary><strong>How do I remove it?</strong></summary>
 
-On macOS, quit it and move it to the Trash. Settings stay in `~/Library/Application Support/omega-notch`;
-delete that folder to remove everything.
+On macOS, run `brew uninstall --cask --zap omega-notch`, which removes its settings too. Without
+Homebrew, quit it and move it to the Trash; settings stay in
+`~/Library/Application Support/omega-notch`, so delete that folder to remove everything.
 
 On Linux, run `./uninstall.sh` from the release folder, or `make uninstall` from the repository.
 Settings stay in `~/.config/omega-notch` and `~/.local/share/omega-notch`; delete those folders to
