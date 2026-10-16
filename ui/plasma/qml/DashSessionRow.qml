@@ -15,6 +15,7 @@ Item {
     property var shades: ({})
     property bool expanded: false
     signal toggled()
+    signal openRequested()
 
     readonly property var models: session && session.models ? session.models : []
     readonly property real cost: session ? (session.cost_usd || 0) : 0
@@ -281,7 +282,7 @@ Item {
                     id: openHover
                     cursorShape: Qt.PointingHandCursor
                 }
-                TapHandler { onTapped: if (root.session) Engine.openChat(root.session) }
+                TapHandler { onTapped: if (root.session) root.openRequested() }
             }
         }
     }

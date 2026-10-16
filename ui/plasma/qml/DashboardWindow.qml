@@ -751,6 +751,7 @@ Window {
                             shades: root.modelShades
                             expanded: root.openSession === modelData.id
                             onToggled: root.openSession = expanded ? "" : modelData.id
+                            onOpenRequested: Engine.openChat(modelData)
                         }
                     }
 

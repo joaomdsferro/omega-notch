@@ -10,7 +10,7 @@ $XDG_RUNTIME_DIR/omega-notch.sock                                  (Linux)
 Only its owner can connect: the socket is `0600`, in a folder only its owner
 can open.
 
-Protocol version: **5**
+Protocol version: **6**
 
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
