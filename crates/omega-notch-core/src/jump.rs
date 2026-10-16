@@ -334,7 +334,7 @@ pub fn session_in_window(
         .collect();
     let found = pick_session(&candidates, title, unread);
     // Counts only: the caption may name a private file or page.
-    info!(
+    tracing::debug!(
         sessions = candidates.len(),
         titled = title.is_some_and(|t| !t.trim().is_empty()),
         matched = found.is_some(),
