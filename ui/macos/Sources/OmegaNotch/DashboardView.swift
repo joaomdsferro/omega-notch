@@ -178,6 +178,7 @@ struct DashboardView: View {
         stats(
           rangeTotal: rangeTotal, activeDays: activeDays, rangeCost: costs.total, costDays: costDays,
           costToday: costToday, cacheRead: kinds.cacheRead)
+        if !client.dashboard.suggestions.isEmpty { suggestions }
         limits
 
         DashCard(
@@ -407,6 +408,32 @@ struct DashboardView: View {
               windowSlots: maxWindows
             ) { client.refresh(reading.provider) }
           }
+        }
+      }
+    }
+  }
+
+  /// What to change, from the engine's local rules over the sessions in
+  /// view. Each can narrow the page to the chat it is about, or open it.
+  private var suggestions: some View {
+    let all = client.dashboard.suggestions
+    let saving = all.compactMap(\.savingUsd).reduce(0, +)
+    return DashCard(
+      heading: "Suggestions",
+      caption: (saving > 0 ? "Up to \(Format.usd(saving)) less in the last \(days) days · " : "")
+        + "from local rules over these sessions, nothing leaves your Mac"
+    ) {
+      VStack(spacing: 0) {
+        ForEach(Array(all.enumerated()), id: \.element.id) { index, item in
+          if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
+          SuggestionRow(
+            item: item,
+            show: item.sessions.first.flatMap { id in
+              client.dashboard.sessions.contains { $0.id == id } && chat != id ? { chat = id } : nil
+            },
+            open: item.sessions.first.flatMap { id in
+              client.chats.first { $0.id == id }.map { found in { client.openChat(found) } }
+            })
         }
       }
     }
@@ -712,6 +739,53 @@ private struct CostBreakdown: View {
 /// One session in the dearest list: its title and where it ran, a bar of its
 /// spend by model, tokens, estimated cost, share of the range's spend and the
 /// last day it ran. Click to see each model's tokens by kind.
+private struct SuggestionRow: View {
+  var item: Suggestion
+  /// Narrows the page to the chat it is about; nil when it cannot.
+  var show: (() -> Void)?
+  var open: (() -> Void)?
+
+  private var icon: String {
+    switch item.kind {
+    case "model_choice": "cpu"
+    case "cache_churn": "arrow.triangle.2.circlepath"
+    case "long_session": "text.alignleft"
+    case "context_full": "gauge.with.dots.needle.67percent"
+    default: "lightbulb"
+    }
+  }
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: icon).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.textSecondary)
+        .frame(width: 20).padding(.top, 2)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(item.title).font(.notch(14, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+        Text(item.detail).font(.notch(12)).foregroundStyle(Theme.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+        if show != nil || open != nil {
+          HStack(spacing: 8) {
+            if let show {
+              TextButton(label: item.sessions.count > 1 ? "Show the dearest" : "Only this chat", action: show)
+            }
+            if let open { TextButton(label: "Open chat", action: open) }
+          }
+          .padding(.top, 4)
+        }
+      }
+      Spacer(minLength: 12)
+      if let saving = item.savingUsd {
+        Text("≈ \(Format.usd(saving)) less").font(.notch(13, .semibold, tabular: true))
+          .foregroundStyle(Theme.ample)
+          .padding(.horizontal, 10).frame(height: 26)
+          .background(Capsule().fill(Theme.ample.opacity(0.12)))
+      }
+    }
+    .padding(.vertical, 12)
+    .accessibilityElement(children: .contain)
+  }
+}
+
 private struct SessionRow: View {
   var session: SessionCost
   var today: String

@@ -251,6 +251,7 @@ void EngineClient::applyDashboard(const QJsonObject &obj)
     m_dashboardProjectAnswered = obj.value(QStringLiteral("project")).toString();
     m_dashboardSessionAnswered = obj.value(QStringLiteral("session")).toString();
     m_dashboardProjects = obj.value(QStringLiteral("projects")).toArray().toVariantList();
+    m_dashboardSuggestions = obj.value(QStringLiteral("suggestions")).toArray().toVariantList();
     m_dashboardTotalUsd = obj.value(QStringLiteral("total_usd")).toDouble(0.0);
     emit dashboardChanged();
 }

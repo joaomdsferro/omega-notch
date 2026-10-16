@@ -42,7 +42,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
-| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `session?`, `projects` |
+| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `session?`, `projects`, `suggestions` |
 | `session_updated` | `session` |
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
@@ -172,6 +172,18 @@ scope: what a client offers to narrow to. A `session` (an id from
 `sessions`) narrows the numbers further, to that one session, but not
 `sessions` itself, so a client can still offer the others; it is echoed
 like the rest.
+
+`suggestions` are what to change, from local rules over the sessions the
+numbers cover (every one in scope, not only the first 100) and the live chats
+among them, likeliest saving first, at most 5. Each has a `kind`, a `title`
+and a `detail` to show as they are, the `provider`, the `sessions` it is about
+(dearest first) and, when it can be told, `saving_usd`: roughly what following
+it would have saved over the range at list prices. Kinds so far:
+`model_choice` (small jobs, under 20k output tokens, on Opus or Fable; saving
+against Sonnet 5.5), `cache_churn` (sessions that rebuild their prompt cache
+more than they reuse it; half the extra cost of those writes), `long_session`
+(30M+ tokens of history re-read) and `context_full` (a live chat 80%+ full).
+A client should show an unknown kind like any other.
 
 ```json
 {

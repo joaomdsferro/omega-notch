@@ -409,6 +409,8 @@ pub struct Scoped {
     /// One session asked for narrows the numbers, not this list: it is what
     /// the dashboard offers to pick from.
     pub sessions: Vec<SessionCost>,
+    /// Every session in scope, past the limit too: what suggestions read.
+    pub matched: Vec<SessionCost>,
     /// Every project in the range, dearest first, whatever the scope: what
     /// the dashboard offers to narrow to.
     pub projects: Vec<ProjectCost>,
@@ -663,6 +665,7 @@ fn scoped_since(
             .then(b.total.cmp(&a.total))
             .then(a.id.cmp(&b.id))
     });
+    let matched = sessions.clone();
     sessions.truncate(limit);
 
     let mut points: Vec<HistoryPoint> = points.into_values().collect();
@@ -682,6 +685,7 @@ fn scoped_since(
 
     Ok(Scoped {
         sessions,
+        matched,
         projects,
         points,
         models,

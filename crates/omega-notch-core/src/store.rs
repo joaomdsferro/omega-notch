@@ -410,6 +410,20 @@ impl UsageStore {
             (scoped.points, scoped.models, scoped.today)
         };
         let total_usd = costs.iter().map(|c| c.cost_usd).sum();
+        // The same sessions the numbers cover, and the live chats among them.
+        let advised: Vec<_> = scoped
+            .matched
+            .iter()
+            .filter(|s| scope.session.is_empty() || s.id == scope.session)
+            .cloned()
+            .collect();
+        let chats: Vec<_> = activity
+            .chats
+            .iter()
+            .filter(|c| scope.is_empty() || advised.iter().any(|s| s.id == c.id))
+            .cloned()
+            .collect();
+        let suggestions = crate::advice::suggest(&advised, &chats);
         ServerMessage::Dashboard {
             points,
             costs,
@@ -420,6 +434,7 @@ impl UsageStore {
             project: scope.project,
             session: scope.session,
             projects: scoped.projects,
+            suggestions,
         }
     }
 

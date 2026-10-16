@@ -46,6 +46,12 @@ fn claude_family(model: &str) -> Option<(&'static str, String)> {
     None
 }
 
+/// A Claude model's family ("fable", "mythos", "opus", "sonnet", "haiku"),
+/// or none for another vendor's.
+pub fn model_family(model: &str) -> Option<&'static str> {
+    claude_family(model).map(|(family, _)| family)
+}
+
 fn claude_price(family: &str, version: &str) -> Price {
     match (family, version) {
         ("fable" | "mythos", "5.1") => Price {
