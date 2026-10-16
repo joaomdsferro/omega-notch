@@ -259,12 +259,21 @@ impl UsageStore {
     /// Marks a chat read now, and tells the shells when that changes it.
     pub async fn mark_seen(&self, provider: ProviderId, id: &str) {
         let changed = match self.inner.seen.lock() {
-            Ok(mut seen) => seen.mark(provider, id, Utc::now()).then(|| seen.clone()),
-            Err(_) => None,
+            Ok(mut seen) => seen.mark(provider, id, Utc::now()),
+            Err(_) => false,
         };
-        let Some(seen) = changed else { return };
+        if !changed {
+            return;
+        }
+        // Saved under the lock, from the marks as they are by then: two saves
+        // never share the temporary file, and the last one has every mark.
+        let inner = self.inner.clone();
         tokio::task::spawn_blocking(move || {
-            if let Err(err) = seen.save() {
+            let saved = match inner.seen.lock() {
+                Ok(seen) => seen.save(),
+                Err(_) => return,
+            };
+            if let Err(err) = saved {
                 warn!(error = %err, "could not save which chats were read");
             }
         });
