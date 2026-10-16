@@ -61,12 +61,12 @@
       ]
     }
   ],
-  "search": "parser",
-  "project": "omega-notch",
+  "search": "sidebar",
+  "project": "omega-zap",
   "projects": [
     {
       "provider": "claude_code",
-      "project": "omega-notch",
+      "project": "omega-zap",
       "sessions": 12,
       "total": 48200000,
       "cost_usd": 38.6
