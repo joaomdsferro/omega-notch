@@ -12,6 +12,10 @@ struct CardView: View {
   var tailOffset: CGFloat
   var bannerKind: String
   var bannerLabel: String
+  /// The chat under the pointer, from the notch's own pointer tracking.
+  var hoveredChat = ""
+  /// Reports where a chat row sits (nil once it is gone), for that tracking.
+  var placeChat: (String, CGRect?) -> Void = { _, _ in }
 
   private var reading: UsageReading? { client.reading(for: provider) }
   private var session: SessionState? { reading == nil ? nil : client.session(for: provider) }
@@ -79,7 +83,11 @@ struct CardView: View {
         .kerning(0.6)
         .foregroundStyle(color)
       ForEach(chats) { chat in
-        ChatRow(chat: chat, now: now, s: s) { client.openChat(chat) }
+        ChatRow(chat: chat, now: now, s: s, hovered: hoveredChat == chat.id) { client.openChat(chat) }
+          .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(NotchView.space)) }) {
+            placeChat(chat.id, $0)
+          }
+          .onDisappear { placeChat(chat.id, nil) }
       }
     }
   }
@@ -241,9 +249,8 @@ struct ChatRow: View {
   var chat: ChatSummary
   var now: Date
   var s: CGFloat
+  var hovered: Bool
   var open: () -> Void
-
-  @State private var hovered = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2 * s) {
@@ -276,8 +283,6 @@ struct ChatRow: View {
     .background(RoundedRectangle(cornerRadius: 6 * s).fill(hovered ? Theme.panelHover : .clear))
     .padding(-4 * s)
     .contentShape(Rectangle())
-    .onHover { hovered = $0 }
-    .clickable()
     .onTapGesture(perform: open)
   }
 
