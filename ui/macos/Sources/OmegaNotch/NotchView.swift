@@ -4,6 +4,9 @@ import SwiftUI
 
 /// Everything drawn in the notch panel, placed by `NotchModel`'s geometry.
 struct NotchView: View {
+  /// The panel's own coordinates, top-left origin, as the pointer is tracked.
+  static let space = "notch"
+
   var model: NotchModel
   var openSettings: () -> Void
   var openDashboard: () -> Void
@@ -24,6 +27,7 @@ struct NotchView: View {
       card
     }
     .frame(width: model.panelSize.width, height: model.panelSize.height, alignment: .topLeading)
+    .coordinateSpace(.named(NotchView.space))
     .animation(.easeOut(duration: 0.22), value: model.bodyLength)
     .animation(.easeOut(duration: 0.24), value: model.revealed)
     .environment(\.colorScheme, .dark)
@@ -250,7 +254,9 @@ struct NotchView: View {
         now: model.now,
         tailOffset: model.tailOffset,
         bannerKind: client.peekOpen && model.cardProvider == client.peekProvider ? client.peekKind : "",
-        bannerLabel: client.peekLabel
+        bannerLabel: client.peekLabel,
+        hoveredChat: model.hoveredChat,
+        placeChat: { id, frame in model.chatFrames[id] = frame }
       )
       .fixedSize(horizontal: false, vertical: true)
       .onGeometryChange(for: CGSize.self, of: \.size) { model.cardSize = $0 }

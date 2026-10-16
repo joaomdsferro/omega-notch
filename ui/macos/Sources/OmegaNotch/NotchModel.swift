@@ -36,6 +36,12 @@ final class NotchModel {
   private(set) var manualProvider = ""
   var cardSize = CGSize(width: 320, height: 200)
   private(set) var now = Date()
+  /// The card's chat under the pointer. Worked out here from the pointer the
+  /// panel already follows: SwiftUI's own hover tracking reaches a panel
+  /// that is never key, in an app that is never active, late and unevenly.
+  private(set) var hoveredChat = ""
+  /// Where each of the card's chats is drawn, in panel coordinates.
+  @ObservationIgnored var chatFrames: [String: CGRect] = [:]
 
   @ObservationIgnored private var hideTimer: Timer?
   @ObservationIgnored private var unhoverTimer: Timer?
@@ -308,12 +314,19 @@ final class NotchModel {
       notchRect.insetBy(dx: vertical ? 0 : -curl, dy: vertical ? -curl : 0).contains(point) && revealed
     if overNotch != notchHovered { notchHovered = overNotch }
 
+    let onCard = cardActive && cardFrame.contains(point)
+    let chat = onCard ? chatFrames.first { $0.value.contains(point) }?.key ?? "" : ""
+    if chat != hoveredChat {
+      hoveredChat = chat
+      (chat.isEmpty ? NSCursor.arrow : NSCursor.pointingHand).set()
+    }
+
     // The ring under the pointer, or the card it opened.
     let ring = revealed ? shownReadings.indices.first { cellRect($0).contains(point) } : nil
     if let ring {
       unhoverTimer?.invalidate()
       setHovered(shownReadings[ring].provider)
-    } else if cardActive && cardFrame.contains(point) {
+    } else if onCard {
       unhoverTimer?.invalidate()
     } else if !hoveredProvider.isEmpty && unhoverTimer?.isValid != true {
       // Long enough to carry the pointer across the gap from ring to card.
