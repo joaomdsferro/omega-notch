@@ -4,7 +4,7 @@ import Foundation
 // follow the JSON names through `convertFromSnakeCase`; anything optional on
 // the Rust side is optional here, so an older or newer engine still decodes.
 
-public let supportedProtocol = 4
+public let supportedProtocol = 6
 
 public enum SessionKind: String, Codable, Sendable {
   case idle
@@ -133,10 +133,44 @@ public struct CostEstimate: Codable, Equatable, Sendable {
   public var costUsd: Double
 }
 
+public struct SessionModelCost: Codable, Equatable, Sendable, Identifiable {
+  public var model: String
+  public var input: Double
+  public var output: Double
+  public var cacheRead: Double
+  public var cacheWrite: Double
+  public var total: Double
+  public var costUsd: Double
+
+  public var id: String { model }
+}
+
+/// One session's spend over the dashboard range, split by model (v6).
+public struct SessionCost: Codable, Equatable, Sendable, Identifiable {
+  public var provider: String
+  public var id: String
+  public var title: String
+  public var project: String?
+  public var cwd: String?
+  public var surface: String?
+  /// Last day in the range with tokens, `yyyy-MM-dd`.
+  public var lastDate: String
+  public var input: Double
+  public var output: Double
+  public var cacheRead: Double
+  public var cacheWrite: Double
+  public var total: Double
+  public var costUsd: Double
+  /// Dearest first.
+  public var models: [SessionModelCost]
+}
+
 public struct Dashboard: Equatable, Sendable {
   public var points: [HistoryPoint] = []
   public var costs: [CostEstimate] = []
   public var models: [ModelDayPoint] = []
+  /// The range's dearest sessions, dearest first (v6).
+  public var sessions: [SessionCost] = []
   public var totalUsd: Double = 0
 
   public init() {}
@@ -252,6 +286,7 @@ extension ServerMessage {
     var points: [HistoryPoint]
     var costs: [CostEstimate]
     var models: [ModelDayPoint]?
+    var sessions: [SessionCost]?
     var totalUsd: Double
   }
 
@@ -287,6 +322,7 @@ extension ServerMessage {
       dashboard.points = body.points
       dashboard.costs = body.costs
       dashboard.models = body.models ?? []
+      dashboard.sessions = body.sessions ?? []
       dashboard.totalUsd = body.totalUsd
       return .dashboard(dashboard)
     case "copilot_login":

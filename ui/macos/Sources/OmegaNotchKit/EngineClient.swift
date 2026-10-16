@@ -86,10 +86,20 @@ public final class EngineClient {
   }
 
   public func openChat(_ chat: ChatSummary) {
+    openChat(provider: chat.provider, id: chat.id, cwd: chat.cwd, title: chat.title, surface: chat.surface)
+  }
+
+  public func openChat(_ session: SessionCost) {
+    openChat(
+      provider: session.provider, id: session.id, cwd: session.cwd, title: session.title,
+      surface: session.surface)
+  }
+
+  private func openChat(provider: String, id: String, cwd: String?, title: String?, surface: String?) {
     var message: [String: JSONValue] = [
-      "type": .string("open_chat"), "provider": .string(chat.provider), "id": .string(chat.id),
+      "type": .string("open_chat"), "provider": .string(provider), "id": .string(id),
     ]
-    for (key, value) in [("cwd", chat.cwd), ("title", chat.title), ("surface", chat.surface)] {
+    for (key, value) in [("cwd", cwd), ("title", title), ("surface", surface)] {
       if let value, !value.isEmpty { message[key] = .string(value) }
     }
     send(.object(message))

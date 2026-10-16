@@ -13,7 +13,7 @@ use crate::copilot_auth;
 use crate::limits::LimitWatch;
 use crate::protocol::{
     Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus,
-    ServerMessage, SessionKind, SessionState, UsageReading,
+    ServerMessage, SessionCost, SessionKind, SessionState, UsageReading,
 };
 use crate::providers;
 use crate::sessions::{self, SessionEvent};
@@ -249,8 +249,9 @@ impl UsageStore {
         });
     }
 
-    /// Dashboard payload: persisted daily points plus today's per-model cost
-    /// estimates. `days` clamps to 7..=90 inside `history`.
+    /// Dashboard payload: persisted daily points, the range's dearest
+    /// sessions, and today's per-model cost estimates. `days` clamps to
+    /// 7..=90 inside `history`.
     pub async fn dashboard(&self, days: u32) -> ServerMessage {
         let days = days.clamp(7, history::MAX_HISTORY_DAYS);
         let points: Vec<HistoryPoint> =
@@ -265,6 +266,13 @@ impl UsageStore {
                 .ok()
                 .and_then(|r| r.ok())
                 .unwrap_or_default();
+        let sessions: Vec<SessionCost> = tokio::task::spawn_blocking(move || {
+            history::query_sessions(days, history::MAX_SESSIONS)
+        })
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or_default();
         let activity = self.inner.activity.read().await.clone();
         let mut costs = Vec::new();
         for stats in &activity.tokens {
@@ -302,6 +310,7 @@ impl UsageStore {
             costs,
             total_usd,
             models,
+            sessions,
         }
     }
 
@@ -463,9 +472,19 @@ fn backfill_history() {
     let first_day = today - chrono::Duration::days(history::MAX_HISTORY_DAYS as i64 - 1);
     let live_from = today - chrono::Duration::days(chats::HISTORY_DAYS - 1);
     let started = std::time::Instant::now();
-    let rows = chats::backfill_claude(first_day, live_from);
-    match history::record_backfill(ProviderId::ClaudeCode, &rows) {
-        Ok(()) => info!(rows = rows.len(), took = ?started.elapsed(), "token history backfilled"),
+    let found = chats::backfill_claude(first_day, live_from);
+    match history::record_backfill(
+        ProviderId::ClaudeCode,
+        &found.days,
+        &found.sessions,
+        &found.meta,
+    ) {
+        Ok(()) => info!(
+            rows = found.days.len(),
+            sessions = found.meta.len(),
+            took = ?started.elapsed(),
+            "token history backfilled"
+        ),
         Err(err) => warn!(error = %err, "could not backfill token history"),
     }
 }

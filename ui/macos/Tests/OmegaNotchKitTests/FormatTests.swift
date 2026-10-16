@@ -51,6 +51,14 @@ final class FormatTests: XCTestCase {
     XCTAssertEqual(Format.resetsIn(now.addingTimeInterval(3 * 3600 + 5 * 60), now: now), "Resets in 3h 5m")
   }
 
+  func testDay() {
+    XCTAssertEqual(Format.day("2026-10-16", today: "2026-10-16"), "Today")
+    XCTAssertEqual(Format.day("2026-10-15", today: "2026-10-16"), "Yesterday")
+    XCTAssertEqual(Format.day("2026-02-28", today: "2026-03-01"), "Yesterday")
+    XCTAssertEqual(Format.day("2026-10-02", today: "2026-10-16"), "2 Oct")
+    XCTAssertEqual(Format.day("garbage", today: "2026-10-16"), "garbage")
+  }
+
   func testLevels() {
     XCTAssertEqual(Format.level(10), .ample)
     XCTAssertEqual(Format.level(75), .watch)

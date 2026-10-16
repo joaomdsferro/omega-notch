@@ -20,8 +20,8 @@ use crate::config::AppConfig;
 use crate::paths;
 use crate::platform;
 use crate::protocol::{
-    Activity, ChatSummary, DayModelTokens, DayTokens, ModelTokens, ProviderId, SessionKind,
-    TokenStats, TokenTotals,
+    Activity, ChatSummary, DayModelTokens, DayTokens, ModelTokens, ProviderId, SessionDayTokens,
+    SessionKind, SessionMeta, TokenStats, TokenTotals,
 };
 
 /// Chats kept per provider in a snapshot.
@@ -328,6 +328,91 @@ impl Transcript {
             .or_else(|| self.first_prompt.clone())
             .or_else(|| self.command_prompt.clone())
     }
+
+    /// How the dashboard names this session; `None` for a window opened
+    /// and closed without a prompt.
+    fn meta(&self, session_id: &str) -> Option<SessionMeta> {
+        if self.prompts == 0 && self.totals.total() == 0 {
+            return None;
+        }
+        let project = self.cwd.as_deref().map(folder_name);
+        Some(SessionMeta {
+            session_id: session_id.to_string(),
+            title: self.title().or_else(|| project.clone())?,
+            project,
+            cwd: self.cwd.clone(),
+            surface: self
+                .entrypoint
+                .as_deref()
+                .and_then(claude_surface)
+                .map(str::to_string),
+            updated_at: self.last_at?,
+        })
+    }
+}
+
+/// The session a transcript belongs to: its own name for
+/// `projects/<project>/<session>.jsonl`, and the session that ran it for a
+/// subagent under `projects/<project>/<session>/…`. The flag says which.
+fn claude_session_id(root: &Path, path: &Path) -> Option<(String, bool)> {
+    let parts: Vec<&str> = path
+        .strip_prefix(root)
+        .ok()?
+        .iter()
+        .filter_map(|c| c.to_str())
+        .collect();
+    match parts.as_slice() {
+        [_, file] => Some((Path::new(file).file_stem()?.to_str()?.to_string(), true)),
+        [_, session, _, ..] => Some((session.to_string(), false)),
+        _ => None,
+    }
+}
+
+/// Per-session rows in `first_day..=last_day` from every transcript given,
+/// with the names of the sessions whose own transcript is among them. Both
+/// sorted, so two scans of the same files compare equal.
+fn session_rows<'a>(
+    root: &Path,
+    transcripts: impl Iterator<Item = (&'a PathBuf, &'a Transcript)>,
+    first_day: NaiveDate,
+    last_day: NaiveDate,
+) -> (Vec<SessionDayTokens>, Vec<SessionMeta>) {
+    let mut merged: HashMap<(String, NaiveDate, String), TokenTotals> = HashMap::new();
+    let mut meta = Vec::new();
+    for (path, transcript) in transcripts {
+        let Some((session, own)) = claude_session_id(root, path) else {
+            continue;
+        };
+        for (day, models) in &transcript.days {
+            if *day < first_day || *day > last_day {
+                continue;
+            }
+            for (model, tokens) in models {
+                merged
+                    .entry((session.clone(), *day, pretty_model(model)))
+                    .or_default()
+                    .add(tokens);
+            }
+        }
+        if own {
+            meta.extend(transcript.meta(&session));
+        }
+    }
+    let mut rows: Vec<SessionDayTokens> = merged
+        .into_iter()
+        .filter(|(_, tokens)| tokens.total() > 0)
+        .map(|((session_id, day, model), tokens)| SessionDayTokens {
+            session_id,
+            date: day.format("%Y-%m-%d").to_string(),
+            model,
+            tokens,
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        (&a.session_id, &a.date, &a.model).cmp(&(&b.session_id, &b.date, &b.model))
+    });
+    meta.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+    (rows, meta)
 }
 
 /// Folds raw model ids into display names (two ids can share one) and drops
@@ -353,10 +438,18 @@ fn day_model_rows(raw: HashMap<(NaiveDate, &str), TokenTotals>) -> Vec<DayModelT
     rows
 }
 
+/// What the one-off backfill found: days by model, and by session.
+#[derive(Debug, Default)]
+pub struct Backfill {
+    pub days: Vec<DayModelTokens>,
+    pub sessions: Vec<SessionDayTokens>,
+    pub meta: Vec<SessionMeta>,
+}
+
 /// Every Claude Code day still on disk from `first_day` up to, but not
-/// including, `before`, split by model. A one-off pass for the dashboard
-/// history: each transcript is parsed and dropped, nothing is kept.
-pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Vec<DayModelTokens> {
+/// including, `before`, split by model and by session. A one-off pass for the
+/// dashboard history: each transcript is parsed and dropped, nothing is kept.
+pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Backfill {
     let start: SystemTime = first_day
         .and_hms_opt(0, 0, 0)
         .and_then(|t| Local.from_local_datetime(&t).earliest())
@@ -364,10 +457,12 @@ pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Vec<DayModelT
         .unwrap_or(SystemTime::UNIX_EPOCH);
 
     let mut totals: HashMap<(NaiveDate, String), TokenTotals> = HashMap::new();
+    let mut found = Backfill::default();
     let root = paths::claude_projects();
     if !root.exists() {
-        return Vec::new();
+        return found;
     }
+    let last_day = before.pred_opt().unwrap_or(before);
     for entry in WalkDir::new(&root).max_depth(4).into_iter().flatten() {
         if !entry.file_type().is_file()
             || entry.path().extension().and_then(|s| s.to_str()) != Some("jsonl")
@@ -381,6 +476,15 @@ pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Vec<DayModelT
         }
         let mut transcript = Transcript::default();
         transcript.update(entry.path(), meta.len());
+        let path = entry.path().to_path_buf();
+        let (rows, names) = session_rows(
+            &root,
+            std::iter::once((&path, &transcript)),
+            first_day,
+            last_day,
+        );
+        found.sessions.extend(rows);
+        found.meta.extend(names);
         for (day, models) in transcript.days {
             if day < first_day || day >= before {
                 continue;
@@ -390,12 +494,13 @@ pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Vec<DayModelT
             }
         }
     }
-    day_model_rows(
+    found.days = day_model_rows(
         totals
             .iter()
             .map(|((d, m), t)| ((*d, m.as_str()), *t))
             .collect(),
-    )
+    );
+    found
 }
 
 struct Candidate {
@@ -511,6 +616,8 @@ impl ActivityIndex {
             }
         }
         let days_by_model = day_model_rows(per_day_model);
+        let (session_days, session_meta) =
+            session_rows(&root, self.claude.iter(), first_day, today);
         let mut week = TokenTotals::default();
         let mut daily = Vec::with_capacity(HISTORY_DAYS as usize);
         for offset in 0..HISTORY_DAYS {
@@ -539,6 +646,8 @@ impl ActivityIndex {
             daily,
             models_today,
             days_by_model,
+            session_days,
+            session_meta,
         };
 
         // Chats.
@@ -809,6 +918,22 @@ pub fn pretty_model(id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subagents_belong_to_the_session_that_ran_them() {
+        let root = Path::new("/home/me/.claude/projects");
+        let id = |rel: &str| claude_session_id(root, &root.join(rel));
+        assert_eq!(id("-home-me-app/abc.jsonl"), Some(("abc".into(), true)));
+        assert_eq!(
+            id("-home-me-app/abc/subagents/agent-1.jsonl"),
+            Some(("abc".into(), false))
+        );
+        assert_eq!(id("stray.jsonl"), None);
+        assert_eq!(
+            claude_session_id(root, Path::new("/elsewhere/x.jsonl")),
+            None
+        );
+    }
 
     #[test]
     fn model_names() {

@@ -19,6 +19,7 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList dashboardPoints READ dashboardPoints NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList dashboardCosts READ dashboardCosts NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList dashboardModels READ dashboardModels NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantList dashboardSessions READ dashboardSessions NOTIFY dashboardChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
     Q_PROPERTY(double edgePosition READ edgePosition NOTIFY configChanged)
@@ -71,6 +72,7 @@ public:
     QVariantList dashboardPoints() const { return m_dashboardPoints; }
     QVariantList dashboardCosts() const { return m_dashboardCosts; }
     QVariantList dashboardModels() const { return m_dashboardModels; }
+    QVariantList dashboardSessions() const { return m_dashboardSessions; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
     double edgePosition() const { return m_edgePosition; }
@@ -202,6 +204,7 @@ private:
     QVariantList m_dashboardPoints;
     QVariantList m_dashboardCosts;
     QVariantList m_dashboardModels;
+    QVariantList m_dashboardSessions;
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;

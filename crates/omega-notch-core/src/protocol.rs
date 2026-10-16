@@ -291,6 +291,67 @@ pub struct ModelDayPoint {
     pub cost_usd: f64,
 }
 
+/// One session's tokens on one local day with one model. Engine-internal:
+/// it feeds the persisted per-session history (see `history.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDayTokens {
+    pub session_id: String,
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub date: String,
+    pub model: String,
+    pub tokens: TokenTotals,
+}
+
+/// What a session is called and where it ran, kept with its history so the
+/// dashboard can name a session the live scan no longer reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionMeta {
+    pub session_id: String,
+    pub title: String,
+    pub project: Option<String>,
+    pub cwd: Option<String>,
+    pub surface: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// One model's share of a session over the dashboard range.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionModelCost {
+    pub model: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub total: u64,
+    pub cost_usd: f64,
+}
+
+/// One session's spend over the dashboard range, dearest first in the
+/// dashboard (v6, additive). Subagents count towards the session that ran
+/// them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCost {
+    pub provider: ProviderId,
+    pub id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    /// Last day in the range the session spent tokens, `YYYY-MM-DD`.
+    pub last_date: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub total: u64,
+    pub cost_usd: f64,
+    /// Dearest first.
+    pub models: Vec<SessionModelCost>,
+}
+
 /// Estimated spend for one model bucket today (see `pricing.rs`).
 /// Always an estimate — vendors reprice without notice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -313,6 +374,12 @@ pub struct TokenStats {
     /// Per-day, per-model split of `daily`, for the history. Not sent.
     #[serde(skip)]
     pub days_by_model: Vec<DayModelTokens>,
+    /// The same days split by session too, for the history. Not sent.
+    #[serde(skip)]
+    pub session_days: Vec<SessionDayTokens>,
+    /// Names of the sessions in `session_days`, when known. Not sent.
+    #[serde(skip)]
+    pub session_meta: Vec<SessionMeta>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -419,6 +486,9 @@ pub enum ServerMessage {
         /// Per-day, per-model history with estimated cost (v3, additive).
         #[serde(default)]
         models: Vec<ModelDayPoint>,
+        /// The range's dearest sessions, with their models (v6, additive).
+        #[serde(default)]
+        sessions: Vec<SessionCost>,
     },
     CopilotLogin {
         login: CopilotLogin,
@@ -437,7 +507,7 @@ pub enum ServerMessage {
     },
 }
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 pub const ENGINE_NAME: &str = "omega-notch-engine";
 
 fn default_dashboard_days() -> u32 {

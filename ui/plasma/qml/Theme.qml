@@ -110,6 +110,17 @@ QtObject {
         return Qt.formatDate(d, "d MMM")
     }
 
+    // A "yyyy-MM-dd" day against today's: "Today", "Yesterday", then "14 Oct".
+    function day(iso, today) {
+        if (iso === today) return "Today"
+        const d = new Date(iso + "T12:00:00")
+        const t = new Date(today + "T12:00:00")
+        if (isNaN(d.getTime()) || isNaN(t.getTime())) return iso
+        t.setDate(t.getDate() - 1)
+        if (Qt.formatDate(t, "yyyy-MM-dd") === iso) return "Yesterday"
+        return Qt.formatDate(d, "d MMM")
+    }
+
     function resetsIn(iso, now) {
         if (!iso) return ""
         const d = new Date(iso)

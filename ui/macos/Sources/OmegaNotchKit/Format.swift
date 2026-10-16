@@ -87,6 +87,21 @@ public enum Format {
       : "\(Int(limit.usedPct.rounded(.down)))% of \(limit.label) used"
   }
 
+  /// A `yyyy-MM-dd` day against today's: "Today", "Yesterday", then "14 Oct".
+  public static func day(_ iso: String, today: String) -> String {
+    if iso == today { return "Today" }
+    let parse = DateFormatter()
+    parse.locale = Locale(identifier: "en_US_POSIX")
+    parse.dateFormat = "yyyy-MM-dd"
+    guard let date = parse.date(from: iso), let now = parse.date(from: today) else { return iso }
+    if let before = Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: now),
+      parse.string(from: before) == iso
+    {
+      return "Yesterday"
+    }
+    return formatted(date, "d MMM")
+  }
+
   public static func formatted(_ date: Date, _ pattern: String) -> String {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")

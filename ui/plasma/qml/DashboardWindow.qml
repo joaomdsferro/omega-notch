@@ -27,6 +27,8 @@ Window {
     property string providerFilter: "all"
     property real now: Date.now()
     property bool showAllChats: false
+    property bool showAllSessions: false
+    property string openSession: ""
 
     Component.onCompleted: Engine.requestDashboard(root.days)
     onDaysChanged: Engine.requestDashboard(root.days)
@@ -221,6 +223,15 @@ Window {
     readonly property real costToday: shownCosts.reduce((a, c) => a + (c.cost_usd || 0), 0)
 
     readonly property var shownChats: Engine.chats.filter(c => root.matches(c.provider))
+    readonly property var shownSessions: Engine.dashboardSessions.filter(s => root.matches(s.provider))
+    // A model keeps the colour it has in the Models table, so the two read together.
+    readonly property var modelShades: {
+        const shades = {}
+        for (let i = 0; i < modelRows.length; ++i)
+            if (shades[modelRows[i].model] === undefined)
+                shades[modelRows[i].model] = Theme.shades[i % Theme.shades.length]
+        return shades
+    }
     readonly property bool chatsHaveContext: shownChats.some(
         c => c.context_pct !== undefined && c.context_pct !== null)
 
@@ -682,6 +693,73 @@ Window {
                         costs: root.shownCosts
                         total: root.costToday
                         today: root.todayTotals
+                    }
+                }
+            }
+
+            // The range's dearest sessions.
+            DashCard {
+                id: sessionsCard
+                width: parent.width
+                heading: "Dearest sessions"
+                caption: root.shownSessions.length === 0
+                         ? "By estimated cost in the last " + root.days + " days"
+                         : "Top " + root.shownSessions.length + " by estimated cost in the last " + root.days
+                           + " days · click one for its models"
+                trailing: TextButton {
+                    visible: root.shownSessions.length > 8
+                    label: root.showAllSessions ? "Show fewer" : "Show all " + root.shownSessions.length
+                    onClicked: root.showAllSessions = !root.showAllSessions
+                }
+
+                Column {
+                    id: sessionList
+                    width: parent.width
+
+                    // Column labels, aligned with DashSessionRow's cells.
+                    Item {
+                        width: parent.width
+                        height: 20
+                        visible: root.shownSessions.length > 0
+                        Text {
+                            x: 44
+                            text: "Session"
+                            color: Theme.textTertiary
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+                        Row {
+                            anchors.right: parent.right
+                            Text { width: 112; horizontalAlignment: Text.AlignHCenter; text: "Models"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                            Text { width: 76; horizontalAlignment: Text.AlignRight; text: "Tokens"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                            Text { width: 84; horizontalAlignment: Text.AlignRight; text: "Est. cost"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                            Text { width: 64; horizontalAlignment: Text.AlignRight; text: "Share"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                            Text { width: 84; horizontalAlignment: Text.AlignRight; text: "Last day"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                        }
+                    }
+
+                    Repeater {
+                        model: root.showAllSessions ? root.shownSessions : root.shownSessions.slice(0, 8)
+                        delegate: DashSessionRow {
+                            required property var modelData
+                            required property int index
+                            width: sessionList.width
+                            session: modelData
+                            today: root.today
+                            first: index === 0
+                            rangeCost: root.rangeCost
+                            shades: root.modelShades
+                            expanded: root.openSession === modelData.id
+                            onToggled: root.openSession = expanded ? "" : modelData.id
+                        }
+                    }
+
+                    Text {
+                        visible: root.shownSessions.length === 0
+                        topPadding: 8
+                        text: "No session history in this range yet."
+                        color: Theme.textTertiary
+                        font.pixelSize: 13
                     }
                 }
             }
