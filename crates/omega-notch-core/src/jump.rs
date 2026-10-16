@@ -16,6 +16,7 @@
 //! line tools are often not installed. A live CLI session brings its terminal
 //! app forward; picking its window or tab is left to the app shell.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -305,16 +306,26 @@ fn window_hints(
 
 /// The live Claude Code session the window in front shows: one whose
 /// process runs under `pid` (the app owning that window). With the window's
-/// `title`, the session whose name or folder it carries best; without, only
-/// when the app runs a single session. `None` whenever it is not clear, so a
-/// chat is never marked read by a guess.
-pub fn session_in_window(pid: u32, title: Option<&str>) -> Option<String> {
+/// `title`, the session whose chat title, name or folder it carries best
+/// (`titles` maps session ids to chat titles: VS Code names its window after
+/// the tab in front, and the chat's tab after the chat); without, only when
+/// the app runs a single session. `None` whenever it is not clear, so a chat
+/// is never marked read by a guess.
+pub fn session_in_window(
+    pid: u32,
+    title: Option<&str>,
+    titles: &HashMap<String, String>,
+) -> Option<String> {
     let candidates: Vec<(String, Vec<String>)> = chats::read_claude_sessions()?
         .into_iter()
         .filter(|s| ancestors(s.pid).contains(&pid))
         .filter_map(|s| {
-            let hints = window_hints(Some(&s), None, Some(&s.cwd));
-            Some((s.session_id?, hints))
+            let id = s.session_id.clone()?;
+            let mut hints = window_hints(Some(&s), None, Some(&s.cwd));
+            if let Some(chat) = titles.get(&id) {
+                hints.insert(0, chat.clone());
+            }
+            Some((id, hints))
         })
         .collect();
     pick_session(&candidates, title)
@@ -625,6 +636,34 @@ mod tests {
         assert_eq!(pick_session(&two, Some("✳ fix-login")), Some("a".into()));
         // A title naming neither, even with one session, is another window.
         assert_eq!(pick_session(&one, Some("Downloads")), None);
+        // Two chats in one VS Code folder: the folder ties them, the chat's
+        // tab title in the window caption does not; another file in front
+        // leaves it unclear.
+        let vscode = vec![
+            (
+                "a".to_string(),
+                hints(&["CodeRabbit no PR #21", "omega-notch-ff", "omega-notch"]),
+            ),
+            (
+                "b".to_string(),
+                hints(&[
+                    "Funcionalidades do omega notch",
+                    "omega-notch-f9",
+                    "omega-notch",
+                ]),
+            ),
+        ];
+        assert_eq!(
+            pick_session(
+                &vscode,
+                Some("Funcionalidades do omega notch — omega-notch")
+            ),
+            Some("b".into())
+        );
+        assert_eq!(
+            pick_session(&vscode, Some("protocol.rs — omega-notch")),
+            None
+        );
         // Both named equally: not clear.
         let tie = vec![
             ("a".to_string(), hints(&["web"])),

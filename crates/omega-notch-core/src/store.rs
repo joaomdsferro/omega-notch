@@ -287,19 +287,24 @@ impl UsageStore {
 
     /// The window in front changed: an unread chat it shows is now read.
     pub async fn window_focused(&self, pid: u32, title: Option<String>) {
-        let any_unread = self
-            .inner
-            .activity
-            .read()
-            .await
-            .chats
-            .iter()
-            .any(|c| c.unread && c.live && c.provider == ProviderId::ClaudeCode);
-        if !any_unread {
-            return;
-        }
+        let titles: HashMap<String, String> = {
+            let guard = self.inner.activity.read().await;
+            if !guard
+                .chats
+                .iter()
+                .any(|c| c.unread && c.live && c.provider == ProviderId::ClaudeCode)
+            {
+                return;
+            }
+            guard
+                .chats
+                .iter()
+                .filter(|c| c.provider == ProviderId::ClaudeCode)
+                .map(|c| (c.id.clone(), c.title.clone()))
+                .collect()
+        };
         let found = tokio::task::spawn_blocking(move || {
-            crate::jump::session_in_window(pid, title.as_deref())
+            crate::jump::session_in_window(pid, title.as_deref(), &titles)
         })
         .await
         .ok()
