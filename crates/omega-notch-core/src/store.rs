@@ -233,11 +233,12 @@ impl UsageStore {
         let Ok(mut activity) = scanned else {
             return;
         };
-        if let Ok(seen) = self.inner.seen.lock() {
-            seen.apply(&mut activity.chats);
-        }
         {
             let mut guard = self.inner.activity.write().await;
+            // Under the write lock, so a chat read during the scan keeps it.
+            if let Ok(seen) = self.inner.seen.lock() {
+                seen.apply(&mut activity.chats);
+            }
             if *guard == activity {
                 return;
             }
