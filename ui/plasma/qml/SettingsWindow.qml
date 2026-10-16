@@ -46,6 +46,10 @@ Window {
     readonly property var idleColors: ["#000000", "#FFFFFF", "#3DDC97", "#F5C542",
                                        "#FF5A36", "#4C8DFF", "#B07CFF"]
 
+    // The dashboard series being recoloured, and the colours they have now.
+    property int dashSeries: 0
+    readonly property var dashShades: Theme.seriesShades(Engine.dashboardPalette, Engine.dashboardColors)
+
     function readingFor(provider) {
         const list = Engine.readings
         for (let i = 0; i < list.length; ++i) {
@@ -273,6 +277,7 @@ Window {
         id: picker
         property string value: "#000000"
         property bool enabled_: true
+        property var swatches: root.idleColors
         signal picked(string color)
 
         width: parent.width
@@ -284,7 +289,7 @@ Window {
             spacing: 8
 
             Repeater {
-                model: root.idleColors
+                model: picker.swatches
                 delegate: Rectangle {
                     id: swatch
                     required property string modelData
@@ -1366,6 +1371,96 @@ Window {
                         enabled_: Engine.autoHide
                         value: Engine.idleColor
                         onPicked: (color) => Engine.setIdleColor(color)
+                    }
+                }
+            }
+            Card {
+                visible: root.tab === "notch"
+                heading: "Dashboard colours"
+
+                FormRow {
+                    divider: false
+                    icon: "layers"
+                    title: "Palette"
+                    hint: "The colours of the dashboard's charts and tables"
+
+                    SettingsSegmented {
+                        width: parent.width
+                        value: Engine.dashboardPalette
+                        options: Theme.paletteNames
+                        onPicked: (value) => Engine.setDashboardPalette(value)
+                    }
+                }
+                FormRow {
+                    icon: "droplet"
+                    title: "Series"
+                    hint: "Series 1 is the biggest share: the model, tool or kind that spent the most. Pick one to give it a colour of its own."
+
+                    Column {
+                        width: parent.width
+                        spacing: 10
+
+                        Row {
+                            spacing: 8
+                            Repeater {
+                                model: root.dashShades
+                                delegate: Rectangle {
+                                    id: chip
+                                    required property var modelData
+                                    required property int index
+                                    readonly property bool chosen: index === root.dashSeries
+                                    readonly property bool custom: !!Engine.dashboardColors[index]
+
+                                    width: 40
+                                    height: 32
+                                    radius: 8
+                                    color: modelData
+                                    border.width: chosen ? 2 : 1
+                                    border.color: chosen ? Theme.text : Theme.cardStroke
+                                    scale: chipHover.hovered ? 1.06 : 1
+                                    Behavior on scale { NumberAnimation { duration: 100 } }
+
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: "Series " + (index + 1) + (custom ? ", your own colour" : "")
+                                    Accessible.checked: chosen
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: chip.index + 1
+                                        color: Theme.ink(chip.color)
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                    }
+                                    // A colour of its own, not the palette's.
+                                    Rectangle {
+                                        visible: chip.custom
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: 4
+                                        width: 5
+                                        height: 5
+                                        radius: 2.5
+                                        color: Theme.ink(chip.color)
+                                    }
+                                    HoverHandler {
+                                        id: chipHover
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
+                                    TapHandler { onTapped: root.dashSeries = chip.index }
+                                }
+                            }
+                        }
+                        ColorPicker {
+                            swatches: Theme.seriesSwatches
+                            value: root.dashShades[root.dashSeries]
+                            onPicked: (color) => Engine.setDashboardColor(root.dashSeries, color)
+                        }
+                        SettingsButton {
+                            visible: !!Engine.dashboardColors[root.dashSeries]
+                            icon: "reset"
+                            text: "Use the palette's colour"
+                            onClicked: Engine.setDashboardColor(root.dashSeries, "")
+                        }
                     }
                 }
             }

@@ -104,6 +104,8 @@ To remove it, run `./uninstall.sh` from the same folder.
   tokens per day over 7, 30 or 90 days (by model, by tool or by kind), each model's share of the
   spend, today's mix, the dearest sessions with each one's models, and the recent chats. History
   starts with every Claude Code day still on disk. Costs are estimates at API list prices, not a bill
+  - Its charts and tables come in greys, a vivid palette or a colour-blind safe one (Okabe–Ito), and
+    any series can have a colour of its own, in Settings → Notch
 - **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from

@@ -13,6 +13,8 @@ Item {
     property real rangeCost: 0
     // Model name -> colour, as in the Models table.
     property var shades: ({})
+    // For a model the table does not list.
+    property color otherShade: Theme.shades[Theme.shades.length - 1]
     property bool expanded: false
     signal toggled()
     signal openRequested()
@@ -31,7 +33,7 @@ Item {
     }
 
     function shadeOf(model) {
-        return shades[model] !== undefined ? shades[model] : Theme.shades[Theme.shades.length - 1]
+        return shades[model] !== undefined ? shades[model] : otherShade
     }
     function percent(share) {
         return share > 0 && share < 0.01 ? "<1%" : Math.round(share * 100) + "%"

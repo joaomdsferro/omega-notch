@@ -22,6 +22,9 @@ struct DashboardView: View {
 
   // MARK: Data
 
+  /// The series colours chosen in Settings.
+  private var shades: [Color] { DashboardPalette.shades(client.config).map { Color(hex: $0) } }
+
   private func matches(_ provider: String) -> Bool { providerFilter == "all" || provider == providerFilter }
   private var activeReadings: [UsageReading] { client.activeReadings }
   private var shownReadings: [UsageReading] { activeReadings.filter { matches($0.provider) } }
@@ -193,6 +196,7 @@ struct DashboardView: View {
     }
     .frame(minWidth: 920, minHeight: 620)
     .background(Theme.panel)
+    .environment(\.seriesShades, shades)
     .onAppear { client.requestDashboard(days: days) }
     .onChange(of: days) { _, new in client.requestDashboard(days: new) }
     .onChange(of: filterOptions.map(\.value)) { _, values in
@@ -311,8 +315,8 @@ struct DashboardView: View {
   private func sessions(models: [DashboardData.ModelRow], rangeCost: Double) -> some View {
     let all = shownSessions
     let shown = showAllSessions ? all : Array(all.prefix(8))
-    let shades = Dictionary(
-      models.enumerated().map { ($1.model, Theme.shades[$0 % Theme.shades.count]) },
+    let modelShades = Dictionary(
+      models.enumerated().map { ($1.model, shades[$0 % shades.count]) },
       uniquingKeysWith: { first, _ in first })
     return DashCard(
       heading: "Dearest sessions",
@@ -347,7 +351,7 @@ struct DashboardView: View {
           ForEach(Array(shown.enumerated()), id: \.element.id) { index, session in
             SessionRow(
               session: session, today: today, first: index == 0, rangeCost: rangeCost,
-              shade: { shades[$0] ?? Theme.shades[Theme.shades.count - 1] },
+              shade: { modelShades[$0] ?? shades[shades.count - 1] },
               expanded: openSession == session.id,
               toggle: {
                 withAnimation(.easeOut(duration: 0.18)) {
@@ -424,6 +428,8 @@ private struct ModelTable: View {
   var models: [DashboardData.ModelRow]
   var totalCost: Double
 
+  @Environment(\.seriesShades) private var shades
+
   var body: some View {
     if models.isEmpty {
       Text("No model history in this range yet.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
@@ -445,7 +451,7 @@ private struct ModelTable: View {
           VStack(spacing: 0) {
             if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
             HStack(spacing: 0) {
-              RoundedRectangle(cornerRadius: 2).fill(Theme.shades[index % Theme.shades.count])
+              RoundedRectangle(cornerRadius: 2).fill(shades[index % shades.count])
                 .frame(width: 8, height: 8)
               ProviderGlyph(provider: row.provider, color: Theme.textSecondary)
                 .frame(width: 14, height: 14).padding(.leading, 12)
@@ -493,6 +499,8 @@ private struct CostBreakdown: View {
   var total: Double
   var today: TokenTotals
 
+  @Environment(\.seriesShades) private var shades
+
   var body: some View {
     let rows = Array(costs.sorted { $0.costUsd > $1.costUsd }.prefix(6))
     let mix = [
@@ -510,7 +518,7 @@ private struct CostBreakdown: View {
         GeometryReader { geo in
           HStack(spacing: 2) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-              Rectangle().fill(Theme.shades[index % Theme.shades.count])
+              Rectangle().fill(shades[index % shades.count])
                 .frame(width: max(2, (geo.size.width - CGFloat(rows.count - 1) * 2) * row.costUsd / max(total, 0.0001)))
             }
           }
@@ -528,7 +536,7 @@ private struct CostBreakdown: View {
             VStack(spacing: 0) {
               if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
               HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 2).fill(Theme.shades[index % Theme.shades.count])
+                RoundedRectangle(cornerRadius: 2).fill(shades[index % shades.count])
                   .frame(width: 8, height: 8)
                 ProviderGlyph(provider: row.provider, color: Theme.textSecondary)
                   .frame(width: 14, height: 14).padding(.leading, 12)

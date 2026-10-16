@@ -9,6 +9,7 @@ Column {
     // [{ model, provider, total, cost, activeDays, daily: [tokens per day] }], dearest first
     property var models: []
     property real totalCost: 0
+    property var shades: Theme.shades
 
     readonly property real sparkWidth: 112
     readonly property real tokensWidth: 76
@@ -60,7 +61,7 @@ Column {
                 height: 8
                 radius: 2
                 anchors.verticalCenter: parent.verticalCenter
-                color: Theme.shades[row.index % Theme.shades.length]
+                color: root.shades[row.index % root.shades.length]
             }
             ProviderGlyph {
                 id: glyph

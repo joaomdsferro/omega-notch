@@ -217,7 +217,10 @@ struct SettingsSlider: View {
 /// Swatches plus a hex field for any other colour.
 struct SwatchPicker: View {
   static let swatches = ["#000000", "#FFFFFF", "#3DDC97", "#F5C542", "#FF5A36", "#4C8DFF", "#B07CFF"]
+  /// For the dashboard's series, which sit on the dark panel.
+  static let seriesSwatches = ["#F2F2F5", "#5B9BFF", "#43D9AD", "#F2D04B", "#FF8A3D", "#E86BD0", "#9C8CFF"]
 
+  var swatches = SwatchPicker.swatches
   var value: String
   var pick: (String) -> Void
 
@@ -226,7 +229,7 @@ struct SwatchPicker: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      ForEach(Self.swatches, id: \.self) { swatch in
+      ForEach(swatches, id: \.self) { swatch in
         Swatch(color: swatch, chosen: swatch == value) { pick(swatch) }
       }
       Spacer()
@@ -273,6 +276,62 @@ struct SwatchPicker: View {
         .clickable()
         .onTapGesture(perform: action)
         .accessibilityLabel(color)
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+    }
+  }
+}
+
+/// The dashboard's series in their colours, first series first; one is
+/// picked to recolour, and a dot marks the ones given their own colour.
+struct SeriesStrip: View {
+  var shades: [String]
+  var custom: [Bool]
+  var chosen: Int
+  var pick: (Int) -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(Array(shades.enumerated()), id: \.offset) { index, shade in
+        Chip(
+          number: index + 1, color: shade, chosen: index == chosen,
+          custom: index < custom.count && custom[index]
+        ) { pick(index) }
+      }
+    }
+    .frame(height: 40)
+  }
+
+  private struct Chip: View {
+    var number: Int
+    var color: String
+    var chosen: Bool
+    var custom: Bool
+    var action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+      RoundedRectangle(cornerRadius: 8)
+        .fill(Color(hex: color))
+        .overlay(
+          Text("\(number)").font(.notch(12, .semibold, tabular: true)).foregroundStyle(Theme.ink(color)))
+        .overlay(alignment: .topTrailing) {
+          if custom {
+            Circle().fill(Theme.ink(color)).frame(width: 5, height: 5).padding(4)
+          }
+        }
+        .overlay(
+          RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(chosen ? Theme.text : Theme.cardStroke, lineWidth: chosen ? 2 : 1)
+        )
+        .frame(width: 40, height: 32)
+        .scaleEffect(hovered ? 1.06 : 1)
+        .animation(.easeOut(duration: 0.1), value: hovered)
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .clickable()
+        .onTapGesture(perform: action)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Series \(number), \(color)\(custom ? ", your own colour" : "")")
         .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
     }
   }

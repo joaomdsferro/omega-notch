@@ -80,6 +80,36 @@ public struct NotchConfig: Equatable, Sendable {
     set { raw["screen"] = .string(newValue) }
   }
 
+  /// The dashboard's palette, by name (see `DashboardPalette`).
+  public var dashboardPalette: String {
+    get {
+      let name = raw["dashboard_palette"]?.string ?? ""
+      return DashboardPalette.names.contains(name) ? name : "mono"
+    }
+    set { if DashboardPalette.names.contains(newValue) { raw["dashboard_palette"] = .string(newValue) } }
+  }
+
+  /// Colours set over the palette's, first series first; an empty one keeps
+  /// the palette's.
+  public var dashboardColors: [String] {
+    guard case .array(let list)? = raw["dashboard_colors"] else { return [] }
+    return list.prefix(DashboardPalette.series).map { value in
+      guard let hex = value.string, Self.isHexColor(hex) else { return "" }
+      return hex.uppercased()
+    }
+  }
+
+  /// Gives one series its own colour, or (with nil) the palette's back.
+  public mutating func setDashboardColor(_ index: Int, _ color: String?) {
+    guard (0..<DashboardPalette.series).contains(index) else { return }
+    if let color, !Self.isHexColor(color) { return }
+    var list = dashboardColors
+    while list.count <= index { list.append("") }
+    list[index] = color?.uppercased() ?? ""
+    while list.last == "" { list.removeLast() }
+    raw["dashboard_colors"] = .array(list.map { .string($0) })
+  }
+
   public func providerEnabled(_ id: String) -> Bool {
     raw["providers"]?[id]?.bool ?? true
   }
