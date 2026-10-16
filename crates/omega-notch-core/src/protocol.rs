@@ -238,6 +238,16 @@ pub struct ChatSummary {
     pub lines_added: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines_removed: Option<u64>,
+    /// It stopped with a reply you have not looked at yet (v6, additive;
+    /// see `seen.rs`).
+    #[serde(default)]
+    pub unread: bool,
+    /// When you last typed a prompt in it. Engine-internal.
+    #[serde(skip)]
+    pub prompted_at: Option<DateTime<Utc>>,
+    /// When its latest reply came. Engine-internal.
+    #[serde(skip)]
+    pub replied_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -417,6 +427,14 @@ pub enum ClientMessage {
         title: Option<String>,
         #[serde(default)]
         surface: Option<String>,
+    },
+    /// The window now in front (v6, macOS): the pid of the app that owns it
+    /// and, with Accessibility, its title. A finished chat it shows counts
+    /// as read.
+    WindowFocused {
+        pid: u32,
+        #[serde(default)]
+        title: Option<String>,
     },
     /// Dashboard history + cost estimates (v3). `days` clamps to 7..=90.
     GetDashboard {

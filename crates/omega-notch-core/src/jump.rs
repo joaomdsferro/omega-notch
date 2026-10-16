@@ -303,6 +303,69 @@ fn window_hints(
     hints
 }
 
+/// The live Claude Code session the window in front shows: one whose
+/// process runs under `pid` (the app owning that window). With the window's
+/// `title`, the session whose name or folder it carries best; without, only
+/// when the app runs a single session. `None` whenever it is not clear, so a
+/// chat is never marked read by a guess.
+pub fn session_in_window(pid: u32, title: Option<&str>) -> Option<String> {
+    let candidates: Vec<(String, Vec<String>)> = chats::read_claude_sessions()?
+        .into_iter()
+        .filter(|s| ancestors(s.pid).contains(&pid))
+        .filter_map(|s| {
+            let hints = window_hints(Some(&s), None, Some(&s.cwd));
+            Some((s.session_id?, hints))
+        })
+        .collect();
+    pick_session(&candidates, title)
+}
+
+/// How well a window caption fits a session's hints: an earlier hint counts
+/// more, and a whole part of the caption more than a substring of it.
+fn title_score(caption: &str, hints: &[String]) -> usize {
+    let caption = caption.to_lowercase();
+    let parts: Vec<&str> = caption
+        .split([' ', '—', '–', '·', '|'])
+        .filter(|p| !p.is_empty() && *p != "-")
+        .collect();
+    let mut best = 0;
+    for (i, hint) in hints.iter().enumerate() {
+        let hint = hint.trim().to_lowercase();
+        if hint.is_empty() {
+            continue;
+        }
+        let weight = (hints.len() - i) * 2;
+        if parts.contains(&hint.as_str()) {
+            best = best.max(weight + 1);
+        } else if caption.contains(&hint) {
+            best = best.max(weight);
+        }
+    }
+    best
+}
+
+fn pick_session(candidates: &[(String, Vec<String>)], title: Option<&str>) -> Option<String> {
+    let title = title.map(str::trim).filter(|t| !t.is_empty());
+    let Some(title) = title else {
+        return match candidates {
+            [(id, _)] => Some(id.clone()),
+            _ => None,
+        };
+    };
+    let scored: Vec<(usize, &String)> = candidates
+        .iter()
+        .map(|(id, hints)| (title_score(title, hints), id))
+        .collect();
+    let top = scored
+        .iter()
+        .map(|(score, _)| *score)
+        .max()
+        .filter(|s| *s > 0)?;
+    let mut winners = scored.iter().filter(|(score, _)| *score == top);
+    let (_, id) = winners.next()?;
+    winners.next().is_none().then(|| (*id).clone())
+}
+
 /// The process and its parents, nearest first: one of them owns the window
 /// (the terminal emulator, VS Code, Claude Desktop…).
 fn ancestors(pid: u32) -> Vec<u32> {
@@ -542,6 +605,33 @@ fn detach(mut command: Command) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_window_in_front_names_its_session_or_none() {
+        let hints = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let one = vec![("a".to_string(), hints(&["fix-login", "web"]))];
+        let two = vec![
+            ("a".to_string(), hints(&["fix-login", "web"])),
+            ("b".to_string(), hints(&["omega-notch-f9", "omega-notch"])),
+        ];
+        // No title: only a lone session is certain.
+        assert_eq!(pick_session(&one, None), Some("a".into()));
+        assert_eq!(pick_session(&two, None), None);
+        // A title picks the session it names.
+        assert_eq!(
+            pick_session(&two, Some("omega-notch — protocol.rs")),
+            Some("b".into())
+        );
+        assert_eq!(pick_session(&two, Some("✳ fix-login")), Some("a".into()));
+        // A title naming neither, even with one session, is another window.
+        assert_eq!(pick_session(&one, Some("Downloads")), None);
+        // Both named equally: not clear.
+        let tie = vec![
+            ("a".to_string(), hints(&["web"])),
+            ("b".to_string(), hints(&["web"])),
+        ];
+        assert_eq!(pick_session(&tie, Some("web")), None);
+    }
 
     #[test]
     fn session_ids_are_uuid_shaped() {

@@ -12,6 +12,7 @@ pub mod platform;
 pub mod pricing;
 pub mod protocol;
 pub mod providers;
+pub mod seen;
 pub mod sessions;
 pub mod store;
 

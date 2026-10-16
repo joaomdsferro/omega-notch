@@ -48,6 +48,7 @@ final class ProtocolTests: XCTestCase {
     XCTAssertTrue(chat.live)
     XCTAssertEqual(chat.tokens?.cacheRead, 3_357_968)
     XCTAssertEqual(chat.linesAdded, 120)
+    XCTAssertTrue(chat.isUnread)
 
     XCTAssertEqual(tokens.first?.modelsToday.first?.model, "Opus 5.5")
     var notch = NotchConfig(raw: config)

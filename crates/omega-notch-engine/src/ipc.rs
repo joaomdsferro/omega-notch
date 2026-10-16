@@ -142,6 +142,8 @@ async fn handle_message(
             title,
             surface,
         } => {
+            // Clicking a chat is going to read it, whatever the jump manages.
+            store.mark_seen(provider, &id).await;
             // Raising windows shells out and may wait for a new one to appear.
             let opened = tokio::task::spawn_blocking(move || {
                 let target = ChatTarget {
@@ -167,6 +169,9 @@ async fn handle_message(
                 )
                 .await?;
             }
+        }
+        ClientMessage::WindowFocused { pid, title } => {
+            store.window_focused(pid, title).await;
         }
         ClientMessage::GetDashboard { days } => {
             write_msg(writer, &store.dashboard(days).await).await?;

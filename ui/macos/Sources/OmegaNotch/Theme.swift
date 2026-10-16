@@ -26,6 +26,8 @@ enum Theme {
   static let critical = Color(hex: "#FF5A36")
   static let waiting = Color(hex: "#FFB020")
   static let busy = Color.white
+  /// A finished chat you have not read yet: the green of "Finished".
+  static let unread = Color(hex: "#3DDC97")
 
   /// Dashboard series, brightest first: the biggest share gets the most ink.
   static let shades = ["#F2F2F5", "#B4B4BE", "#808089", "#5C5C66", "#44444D", "#33333B"].map {

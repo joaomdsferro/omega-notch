@@ -233,6 +233,8 @@ struct DashboardView: View {
     var parts: [String] = []
     if workingCount > 0 { parts.append("\(workingCount) working") }
     if waitingCount > 0 { parts.append("\(waitingCount) waiting on you") }
+    let unread = shownChats.filter(\.isUnread).count
+    if unread > 0 { parts.append("\(unread) to read") }
     if parts.isEmpty { parts.append("All quiet") }
     return parts.joined(separator: " · ") + " · updated " + Format.formatted(now, "HH:mm")
   }
@@ -363,9 +365,11 @@ struct DashboardView: View {
     let all = shownChats
     let shown = showAllChats ? all : Array(all.prefix(8))
     let showContext = all.contains { $0.contextPct != nil }
+    let unreadCount = all.filter(\.isUnread).count
     return DashCard(
       heading: "Recent chats",
-      caption: "\(all.count) \(all.count == 1 ? "chat" : "chats") · click one to jump to it",
+      caption: "\(all.count) \(all.count == 1 ? "chat" : "chats")"
+        + (unreadCount > 0 ? " · \(unreadCount) to read" : "") + " · click one to jump to it",
       trailing: {
         if all.count > 8 {
           TextButton(label: showAllChats ? "Show fewer" : "Show all \(all.count)") { showAllChats.toggle() }
@@ -744,8 +748,8 @@ private struct DashChatRow: View {
           .overlay(
             ProviderGlyph(provider: chat.provider, color: chat.state == .idle ? Theme.textSecondary : Theme.text)
               .frame(width: 16, height: 16))
-        if chat.state != .idle {
-          Circle().fill(Theme.stateColor(chat.state))
+        if chat.state != .idle || chat.isUnread {
+          Circle().fill(chat.isUnread ? Theme.unread : Theme.stateColor(chat.state))
             .overlay(Circle().strokeBorder(Theme.panelRaised, lineWidth: 2))
             .frame(width: 10, height: 10)
             .offset(x: 3, y: -3)
@@ -753,7 +757,8 @@ private struct DashChatRow: View {
         }
       }
       VStack(alignment: .leading, spacing: 3) {
-        Text(chat.title).font(.notch(13, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+        Text(chat.title).font(.notch(13, chat.isUnread ? .semibold : .medium)).foregroundStyle(Theme.text)
+          .lineLimit(1)
         Text(place).font(.notch(11, tabular: true)).foregroundStyle(Theme.textTertiary).lineLimit(1)
       }
       .padding(.leading, 12)
@@ -774,11 +779,15 @@ private struct DashChatRow: View {
       }
       Text(
         chat.state == .busy
-          ? "Working" : chat.state == .waitingYou ? "Needs you" : Format.ago(chat.updatedAt, now: now)
+          ? "Working"
+          : chat.state == .waitingYou
+            ? "Needs you" : chat.isUnread ? "To read" : Format.ago(chat.updatedAt, now: now)
       )
-      .font(.notch(12, chat.state == .idle ? .regular : .semibold, tabular: true))
+      .font(.notch(12, chat.state == .idle && !chat.isUnread ? .regular : .semibold, tabular: true))
       .foregroundStyle(
-        chat.state == .waitingYou ? Theme.waiting : chat.state == .busy ? Theme.text : Theme.textSecondary)
+        chat.isUnread
+          ? Theme.unread
+          : chat.state == .waitingYou ? Theme.waiting : chat.state == .busy ? Theme.text : Theme.textSecondary)
       .frame(width: 76, alignment: .trailing)
     }
     .frame(height: 56)

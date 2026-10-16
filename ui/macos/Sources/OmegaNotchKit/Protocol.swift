@@ -84,6 +84,10 @@ public struct ChatSummary: Codable, Equatable, Sendable, Identifiable {
   public var contextPct: Double?
   public var linesAdded: Int?
   public var linesRemoved: Int?
+  /// Stopped with a reply you have not looked at yet (v6).
+  public var unread: Bool?
+
+  public var isUnread: Bool { unread ?? false }
 }
 
 public struct DayTokens: Codable, Equatable, Sendable {

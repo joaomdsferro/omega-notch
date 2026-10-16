@@ -102,8 +102,13 @@ To remove it, run `./uninstall.sh` from the same folder.
   notifications for these are optional and off by default
 - A **dashboard** window, from the bars button in the notch's footer: every limit, estimated cost and
   tokens per day over 7, 30 or 90 days (by model, by tool or by kind), each model's share of the
-  spend, today's mix, the dearest sessions with each one's models, and the recent chats. History starts with every Claude Code day still on disk.
-  Costs are estimates at API list prices, not a bill
+  spend, today's mix, the dearest sessions with each one's models, and the recent chats. History
+  starts with every Claude Code day still on disk. Costs are estimates at API list prices, not a bill
+- **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
+  tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
+  and its own "To read" list in the card and the dashboard. It counts as read once you open it from
+  the notch, write in it again, or (on macOS) bring its window or tab to the front while you are at
+  the Mac. Claude Code only, for now: other tools do not say when they last replied
 - Click a ring to refresh it; hover the notch for Settings and a grip to slide it along the edge;
   right-click opens Settings
 - Only the notch takes input; the rest of the edge stays click-through
@@ -172,6 +177,11 @@ packaging/                  installer, desktop entry, icons
   sign-in: token counts per day and model, and per Claude Code session with its title, project
   folder and where it ran. No chat content is kept. Session rows are deleted once they are more than
   90 days old.
+- Which finished chats you have read is kept in `seen.json` in the same folder (mode 600): chat ids
+  and when you last looked at each, for 30 days. On macOS, while a finished chat is still to read
+  and you are using the Mac, the app tells the engine which app is in front and, with
+  Accessibility, its window's title, so it can tell when you are looking at that chat. That
+  stays on your Mac, goes no further than the engine, and is not stored.
 - The hook server listens on `127.0.0.1` only.
 
 ## Build from source

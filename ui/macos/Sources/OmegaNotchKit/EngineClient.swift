@@ -61,6 +61,13 @@ public final class EngineClient {
     chats.filter { $0.provider == provider }
   }
 
+  /// Finished chats you have not looked at yet, newest first.
+  public var unreadChats: [ChatSummary] { chats.filter(\.isUnread) }
+
+  public func unreadCount(for provider: String) -> Int {
+    chats.filter { $0.provider == provider && $0.isUnread }.count
+  }
+
   public func tokens(for provider: String) -> TokenStats? {
     tokens.first { $0.provider == provider }
   }
@@ -102,6 +109,13 @@ public final class EngineClient {
     for (key, value) in [("cwd", cwd), ("title", title), ("surface", surface)] {
       if let value, !value.isEmpty { message[key] = .string(value) }
     }
+    send(.object(message))
+  }
+
+  /// The window in front: the pid of the app that owns it and its title.
+  public func windowFocused(pid: Int32, title: String?) {
+    var message: [String: JSONValue] = ["type": .string("window_focused"), "pid": .number(Double(pid))]
+    if let title, !title.isEmpty { message["title"] = .string(title) }
     send(.object(message))
   }
 

@@ -74,6 +74,9 @@ fn chat() -> ChatSummary {
         context_pct: Some(75.7),
         lines_added: Some(120),
         lines_removed: Some(8),
+        unread: true,
+        prompted_at: None,
+        replied_at: None,
     }
 }
 

@@ -186,6 +186,10 @@ struct Transcript {
     prompts: u32,
     context_tokens: u64,
     last_at: Option<DateTime<Utc>>,
+    /// The latest typed prompt and the latest reply, for telling a chat that
+    /// finished since you last wrote in it.
+    prompted_at: Option<DateTime<Utc>>,
+    replied_at: Option<DateTime<Utc>>,
     /// Latest usage per API message. One message spans several lines and its
     /// output count grows as it streams, so lines replace rather than add.
     billed: HashMap<String, Billed>,
@@ -264,6 +268,12 @@ impl Transcript {
                 // Tool results are user lines too; only typed prompts count.
                 // The editor's context comes first in its own block, so the
                 // prompt is the first block that reads as one.
+                let typed = texts
+                    .iter()
+                    .any(|t| clean_title(Some(t)).is_some() || command_title(t).is_some());
+                if typed {
+                    self.prompted_at = latest(self.prompted_at, at);
+                }
                 if let Some(title) = texts.iter().find_map(|t| clean_title(Some(t))) {
                     self.prompts += 1;
                     if self.first_prompt.is_none() {
@@ -278,6 +288,7 @@ impl Transcript {
             }
             Some("assistant") => {
                 let Some(message) = line.message else { return };
+                self.replied_at = latest(self.replied_at, at);
                 let Some(usage) = message.usage else { return };
                 let model = message.model.unwrap_or_default();
                 if model.is_empty() || model.starts_with('<') {
@@ -413,6 +424,13 @@ fn session_rows<'a>(
     });
     meta.sort_by(|a, b| a.session_id.cmp(&b.session_id));
     (rows, meta)
+}
+
+fn latest(current: Option<DateTime<Utc>>, at: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    match (current, at) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 /// Folds raw model ids into display names (two ids can share one) and drops
@@ -703,6 +721,9 @@ impl ActivityIndex {
                 context_pct: None,
                 lines_added: None,
                 lines_removed: None,
+                unread: false,
+                prompted_at: transcript.prompted_at,
+                replied_at: transcript.replied_at,
             });
         }
         chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -813,6 +834,10 @@ fn cursor_chats() -> Vec<ChatSummary> {
                 .map(|p| p.clamp(0.0, 100.0)),
             lines_added: head.get("totalLinesAdded").and_then(Value::as_u64),
             lines_removed: head.get("totalLinesRemoved").and_then(Value::as_u64),
+            // Cursor keeps no time for its last reply apart from your edits.
+            unread: false,
+            prompted_at: None,
+            replied_at: None,
         });
         if chats.len() == MAX_CHATS {
             break;
@@ -1000,6 +1025,10 @@ mod tests {
         assert_eq!(t.totals.total(), 1752);
         assert_eq!(t.context_tokens, 1502);
         assert_eq!(t.title().as_deref(), Some("Greeting"));
+        // The tool result at :01 is not a prompt of yours.
+        let time = |s: &str| Some(s.parse::<DateTime<Utc>>().unwrap());
+        assert_eq!(t.prompted_at, time("2026-09-30T10:00:00Z"));
+        assert_eq!(t.replied_at, time("2026-09-30T10:00:05Z"));
         let summed: u64 = t
             .days
             .values()

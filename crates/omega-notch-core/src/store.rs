@@ -16,6 +16,7 @@ use crate::protocol::{
     ServerMessage, SessionCost, SessionKind, SessionState, UsageReading,
 };
 use crate::providers;
+use crate::seen::Seen;
 use crate::sessions::{self, SessionEvent};
 use crate::{history, pricing};
 
@@ -38,6 +39,8 @@ struct Inner {
     /// The usage thresholds already announced, per provider. Never held
     /// across an await.
     limits: std::sync::Mutex<LimitWatch>,
+    /// Which finished chats have been looked at. Never held across an await.
+    seen: std::sync::Mutex<Seen>,
     events: broadcast::Sender<ServerMessage>,
 }
 
@@ -54,6 +57,7 @@ impl UsageStore {
                 copilot_login: Arc::new(Mutex::new(())),
                 backfill_checked: AtomicBool::new(false),
                 limits: std::sync::Mutex::new(LimitWatch::default()),
+                seen: std::sync::Mutex::new(Seen::load()),
                 events,
             }),
         }
@@ -226,9 +230,12 @@ impl UsageStore {
             tokio::task::spawn_blocking(backfill_history);
         }
         let scanned = tokio::task::spawn_blocking(move || index.scan(&config)).await;
-        let Ok(activity) = scanned else {
+        let Ok(mut activity) = scanned else {
             return;
         };
+        if let Ok(seen) = self.inner.seen.lock() {
+            seen.apply(&mut activity.chats);
+        }
         {
             let mut guard = self.inner.activity.write().await;
             if *guard == activity {
@@ -247,6 +254,59 @@ impl UsageStore {
             chats: activity.chats,
             tokens: activity.tokens,
         });
+    }
+
+    /// Marks a chat read now, and tells the shells when that changes it.
+    pub async fn mark_seen(&self, provider: ProviderId, id: &str) {
+        let changed = match self.inner.seen.lock() {
+            Ok(mut seen) => seen.mark(provider, id, Utc::now()).then(|| seen.clone()),
+            Err(_) => None,
+        };
+        let Some(seen) = changed else { return };
+        tokio::task::spawn_blocking(move || {
+            if let Err(err) = seen.save() {
+                warn!(error = %err, "could not save which chats were read");
+            }
+        });
+        let activity = {
+            let mut guard = self.inner.activity.write().await;
+            let before: Vec<bool> = guard.chats.iter().map(|c| c.unread).collect();
+            if let Ok(seen) = self.inner.seen.lock() {
+                seen.apply(&mut guard.chats);
+            }
+            if guard.chats.iter().map(|c| c.unread).eq(before) {
+                return;
+            }
+            guard.clone()
+        };
+        let _ = self.inner.events.send(ServerMessage::ActivityUpdated {
+            chats: activity.chats,
+            tokens: activity.tokens,
+        });
+    }
+
+    /// The window in front changed: an unread chat it shows is now read.
+    pub async fn window_focused(&self, pid: u32, title: Option<String>) {
+        let any_unread = self
+            .inner
+            .activity
+            .read()
+            .await
+            .chats
+            .iter()
+            .any(|c| c.unread && c.live && c.provider == ProviderId::ClaudeCode);
+        if !any_unread {
+            return;
+        }
+        let found = tokio::task::spawn_blocking(move || {
+            crate::jump::session_in_window(pid, title.as_deref())
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(id) = found {
+            self.mark_seen(ProviderId::ClaudeCode, &id).await;
+        }
     }
 
     /// Dashboard payload: persisted daily points, the range's dearest
