@@ -27,6 +27,8 @@ class EngineClient : public QObject
     Q_PROPERTY(QString dashboardProject READ dashboardProject NOTIFY dashboardChanged)
     Q_PROPERTY(QString dashboardSession READ dashboardSession NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList dashboardProjects READ dashboardProjects NOTIFY dashboardChanged)
+    // What to change, from the engine's local rules; likeliest saving first.
+    Q_PROPERTY(QVariantList dashboardSuggestions READ dashboardSuggestions NOTIFY dashboardChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
     Q_PROPERTY(double edgePosition READ edgePosition NOTIFY configChanged)
@@ -88,6 +90,7 @@ public:
     QString dashboardProject() const { return m_dashboardProjectAnswered; }
     QString dashboardSession() const { return m_dashboardSessionAnswered; }
     QVariantList dashboardProjects() const { return m_dashboardProjects; }
+    QVariantList dashboardSuggestions() const { return m_dashboardSuggestions; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
     double edgePosition() const { return m_edgePosition; }
@@ -240,6 +243,7 @@ private:
     QString m_dashboardSession;
     QString m_dashboardSessionAnswered;
     QVariantList m_dashboardProjects;
+    QVariantList m_dashboardSuggestions;
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;

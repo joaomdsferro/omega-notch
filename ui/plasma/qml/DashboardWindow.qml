@@ -867,6 +867,102 @@ Window {
                 }
             }
 
+            // What to change, from the engine's local rules over the sessions
+            // in view. Each can narrow the page to its chat, or open it.
+            DashCard {
+                visible: Engine.dashboardSuggestions.length > 0
+                width: parent.width
+                heading: "Suggestions"
+                caption: {
+                    const saving = Engine.dashboardSuggestions.reduce((a, s) => a + (s.saving_usd || 0), 0)
+                    return (saving > 0 ? "Up to " + Theme.usd(saving) + " less in the last " + root.days + " days · " : "")
+                           + "from local rules over these sessions, nothing leaves your computer"
+                }
+
+                Column {
+                    width: parent.width
+
+                    Repeater {
+                        model: Engine.dashboardSuggestions
+                        delegate: Item {
+                            id: tip
+                            required property var modelData
+                            required property int index
+                            readonly property string firstId: modelData.sessions && modelData.sessions.length > 0
+                                                              ? modelData.sessions[0] : ""
+                            readonly property bool showable: firstId.length > 0 && root.chat !== firstId
+                                                             && Engine.dashboardSessions.some(s => s.id === tip.firstId)
+                            readonly property var liveChat: Engine.chats.find(c => c.id === tip.firstId) || null
+                            width: parent.width
+                            height: tipText.implicitHeight + 24
+
+                            Rectangle {
+                                visible: tip.index > 0
+                                width: parent.width
+                                height: 1
+                                color: Theme.hairline
+                            }
+                            Column {
+                                id: tipText
+                                y: 12
+                                width: parent.width - (saving.visible ? saving.width + 16 : 0)
+                                spacing: 4
+                                Text {
+                                    width: parent.width
+                                    text: tip.modelData.title
+                                    color: Theme.text
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    width: parent.width
+                                    text: tip.modelData.detail
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+                                Row {
+                                    visible: tip.showable || tip.liveChat !== null
+                                    topPadding: 4
+                                    spacing: 8
+                                    TextButton {
+                                        visible: tip.showable
+                                        label: tip.modelData.sessions.length > 1 ? "Show the dearest" : "Only this chat"
+                                        onClicked: root.chat = tip.firstId
+                                    }
+                                    TextButton {
+                                        visible: tip.liveChat !== null
+                                        label: "Open chat"
+                                        onClicked: Engine.openChat(tip.liveChat)
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                id: saving
+                                visible: tip.modelData.saving_usd !== undefined && tip.modelData.saving_usd !== null
+                                anchors.right: parent.right
+                                y: 12
+                                width: savingText.implicitWidth + 20
+                                height: 26
+                                radius: 13
+                                color: Qt.rgba(0x3D / 255, 0xDC / 255, 0x97 / 255, 0.12)
+                                Text {
+                                    id: savingText
+                                    anchors.centerIn: parent
+                                    text: "≈ " + Theme.usd(tip.modelData.saving_usd || 0) + " less"
+                                    color: Theme.ample
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Limits.
             Column {
                 width: parent.width

@@ -108,8 +108,9 @@ To remove it, run `./uninstall.sh` from the same folder.
     any series can have a colour of its own, in Settings → Notch
   - Narrow the whole page to one project, one chat, or a search by title, folder or model: costs,
     tokens, models, sessions and chats then cover only those Claude Code sessions, cheap ones too
-  - Narrow the whole page to one project, one chat, or a search by title, folder or model: costs,
-    tokens, models, sessions and chats then cover only those Claude Code sessions, cheap ones too
+  - Suggestions from local rules over those sessions, with what each would roughly have saved: small
+    jobs run on a top model, a prompt cache rebuilt more than reused, a very long session, a chat
+    near its context limit. Each can narrow the page to the chat it is about, or open it
 - **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from

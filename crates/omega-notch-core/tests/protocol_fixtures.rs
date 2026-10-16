@@ -237,6 +237,14 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                     total: 48_200_000,
                     cost_usd: 38.6,
                 }],
+                suggestions: vec![Suggestion {
+                    kind: "model_choice".into(),
+                    title: "2 small jobs ran on a top model".into(),
+                    detail: "Each wrote under 20k tokens, yet ran on Opus or Fable.".into(),
+                    saving_usd: Some(3.4),
+                    provider: ProviderId::ClaudeCode,
+                    sessions: vec!["5f1c2d3e-0000-4000-8000-000000000001".into()],
+                }],
             },
         ),
         (

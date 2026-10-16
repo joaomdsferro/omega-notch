@@ -90,6 +90,8 @@ final class ProtocolTests: XCTestCase {
     XCTAssertTrue(dashboard.isScoped)
     XCTAssertEqual(dashboard.session, "")
     XCTAssertEqual(dashboard.projects.first?.sessions, 12)
+    XCTAssertEqual(dashboard.suggestions.first?.kind, "model_choice")
+    XCTAssertEqual(dashboard.suggestions.first?.savingUsd, 3.4)
     XCTAssertEqual(dashboard.projects.first?.costUsd, 38.6)
 
     guard case .copilotLogin(let login) = try fixture("copilot_login") else {

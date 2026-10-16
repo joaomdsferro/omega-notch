@@ -336,6 +336,25 @@ pub struct SessionModelCost {
     pub cost_usd: f64,
 }
 
+/// One way to spend less or get more from the sessions on the dashboard,
+/// from local rules (see `advice.rs`). Additive.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Suggestion {
+    /// The rule: `model_choice`, `cache_churn`, `long_session` or
+    /// `context_full`.
+    pub kind: String,
+    pub title: String,
+    pub detail: String,
+    /// Roughly what following it would have saved over the range, at list
+    /// prices; none when that cannot be told.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saving_usd: Option<f64>,
+    pub provider: ProviderId,
+    /// The sessions it is about, dearest first, to narrow to or open.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+}
+
 /// One project's Claude Code sessions over the dashboard range: what the
 /// dashboard can be narrowed to (additive).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -545,6 +564,10 @@ pub enum ServerMessage {
         /// Every project in the range, dearest first, to narrow to.
         #[serde(default)]
         projects: Vec<ProjectCost>,
+        /// What to change, from local rules over the sessions in scope;
+        /// the likeliest saving first.
+        #[serde(default)]
+        suggestions: Vec<Suggestion>,
     },
     CopilotLogin {
         login: CopilotLogin,

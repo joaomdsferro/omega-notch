@@ -71,5 +71,17 @@
       "total": 48200000,
       "cost_usd": 38.6
     }
+  ],
+  "suggestions": [
+    {
+      "kind": "model_choice",
+      "title": "2 small jobs ran on a top model",
+      "detail": "Each wrote under 20k tokens, yet ran on Opus or Fable.",
+      "saving_usd": 3.4,
+      "provider": "claude_code",
+      "sessions": [
+        "5f1c2d3e-0000-4000-8000-000000000001"
+      ]
+    }
   ]
 }

@@ -149,6 +149,21 @@ public struct SessionModelCost: Codable, Equatable, Sendable, Identifiable {
   public var id: String { model }
 }
 
+/// One way to spend less or get more, from the engine's local rules.
+public struct Suggestion: Decodable, Equatable, Sendable, Identifiable {
+  /// `model_choice`, `cache_churn`, `long_session` or `context_full`.
+  public var kind: String
+  public var title: String
+  public var detail: String
+  /// Roughly what it would have saved over the range; nil when unknown.
+  public var savingUsd: Double?
+  public var provider: String
+  /// The sessions it is about, dearest first.
+  public var sessions: [String]
+
+  public var id: String { kind + ":" + (sessions.first ?? "") }
+}
+
 /// One project's Claude Code sessions over the dashboard range.
 public struct ProjectCost: Decodable, Equatable, Sendable, Identifiable {
   public var provider: String
@@ -197,6 +212,8 @@ public struct Dashboard: Equatable, Sendable {
   public var session = ""
   /// Every project in the range, dearest first, to narrow to.
   public var projects: [ProjectCost] = []
+  /// What to change, from local rules; the likeliest saving first.
+  public var suggestions: [Suggestion] = []
 
   /// Whether the numbers are narrowed to a project or a search, so they come
   /// from Claude Code's sessions alone.
@@ -321,6 +338,7 @@ extension ServerMessage {
     var project: String?
     var session: String?
     var projects: [ProjectCost]?
+    var suggestions: [Suggestion]?
     var totalUsd: Double
   }
 
@@ -361,6 +379,7 @@ extension ServerMessage {
       dashboard.project = body.project ?? ""
       dashboard.session = body.session ?? ""
       dashboard.projects = body.projects ?? []
+      dashboard.suggestions = body.suggestions ?? []
       dashboard.totalUsd = body.totalUsd
       return .dashboard(dashboard)
     case "copilot_login":
