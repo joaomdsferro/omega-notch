@@ -16,6 +16,13 @@ struct DashboardView: View {
   @State private var showAllChats = false
   @State private var showAllSessions = false
   @State private var openSession: String?
+  /// Words that sessions must carry, and the project they ran in: both
+  /// narrow the whole page. The engine narrows its numbers; the chats are
+  /// already here.
+  @State private var search = ""
+  @State private var project = ""
+  /// One session, by id, that the numbers narrow to.
+  @State private var chat = ""
   @State private var now = Date()
 
   private let ticker = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -85,10 +92,18 @@ struct DashboardView: View {
   }
 
   private var tokenStats: [TokenStats] { client.tokens.filter { matches($0.provider) } }
-  private var tokensToday: Double { tokenStats.reduce(0) { $0 + $1.today.total } }
+  /// Narrowed, today and the days before come from the sessions in scope.
+  private func scopedDay(_ date: String) -> [HistoryPoint] { points.filter { $0.date == date } }
+  private var tokensToday: Double {
+    scoped ? scopedDay(today).reduce(0) { $0 + $1.total } : tokenStats.reduce(0) { $0 + $1.today.total }
+  }
 
   /// Mean of the six days before today, from the live seven-day window.
   private var priorAverage: Double {
+    if scoped {
+      let before = DashboardData.rangeDates(days: 7, now: now).dropLast()
+      return before.reduce(0) { sum, date in sum + scopedDay(date).reduce(0) { $0 + $1.total } } / 6
+    }
     var sums = Array(repeating: 0.0, count: 6)
     for stats in tokenStats {
       for j in 0..<min(6, max(0, stats.daily.count - 1)) { sums[j] += stats.daily[j].total }
@@ -97,7 +112,15 @@ struct DashboardView: View {
   }
 
   private var todayTotals: TokenTotals {
-    tokenStats.reduce(into: TokenTotals()) { t, s in
+    if scoped {
+      return scopedDay(today).reduce(into: TokenTotals()) { t, p in
+        t.input += p.input
+        t.output += p.output
+        t.cacheRead += p.cacheRead
+        t.cacheWrite += p.cacheWrite
+      }
+    }
+    return tokenStats.reduce(into: TokenTotals()) { t, s in
       t.input += s.today.input
       t.output += s.today.output
       t.cacheRead += s.today.cacheRead
@@ -107,6 +130,25 @@ struct DashboardView: View {
 
   private var shownCosts: [CostEstimate] { client.dashboard.costs.filter { matches($0.provider) } }
   private var shownChats: [ChatSummary] { client.chats.filter { matches($0.provider) } }
+  private var searchWords: [String] { DashboardData.searchWords(search) }
+  /// Whether the numbers on screen are narrowed; they lag the field a little.
+  private var scoped: Bool { client.dashboard.isScoped }
+  /// What they are narrowed to, as a few words.
+  private var scopeLabel: String {
+    let d = client.dashboard
+    let chat = d.session.isEmpty ? nil : chatTitle(d.session)
+    return [d.project.isEmpty ? nil : d.project, d.search.isEmpty ? nil : "“\(d.search)”", chat]
+      .compactMap { $0 }.joined(separator: " · ")
+  }
+
+  /// Sessions in scope: one when one is picked.
+  private var scopedCount: Int { client.dashboard.session.isEmpty ? shownSessions.count : 1 }
+
+  /// A session's title, short enough for a button.
+  private func chatTitle(_ id: String) -> String {
+    let title = client.dashboard.sessions.first { $0.id == id }?.title ?? "One chat"
+    return title.count > 40 ? String(title.prefix(39)) + "…" : title
+  }
   private var shownSessions: [SessionCost] { client.dashboard.sessions.filter { matches($0.provider) } }
 
   private var workingCount: Int { client.sessions.filter { $0.kind == .busy && matches($0.provider) }.count }
@@ -132,9 +174,7 @@ struct DashboardView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         header
-        if activeReadings.count > 1 {
-          DashSegmented(options: filterOptions, value: providerFilter) { providerFilter = $0 }
-        }
+        filterBar(rangeCost: costs.total)
         stats(
           rangeTotal: rangeTotal, activeDays: activeDays, rangeCost: costs.total, costDays: costDays,
           costToday: costToday, cacheRead: kinds.cacheRead)
@@ -232,6 +272,68 @@ struct DashboardView: View {
     }
   }
 
+  /// Search, project and tool: what the whole page is narrowed to.
+  private func filterBar(rangeCost: Double) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      SearchField(prompt: "Search sessions and chats by title, project, folder or model", text: $search, large: true)
+      HStack(spacing: 12) {
+        ScopeMenu(
+          icon: "folder", all: "All projects",
+          choices: client.dashboard.projects.map {
+            .init(
+              value: $0.project, label: $0.project,
+              detail: Format.usd($0.costUsd) + " · \($0.sessions) \($0.sessions == 1 ? "session" : "sessions")")
+          },
+          value: project, chosenLabel: project
+        ) { project = $0 }
+        ScopeMenu(
+          icon: "bubble.left.and.bubble.right", all: "All chats",
+          choices: shownSessions.map {
+            .init(value: $0.id, label: $0.title.count > 60 ? String($0.title.prefix(59)) + "…" : $0.title,
+                  detail: Format.usd($0.costUsd))
+          },
+          value: chat, chosenLabel: chatTitle(chat)
+        ) { chat = $0 }
+        if activeReadings.count > 1 {
+          DashSegmented(options: filterOptions, value: providerFilter) { providerFilter = $0 }
+        }
+        Spacer()
+      }
+      if scoped {
+        HStack(alignment: .top, spacing: 12) {
+          RoundedRectangle(cornerRadius: 2).fill(Theme.text).frame(width: 3)
+          VStack(alignment: .leading, spacing: 3) {
+            Text("Showing \(scopeLabel)").font(.notch(14, .semibold)).foregroundStyle(Theme.text)
+            Text(
+              "\(scopedCount) \(scopedCount == 1 ? "session" : "sessions") · \(Format.usd(rangeCost)) in the last \(days) days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
+            )
+            .font(.notch(12)).foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+          }
+          Spacer()
+          TextButton(label: "Clear") {
+            search = ""
+            project = ""
+            chat = ""
+          }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.panelRaised))
+      }
+    }
+    // Typing settles before the engine is asked again.
+    .task(id: search) {
+      guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
+      client.searchDashboard(search)
+    }
+    .onChange(of: project) { _, new in
+      // A chat from another project would leave nothing to show.
+      chat = ""
+      client.setDashboardProject(new)
+    }
+    .onChange(of: chat) { _, new in client.setDashboardSession(new) }
+  }
+
   private var statusLine: String {
     guard client.connected else { return "Engine offline — numbers may be out of date" }
     var parts: [String] = []
@@ -313,16 +415,23 @@ struct DashboardView: View {
   /// The range's dearest sessions. A model keeps the colour it has in the
   /// Models table, so the two read together.
   private func sessions(models: [DashboardData.ModelRow], rangeCost: Double) -> some View {
-    let all = shownSessions
+    let chosen = client.dashboard.session
+    let all = chosen.isEmpty ? shownSessions : shownSessions.filter { $0.id == chosen }
     let shown = showAllSessions ? all : Array(all.prefix(8))
     let modelShades = Dictionary(
       models.enumerated().map { ($1.model, shades[$0 % shades.count]) },
       uniquingKeysWith: { first, _ in first })
+    let caption: String = {
+      if scoped {
+        return "\(all.count) \(all.count == 1 ? "session" : "sessions") for \(scopeLabel) in the last \(days) days, by estimated cost"
+      }
+      return all.isEmpty
+        ? "By estimated cost in the last \(days) days"
+        : "Top \(all.count) by estimated cost in the last \(days) days · click one for its models"
+    }()
     return DashCard(
       heading: "Dearest sessions",
-      caption: all.isEmpty
-        ? "By estimated cost in the last \(days) days"
-        : "Top \(all.count) by estimated cost in the last \(days) days · click one for its models",
+      caption: caption,
       trailing: {
         if all.count > 8 {
           TextButton(label: showAllSessions ? "Show fewer" : "Show all \(all.count)") {
@@ -332,7 +441,7 @@ struct DashboardView: View {
       }
     ) {
       if all.isEmpty {
-        Text("No session history in this range yet.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
+        Text(scoped ? "No session in this range matches." : "No session history in this range yet.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
           .padding(.top, 8)
       } else {
         VStack(spacing: 0) {
@@ -352,13 +461,14 @@ struct DashboardView: View {
             SessionRow(
               session: session, today: today, first: index == 0, rangeCost: rangeCost,
               shade: { modelShades[$0] ?? shades[shades.count - 1] },
-              expanded: openSession == session.id,
+              expanded: openSession == session.id || !chosen.isEmpty,
               toggle: {
                 withAnimation(.easeOut(duration: 0.18)) {
                   openSession = openSession == session.id ? nil : session.id
                 }
               },
-              open: { client.openChat(session) })
+              open: { client.openChat(session) },
+              focus: chosen.isEmpty ? { chat = session.id } : nil)
           }
         }
       }
@@ -366,14 +476,22 @@ struct DashboardView: View {
   }
 
   private var chats: some View {
+    let words = searchWords
+    let found = shownChats.filter {
+      (project.isEmpty || $0.project == project) && (chat.isEmpty || $0.id == chat)
+        && DashboardData.matches(words, in: [$0.title, $0.project, $0.cwd, $0.model, $0.id])
+    }
+    let narrowed = !words.isEmpty || !project.isEmpty || !chat.isEmpty
     // Chats to read first, so the ones counted are never past "Show all".
-    let all = shownChats.filter(\.isUnread) + shownChats.filter { !$0.isUnread }
+    let all = found.filter(\.isUnread) + found.filter { !$0.isUnread }
     let shown = showAllChats ? all : Array(all.prefix(8))
     let showContext = all.contains { $0.contextPct != nil }
     let unreadCount = all.filter(\.isUnread).count
     return DashCard(
       heading: "Recent chats",
-      caption: "\(all.count) \(all.count == 1 ? "chat" : "chats")"
+      caption: (!narrowed
+        ? "\(all.count) \(all.count == 1 ? "chat" : "chats")"
+        : "\(all.count) of \(shownChats.count) \(shownChats.count == 1 ? "chat matches" : "chats match")")
         + (unreadCount > 0 ? " · \(unreadCount) to read" : "") + " · click one to jump to it",
       trailing: {
         if all.count > 8 {
@@ -382,7 +500,7 @@ struct DashboardView: View {
       }
     ) {
       if all.isEmpty {
-        Text("No recent chats found.").font(.notch(13)).foregroundStyle(Theme.textTertiary).padding(.top, 8)
+        Text(narrowed ? "No recent chat matches." : "No recent chats found.").font(.notch(13)).foregroundStyle(Theme.textTertiary).padding(.top, 8)
       } else {
         VStack(spacing: 0) {
           HStack(spacing: 0) {
@@ -603,6 +721,8 @@ private struct SessionRow: View {
   var expanded: Bool
   var toggle: () -> Void
   var open: () -> Void
+  /// Narrows the page to this session; nil once it is.
+  var focus: (() -> Void)?
 
   @State private var hovered = false
 
@@ -719,6 +839,7 @@ private struct SessionRow: View {
         )
         .font(.notch(11, tabular: true)).foregroundStyle(Theme.textTertiary)
         Spacer()
+        if let focus { TextButton(label: "Only this chat", action: focus) }
         TextButton(label: "Open chat", action: open)
       }
       .padding(.top, 8)

@@ -18,6 +18,9 @@ Item {
     property bool expanded: false
     signal toggled()
     signal openRequested()
+    // Narrows the page to this session; hidden once it is.
+    property bool focusable: true
+    signal focusRequested()
 
     readonly property var models: session && session.models ? session.models : []
     readonly property real cost: session ? (session.cost_usd || 0) : 0
@@ -285,6 +288,32 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                 }
                 TapHandler { onTapped: if (root.session) root.openRequested() }
+            }
+            Rectangle {
+                visible: root.focusable
+                anchors.right: openButton.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                width: focusText.implicitWidth + 20
+                height: 28
+                radius: 7
+                color: focusHover.hovered ? Theme.controlChosen : Theme.controlFill
+                Behavior on color { ColorAnimation { duration: 120 } }
+                Accessible.role: Accessible.Button
+                Accessible.name: "Only this chat"
+                Text {
+                    id: focusText
+                    anchors.centerIn: parent
+                    text: "Only this chat"
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.weight: Font.Medium
+                }
+                HoverHandler {
+                    id: focusHover
+                    cursorShape: Qt.PointingHandCursor
+                }
+                TapHandler { onTapped: if (root.session) root.focusRequested() }
             }
         }
     }

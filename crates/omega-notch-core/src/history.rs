@@ -18,8 +18,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::paths;
 use crate::pricing;
 use crate::protocol::{
-    DayModelTokens, HistoryPoint, ModelDayPoint, ProviderId, SessionCost, SessionDayTokens,
-    SessionMeta, SessionModelCost, TokenStats, TokenTotals,
+    CostEstimate, DayModelTokens, HistoryPoint, ModelDayPoint, ProjectCost, ProviderId,
+    SessionCost, SessionDayTokens, SessionMeta, SessionModelCost, TokenStats, TokenTotals,
 };
 
 /// History is capped; the dashboard never asks for more than this.
@@ -385,35 +385,108 @@ pub fn query_models(days: u32) -> anyhow::Result<Vec<ModelDayPoint>> {
     Ok(rows.flatten().collect())
 }
 
-/// The range's dearest sessions, at most `limit`, each with its models
-/// dearest first. A session without a name (its own transcript is gone) is
-/// shown by its project or id.
-pub fn query_sessions(days: u32, limit: usize) -> anyhow::Result<Vec<SessionCost>> {
-    let conn = connect()?;
-    sessions_since(&conn, &cutoff(days), limit)
+/// What the dashboard narrows to: words a session must carry, the project
+/// it ran in, and one session by id. All empty is everything.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Scope {
+    pub search: String,
+    pub project: String,
+    pub session: String,
 }
 
-fn sessions_since(
+impl Scope {
+    pub fn is_empty(&self) -> bool {
+        search_words(&self.search).is_empty()
+            && self.project.trim().is_empty()
+            && self.session.trim().is_empty()
+    }
+}
+
+/// The range's sessions narrowed to a scope, and what they spent.
+#[derive(Debug, Default)]
+pub struct Scoped {
+    /// Dearest first, at most the limit, each with its models dearest first.
+    /// One session asked for narrows the numbers, not this list: it is what
+    /// the dashboard offers to pick from.
+    pub sessions: Vec<SessionCost>,
+    /// Every project in the range, dearest first, whatever the scope: what
+    /// the dashboard offers to narrow to.
+    pub projects: Vec<ProjectCost>,
+    /// The scope's tokens per tool and day, oldest first.
+    pub points: Vec<HistoryPoint>,
+    /// The same per model, with estimated cost.
+    pub models: Vec<ModelDayPoint>,
+    /// The scope's spend today per model, dearest first.
+    pub today: Vec<CostEstimate>,
+}
+
+/// The range's sessions narrowed to `scope`, at most `limit`, with what they
+/// spent each day. A session without a name (its own transcript is gone) is
+/// shown by its project or id.
+pub fn query_scoped(days: u32, limit: usize, scope: &Scope) -> anyhow::Result<Scoped> {
+    let conn = connect()?;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    scoped_since(&conn, &cutoff(days), &today, limit, scope)
+}
+
+/// The words of a search, lowercased: at most `MAX_SEARCH_WORDS`, from at
+/// most `MAX_SEARCH_CHARS` characters.
+pub fn search_words(search: &str) -> Vec<String> {
+    let search: String = search.chars().take(MAX_SEARCH_CHARS).collect();
+    search
+        .split_whitespace()
+        .take(MAX_SEARCH_WORDS)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+pub const MAX_SEARCH_CHARS: usize = 200;
+const MAX_SEARCH_WORDS: usize = 8;
+
+/// Whether every word is somewhere in the session's names or models.
+fn session_matches(session: &SessionCost, words: &[String]) -> bool {
+    let mut haystack = format!("{} {}", session.title, session.id);
+    for part in [&session.project, &session.cwd].into_iter().flatten() {
+        haystack.push(' ');
+        haystack.push_str(part);
+    }
+    for model in &session.models {
+        haystack.push(' ');
+        haystack.push_str(&model.model);
+    }
+    let haystack = haystack.to_lowercase();
+    words.iter().all(|word| haystack.contains(word.as_str()))
+}
+
+/// One session's spend, and the days and models it came from.
+struct Spent {
+    session: SessionCost,
+    days: Vec<(String, String, TokenTotals)>,
+}
+
+fn scoped_since(
     conn: &Connection,
     first_date: &str,
+    today: &str,
     limit: usize,
-) -> anyhow::Result<Vec<SessionCost>> {
+    scope: &Scope,
+) -> anyhow::Result<Scoped> {
     let mut stmt = conn.prepare(
-        "SELECT s.provider, s.session_id, s.model,
-                SUM(s.input), SUM(s.output), SUM(s.cache_read), SUM(s.cache_write), MAX(s.date),
+        "SELECT s.provider, s.session_id, s.model, s.date,
+                SUM(s.input), SUM(s.output), SUM(s.cache_read), SUM(s.cache_write),
                 m.title, m.project, m.cwd, m.surface
          FROM session_model_tokens s
          LEFT JOIN session_meta m ON m.provider = s.provider AND m.session_id = s.session_id
          WHERE s.date >= ?1
-         GROUP BY s.provider, s.session_id, s.model",
+         GROUP BY s.provider, s.session_id, s.model, s.date",
     )?;
     let rows = stmt.query_map(params![first_date], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
-            totals_from(row, 3)?,
-            row.get::<_, String>(7)?,
+            row.get::<_, String>(3)?,
+            totals_from(row, 4)?,
             row.get::<_, Option<String>>(8)?,
             row.get::<_, Option<String>>(9)?,
             row.get::<_, Option<String>>(10)?,
@@ -421,32 +494,36 @@ fn sessions_since(
         ))
     })?;
 
-    let mut by_session: HashMap<(String, String), SessionCost> = HashMap::new();
-    for (provider, id, model, t, last_date, title, project, cwd, surface) in rows.flatten() {
-        let cost = pricing::estimate_cost_usd(&model, &t);
-        let session = by_session
+    let mut by_session: HashMap<(String, String), Spent> = HashMap::new();
+    for (provider, id, model, date, t, title, project, cwd, surface) in rows.flatten() {
+        let spent = by_session
             .entry((provider.clone(), id.clone()))
-            .or_insert_with(|| SessionCost {
-                provider: parse_provider(&provider),
-                title: title
-                    .clone()
-                    .or_else(|| project.clone())
-                    .unwrap_or_else(|| id.clone()),
-                id,
-                project,
-                cwd,
-                surface,
-                last_date: String::new(),
-                input: 0,
-                output: 0,
-                cache_read: 0,
-                cache_write: 0,
-                total: 0,
-                cost_usd: 0.0,
-                models: Vec::new(),
+            .or_insert_with(|| Spent {
+                session: SessionCost {
+                    provider: parse_provider(&provider),
+                    title: title
+                        .clone()
+                        .or_else(|| project.clone())
+                        .unwrap_or_else(|| id.clone()),
+                    id,
+                    project,
+                    cwd,
+                    surface,
+                    last_date: String::new(),
+                    input: 0,
+                    output: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    total: 0,
+                    cost_usd: 0.0,
+                    models: Vec::new(),
+                },
+                days: Vec::new(),
             });
-        if last_date > session.last_date {
-            session.last_date = last_date;
+        let cost = pricing::estimate_cost_usd(&model, &t);
+        let session = &mut spent.session;
+        if date > session.last_date {
+            session.last_date = date.clone();
         }
         session.input += t.input;
         session.output += t.output;
@@ -454,18 +531,124 @@ fn sessions_since(
         session.cache_write += t.cache_write;
         session.total += t.total();
         session.cost_usd += cost;
-        session.models.push(SessionModelCost {
-            model,
-            input: t.input,
-            output: t.output,
-            cache_read: t.cache_read,
-            cache_write: t.cache_write,
-            total: t.total(),
-            cost_usd: cost,
-        });
+        match session.models.iter_mut().find(|m| m.model == model) {
+            Some(m) => {
+                m.input += t.input;
+                m.output += t.output;
+                m.cache_read += t.cache_read;
+                m.cache_write += t.cache_write;
+                m.total += t.total();
+                m.cost_usd += cost;
+            }
+            None => session.models.push(SessionModelCost {
+                model: model.clone(),
+                input: t.input,
+                output: t.output,
+                cache_read: t.cache_read,
+                cache_write: t.cache_write,
+                total: t.total(),
+                cost_usd: cost,
+            }),
+        }
+        spent.days.push((date, model, t));
     }
 
-    let mut sessions: Vec<SessionCost> = by_session.into_values().collect();
+    let mut projects: HashMap<(ProviderId, String), ProjectCost> = HashMap::new();
+    for spent in by_session.values() {
+        let s = &spent.session;
+        let Some(name) = s.project.as_ref().filter(|p| !p.is_empty()) else {
+            continue;
+        };
+        let project = projects
+            .entry((s.provider, name.clone()))
+            .or_insert_with(|| ProjectCost {
+                provider: s.provider,
+                project: name.clone(),
+                sessions: 0,
+                total: 0,
+                cost_usd: 0.0,
+            });
+        project.sessions += 1;
+        project.total += s.total;
+        project.cost_usd += s.cost_usd;
+    }
+    let mut projects: Vec<ProjectCost> = projects.into_values().collect();
+    projects.sort_by(|a, b| {
+        b.cost_usd
+            .total_cmp(&a.cost_usd)
+            .then(a.project.cmp(&b.project))
+    });
+
+    let words = search_words(&scope.search);
+    let project = scope.project.trim();
+    let picked = scope.session.trim();
+    let mut points: HashMap<(ProviderId, String), HistoryPoint> = HashMap::new();
+    let mut models: HashMap<(ProviderId, String, String), ModelDayPoint> = HashMap::new();
+    let mut spent_today: HashMap<(ProviderId, String), CostEstimate> = HashMap::new();
+    let mut sessions = Vec::new();
+    for spent in by_session.into_values() {
+        let session = spent.session;
+        if !project.is_empty() && session.project.as_deref() != Some(project) {
+            continue;
+        }
+        if !session_matches(&session, &words) {
+            continue;
+        }
+        let provider = session.provider;
+        let counted = picked.is_empty() || session.id == picked;
+        for (date, model, t) in spent.days.iter().filter(|_| counted) {
+            let cost = pricing::estimate_cost_usd(model, t);
+            let point = points
+                .entry((provider, date.clone()))
+                .or_insert_with(|| HistoryPoint {
+                    provider,
+                    date: date.clone(),
+                    input: 0,
+                    output: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    total: 0,
+                });
+            point.input += t.input;
+            point.output += t.output;
+            point.cache_read += t.cache_read;
+            point.cache_write += t.cache_write;
+            point.total += t.total();
+            let day = models
+                .entry((provider, date.clone(), model.clone()))
+                .or_insert_with(|| ModelDayPoint {
+                    provider,
+                    date: date.clone(),
+                    model: model.clone(),
+                    input: 0,
+                    output: 0,
+                    cache_read: 0,
+                    cache_write: 0,
+                    total: 0,
+                    cost_usd: 0.0,
+                });
+            day.input += t.input;
+            day.output += t.output;
+            day.cache_read += t.cache_read;
+            day.cache_write += t.cache_write;
+            day.total += t.total();
+            day.cost_usd += cost;
+            if date == today {
+                let now = spent_today
+                    .entry((provider, model.clone()))
+                    .or_insert_with(|| CostEstimate {
+                        provider,
+                        model: model.clone(),
+                        total: 0,
+                        cost_usd: 0.0,
+                    });
+                now.total += t.total();
+                now.cost_usd += cost;
+            }
+        }
+        sessions.push(session);
+    }
+
     for session in &mut sessions {
         session.models.sort_by(|a, b| {
             b.cost_usd
@@ -481,7 +664,29 @@ fn sessions_since(
             .then(a.id.cmp(&b.id))
     });
     sessions.truncate(limit);
-    Ok(sessions)
+
+    let mut points: Vec<HistoryPoint> = points.into_values().collect();
+    points.sort_by(|a, b| {
+        a.date
+            .cmp(&b.date)
+            .then(a.provider.as_str().cmp(b.provider.as_str()))
+    });
+    let mut models: Vec<ModelDayPoint> = models.into_values().collect();
+    models.sort_by(|a, b| a.date.cmp(&b.date).then(a.model.cmp(&b.model)));
+    let mut today: Vec<CostEstimate> = spent_today.into_values().collect();
+    today.sort_by(|a, b| {
+        b.cost_usd
+            .total_cmp(&a.cost_usd)
+            .then(a.model.cmp(&b.model))
+    });
+
+    Ok(Scoped {
+        sessions,
+        projects,
+        points,
+        models,
+        today,
+    })
 }
 
 #[cfg(test)]
@@ -499,6 +704,21 @@ mod tests {
                 cache_write: 0,
             },
         }
+    }
+
+    /// The range's sessions for a search, as the dashboard lists them.
+    fn sessions_since(
+        conn: &Connection,
+        first_date: &str,
+        limit: usize,
+        search: &str,
+    ) -> anyhow::Result<Vec<SessionCost>> {
+        let scope = Scope {
+            search: search.into(),
+            project: String::new(),
+            session: String::new(),
+        };
+        Ok(scoped_since(conn, first_date, &ago(0), limit, &scope)?.sessions)
     }
 
     fn memory() -> Connection {
@@ -562,7 +782,7 @@ mod tests {
             ],
             &[named("dear", "Big refactor", 1), named("cheap", "Typo", 2)],
         );
-        let sessions = sessions_since(&conn, &ago(7), 10).unwrap();
+        let sessions = sessions_since(&conn, &ago(7), 10, "").unwrap();
         assert_eq!(sessions.len(), 2);
         let dear = &sessions[0];
         assert_eq!(dear.title, "Big refactor");
@@ -576,8 +796,8 @@ mod tests {
         assert_eq!(sessions[1].id, "cheap");
 
         // The range and the limit both cut.
-        assert_eq!(sessions_since(&conn, &d2, 10).unwrap().len(), 1);
-        assert_eq!(sessions_since(&conn, &ago(7), 1).unwrap()[0].id, "dear");
+        assert_eq!(sessions_since(&conn, &d2, 10, "").unwrap().len(), 1);
+        assert_eq!(sessions_since(&conn, &ago(7), 1, "").unwrap()[0].id, "dear");
     }
 
     #[test]
@@ -590,14 +810,123 @@ mod tests {
             &[spent("s", &d, "Opus 4.7", 5), spent("s", &d, "Opus 4.7", 7)],
             &[],
         );
-        let sessions = sessions_since(&conn, &ago(7), 10).unwrap();
+        let sessions = sessions_since(&conn, &ago(7), 10, "").unwrap();
         assert_eq!(sessions[0].output, 12);
         // No name stored: the id stands in.
         assert_eq!(sessions[0].title, "s");
 
         // A rescan of the same day replaces it rather than adding to it.
         write_sessions(&mut conn, &[spent("s", &d, "Opus 4.7", 20)], &[]);
-        assert_eq!(sessions_since(&conn, &ago(7), 10).unwrap()[0].output, 20);
+        assert_eq!(
+            sessions_since(&conn, &ago(7), 10, "").unwrap()[0].output,
+            20
+        );
+    }
+
+    #[test]
+    fn a_search_finds_sessions_by_every_word_past_the_dearest() {
+        let mut conn = memory();
+        let d = ago(1);
+        write_sessions(
+            &mut conn,
+            &[
+                spent("dear", &d, "Opus 4.7", 9_000_000),
+                spent("cheap", &d, "Haiku 4.5", 1_000),
+            ],
+            &[
+                named("dear", "Rewrite the parser", 1),
+                named("cheap", "Fix the Parser tests", 1),
+            ],
+        );
+        let ids = |search: &str, limit: usize| -> Vec<String> {
+            sessions_since(&conn, &ago(7), limit, search)
+                .unwrap()
+                .into_iter()
+                .map(|s| s.id)
+                .collect()
+        };
+        // Case does not matter, and the search reaches past the limit.
+        assert_eq!(ids("PARSER", 1), vec!["dear".to_string()]);
+        assert_eq!(ids("parser tests", 1), vec!["cheap".to_string()]);
+        // A model, or the project (both sessions are in omega-notch).
+        assert_eq!(ids("haiku", 10), vec!["cheap".to_string()]);
+        assert_eq!(ids("omega-notch", 10).len(), 2);
+        assert!(ids("parser nothing", 10).is_empty());
+        assert_eq!(ids("   ", 10).len(), 2);
+    }
+
+    #[test]
+    fn a_project_narrows_the_days_models_and_today_to_its_sessions() {
+        let mut conn = memory();
+        let (yesterday, today) = (ago(1), ago(0));
+        let mut other = named("other", "Elsewhere", 1);
+        other.project = Some("website".into());
+        write_sessions(
+            &mut conn,
+            &[
+                spent("mine", &yesterday, "Opus 4.7", 1_000),
+                spent("mine", &today, "Opus 4.7", 2_000),
+                spent("mine", &today, "Haiku 4.5", 500),
+                spent("other", &today, "Opus 4.7", 9_000),
+            ],
+            &[named("mine", "Notch work", 1), other],
+        );
+        let scope = Scope {
+            search: String::new(),
+            project: "omega-notch".into(),
+            session: String::new(),
+        };
+        let scoped = scoped_since(&conn, &ago(7), &today, 10, &scope).unwrap();
+
+        assert_eq!(scoped.sessions.len(), 1);
+        assert_eq!(scoped.sessions[0].id, "mine");
+        let days: Vec<(String, u64)> = scoped
+            .points
+            .iter()
+            .map(|p| (p.date.clone(), p.output))
+            .collect();
+        assert_eq!(
+            days,
+            vec![(yesterday.clone(), 1_000), (today.clone(), 2_500)]
+        );
+        assert_eq!(scoped.models.len(), 3);
+        let spend: Vec<&str> = scoped.today.iter().map(|c| c.model.as_str()).collect();
+        assert_eq!(spend, vec!["Opus 4.7", "Haiku 4.5"]);
+        // The projects to pick from are all of them, whatever the scope.
+        let projects: Vec<(&str, u32)> = scoped
+            .projects
+            .iter()
+            .map(|p| (p.project.as_str(), p.sessions))
+            .collect();
+        assert_eq!(projects, vec![("website", 1), ("omega-notch", 1)]);
+
+        // A search narrows the same way.
+        let scope = Scope {
+            search: "haiku".into(),
+            project: String::new(),
+            session: String::new(),
+        };
+        let scoped = scoped_since(&conn, &ago(7), &today, 10, &scope).unwrap();
+        assert_eq!(scoped.sessions.len(), 1);
+        assert!(Scope::default().is_empty());
+
+        // One session narrows the numbers but still lists what it was picked from.
+        let scope = Scope {
+            search: String::new(),
+            project: String::new(),
+            session: "other".into(),
+        };
+        let scoped = scoped_since(&conn, &ago(7), &today, 10, &scope).unwrap();
+        assert_eq!(scoped.sessions.len(), 2);
+        let days: Vec<u64> = scoped.points.iter().map(|p| p.output).collect();
+        assert_eq!(days, vec![9_000]);
+    }
+
+    #[test]
+    fn search_words_are_bounded() {
+        assert_eq!(search_words("  Foo   BAR "), vec!["foo", "bar"]);
+        assert_eq!(search_words(&"a ".repeat(50)).len(), MAX_SEARCH_WORDS);
+        assert_eq!(search_words(&"x".repeat(500))[0].len(), MAX_SEARCH_CHARS);
     }
 
     #[test]
@@ -615,7 +944,7 @@ mod tests {
             &[named("s", "First prompt", 30)],
         );
         assert_eq!(
-            sessions_since(&conn, &ago(7), 10).unwrap()[0].title,
+            sessions_since(&conn, &ago(7), 10, "").unwrap()[0].title,
             "Renamed"
         );
     }

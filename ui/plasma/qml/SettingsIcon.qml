@@ -84,6 +84,10 @@ Item {
             return ["M22 12h-4l-3 9L9 3l-3 9H2", false]
         case "check":
             return ["M20 6 9 17l-5-5", false]
+        case "search":
+            return [circle(11, 11, 7) + "M21 21l-4.35-4.35", false]
+        case "x":
+            return ["M18 6 6 18M6 6l12 12", false]
         case "plug-off":
             return ["M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-.6 2.1M6 8h2M6 8v5a6 6 0 0 0 9.5 4.9M2 2l20 20", false]
         default:

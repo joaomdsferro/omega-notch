@@ -13,7 +13,7 @@ use crate::copilot_auth;
 use crate::limits::LimitWatch;
 use crate::protocol::{
     Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus,
-    ServerMessage, SessionCost, SessionKind, SessionState, UsageReading,
+    ServerMessage, SessionKind, SessionState, UsageReading,
 };
 use crate::providers;
 use crate::seen::Seen;
@@ -330,8 +330,27 @@ impl UsageStore {
     /// Dashboard payload: persisted daily points, the range's dearest
     /// sessions, and today's per-model cost estimates. `days` clamps to
     /// 7..=90 inside `history`.
-    pub async fn dashboard(&self, days: u32) -> ServerMessage {
+    pub async fn dashboard(
+        &self,
+        days: u32,
+        search: String,
+        project: String,
+        session: String,
+    ) -> ServerMessage {
         let days = days.clamp(7, history::MAX_HISTORY_DAYS);
+        let scope = history::Scope {
+            search: history::search_words(&search).join(" "),
+            project: project
+                .trim()
+                .chars()
+                .take(history::MAX_SEARCH_CHARS)
+                .collect(),
+            session: session
+                .trim()
+                .chars()
+                .take(history::MAX_SEARCH_CHARS)
+                .collect(),
+        };
         let points: Vec<HistoryPoint> =
             tokio::task::spawn_blocking(move || history::query_history(days))
                 .await
@@ -344,8 +363,9 @@ impl UsageStore {
                 .ok()
                 .and_then(|r| r.ok())
                 .unwrap_or_default();
-        let sessions: Vec<SessionCost> = tokio::task::spawn_blocking(move || {
-            history::query_sessions(days, history::MAX_SESSIONS)
+        let asked = scope.clone();
+        let scoped: history::Scoped = tokio::task::spawn_blocking(move || {
+            history::query_scoped(days, history::MAX_SESSIONS, &asked)
         })
         .await
         .ok()
@@ -382,13 +402,24 @@ impl UsageStore {
                 .partial_cmp(&a.cost_usd)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        // Narrowed, everything comes from the sessions in scope: only they
+        // know their project and title.
+        let (points, models, costs) = if scope.is_empty() {
+            (points, models, costs)
+        } else {
+            (scoped.points, scoped.models, scoped.today)
+        };
         let total_usd = costs.iter().map(|c| c.cost_usd).sum();
         ServerMessage::Dashboard {
             points,
             costs,
             total_usd,
             models,
-            sessions,
+            sessions: scoped.sessions,
+            search: scope.search,
+            project: scope.project,
+            session: scope.session,
+            projects: scoped.projects,
         }
     }
 

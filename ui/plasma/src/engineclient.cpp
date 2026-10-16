@@ -247,6 +247,10 @@ void EngineClient::applyDashboard(const QJsonObject &obj)
     m_dashboardCosts = obj.value(QStringLiteral("costs")).toArray().toVariantList();
     m_dashboardModels = obj.value(QStringLiteral("models")).toArray().toVariantList();
     m_dashboardSessions = obj.value(QStringLiteral("sessions")).toArray().toVariantList();
+    m_dashboardAnswered = obj.value(QStringLiteral("search")).toString();
+    m_dashboardProjectAnswered = obj.value(QStringLiteral("project")).toString();
+    m_dashboardSessionAnswered = obj.value(QStringLiteral("session")).toString();
+    m_dashboardProjects = obj.value(QStringLiteral("projects")).toArray().toVariantList();
     m_dashboardTotalUsd = obj.value(QStringLiteral("total_usd")).toDouble(0.0);
     emit dashboardChanged();
 }
@@ -370,11 +374,52 @@ void EngineClient::refresh(const QString &provider)
 
 void EngineClient::requestDashboard(int days)
 {
-    const int clamped = qBound(7, days, 90);
-    sendJson(QJsonObject{
+    m_dashboardDays = qBound(7, days, 90);
+    QJsonObject obj{
         {QStringLiteral("type"), QStringLiteral("get_dashboard")},
-        {QStringLiteral("days"), clamped},
-    });
+        {QStringLiteral("days"), m_dashboardDays},
+    };
+    if (!m_dashboardSearch.isEmpty()) {
+        obj.insert(QStringLiteral("search"), m_dashboardSearch);
+    }
+    if (!m_dashboardProject.isEmpty()) {
+        obj.insert(QStringLiteral("project"), m_dashboardProject);
+    }
+    if (!m_dashboardSession.isEmpty()) {
+        obj.insert(QStringLiteral("session"), m_dashboardSession);
+    }
+    sendJson(obj);
+}
+
+void EngineClient::setDashboardSession(const QString &session)
+{
+    if (session == m_dashboardSession) {
+        return;
+    }
+    m_dashboardSession = session;
+    requestDashboard(m_dashboardDays);
+}
+
+void EngineClient::setDashboardProject(const QString &project)
+{
+    if (project == m_dashboardProject) {
+        return;
+    }
+    m_dashboardProject = project;
+    requestDashboard(m_dashboardDays);
+}
+
+void EngineClient::searchDashboard(const QString &search)
+{
+    // As the engine reads it: at most 8 words from 200 characters.
+    const QStringList words = search.left(200).toLower().split(QRegularExpression(QStringLiteral("\\s+")),
+                                                            Qt::SkipEmptyParts);
+    const QString normal = words.mid(0, 8).join(QLatin1Char(' '));
+    if (normal == m_dashboardSearch) {
+        return;
+    }
+    m_dashboardSearch = normal;
+    requestDashboard(m_dashboardDays);
 }
 
 void EngineClient::openChat(const QVariantMap &chat)

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Window
 import OmegaNotch
 
@@ -29,6 +30,54 @@ Window {
     property bool showAllChats: false
     property bool showAllSessions: false
     property string openSession: ""
+    // Words that sessions must carry, and the project they ran in: both
+    // narrow the whole page. The engine narrows its numbers; the chats are
+    // already here.
+    property string search: ""
+    property string project: ""
+    // One session, by id, that the numbers narrow to.
+    property string chat: ""
+    onProjectChanged: {
+        // A chat from another project would leave nothing to show.
+        chat = ""
+        Engine.setDashboardProject(project)
+    }
+    onChatChanged: Engine.setDashboardSession(chat)
+    // A session's title, short enough for a button.
+    function chatTitle(id) {
+        const s = Engine.dashboardSessions.find(x => x.id === id)
+        const title = s ? s.title : "One chat"
+        return title.length > 40 ? title.slice(0, 39) + "…" : title
+    }
+    // The sessions card: only the picked one, when one is.
+    readonly property var listedSessions: Engine.dashboardSession.length > 0
+                                          ? shownSessions.filter(s => s.id === Engine.dashboardSession)
+                                          : shownSessions
+    // Sessions in scope: one when one is picked.
+    readonly property int scopedCount: Engine.dashboardSession.length > 0 ? 1 : shownSessions.length
+    // Whether the numbers on screen are narrowed; they lag the field a little.
+    readonly property bool scoped: Engine.dashboardSearch.length > 0 || Engine.dashboardProject.length > 0
+                                   || Engine.dashboardSession.length > 0
+    readonly property string scopeLabel: [Engine.dashboardProject,
+                                          Engine.dashboardSearch.length > 0 ? "“" + Engine.dashboardSearch + "”" : "",
+                                          Engine.dashboardSession.length > 0 ? chatTitle(Engine.dashboardSession) : ""]
+                                         .filter(p => p.length > 0).join(" · ")
+    // Narrowed, today and the days before come from the sessions in scope.
+    function scopedDay(date) { return root.points.filter(p => p.date === date) }
+    // The words of a search, as the engine reads them.
+    readonly property var searchWords: search.slice(0, 200).toLowerCase().split(/\s+/).filter(w => w.length > 0).slice(0, 8)
+    function found(fields) {
+        const haystack = fields.filter(f => !!f).join(" ").toLowerCase()
+        return searchWords.every(w => haystack.indexOf(w) >= 0)
+    }
+
+    // Typing settles before the engine is asked again.
+    onSearchChanged: searchSettle.restart()
+    Timer {
+        id: searchSettle
+        interval: 250
+        onTriggered: Engine.searchDashboard(root.search)
+    }
 
     Component.onCompleted: Engine.requestDashboard(root.days)
     onDaysChanged: Engine.requestDashboard(root.days)
@@ -200,6 +249,8 @@ Window {
     }
 
     readonly property real tokensToday: {
+        if (root.scoped)
+            return root.scopedDay(root.today).reduce((a, p) => a + (p.total || 0), 0)
         let sum = 0
         for (let i = 0; i < Engine.tokens.length; ++i) {
             if (root.matches(Engine.tokens[i].provider))
@@ -209,6 +260,12 @@ Window {
     }
     // Mean of the six days before today, from the live seven-day window.
     readonly property real priorAverage: {
+        if (root.scoped) {
+            let sum = 0
+            for (let i = 1; i <= 6; ++i)
+                sum += root.scopedDay(root.isoDay(root.now - i * 86400000)).reduce((a, p) => a + (p.total || 0), 0)
+            return sum / 6
+        }
         const sums = [0, 0, 0, 0, 0, 0]
         for (let i = 0; i < Engine.tokens.length; ++i) {
             if (!root.matches(Engine.tokens[i].provider)) continue
@@ -236,13 +293,24 @@ Window {
         return shades
     }
     readonly property int unreadCount: shownChats.filter(c => c.unread).length
+    readonly property bool chatsNarrowed: searchWords.length > 0 || project.length > 0 || chat.length > 0
+    readonly property var foundChats: shownChats.filter(c => (root.project.length === 0 || c.project === root.project)
+                                                             && (root.chat.length === 0 || c.id === root.chat)
+                                                             && root.found([c.title, c.project, c.cwd, c.model, c.id]))
+    readonly property int foundUnread: foundChats.filter(c => c.unread).length
     // Chats to read first, so the ones counted are never past "Show all".
-    readonly property var listedChats: shownChats.filter(c => c.unread).concat(shownChats.filter(c => !c.unread))
-    readonly property bool chatsHaveContext: shownChats.some(
+    readonly property var listedChats: foundChats.filter(c => c.unread).concat(foundChats.filter(c => !c.unread))
+    readonly property bool chatsHaveContext: foundChats.some(
         c => c.context_pct !== undefined && c.context_pct !== null)
 
     readonly property var todayTotals: {
         const t = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
+        if (root.scoped) {
+            const day = root.scopedDay(root.today)
+            for (let i = 0; i < day.length; ++i)
+                for (const k in t) t[k] += day[i][k] || 0
+            return t
+        }
         for (let i = 0; i < Engine.tokens.length; ++i) {
             if (!root.matches(Engine.tokens[i].provider)) continue
             const d = Engine.tokens[i].today || {}
@@ -372,6 +440,111 @@ Window {
         }
     }
 
+    // Narrows the page to one of a few: "All …" first, then each choice
+    // with what it spent. The chosen one wears a tick.
+    component ScopeMenu: Rectangle {
+        id: menuButton
+        property string icon: ""
+        property string allLabel: ""
+        property string value: ""
+        property string chosenLabel: ""
+        property var choices: []        // [{ value, label, detail }]
+        signal picked(string value)
+
+        readonly property bool chosen: value.length > 0
+        width: Math.min(menuRow.implicitWidth, 320) + 24
+        height: 32
+        radius: 9
+        color: chosen ? Theme.controlChosen : Theme.controlFill
+        Accessible.role: Accessible.ComboBox
+        Accessible.name: chosen ? chosenLabel : allLabel
+
+        Row {
+            id: menuRow
+            anchors.verticalCenter: parent.verticalCenter
+            x: 12
+            spacing: 7
+            SettingsIcon {
+                width: 14; height: 14
+                anchors.verticalCenter: parent.verticalCenter
+                name: menuButton.icon
+                color: menuButton.chosen ? Theme.text : Theme.textSecondary
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(implicitWidth, 320 - 46)
+                elide: Text.ElideRight
+                text: menuButton.chosen ? menuButton.chosenLabel : menuButton.allLabel
+                color: menuButton.chosen ? Theme.text : Theme.textSecondary
+                font.pixelSize: 13
+                font.weight: menuButton.chosen ? Font.DemiBold : Font.Normal
+            }
+            SettingsIcon {
+                width: 11; height: 11
+                anchors.verticalCenter: parent.verticalCenter
+                name: "chevron-down"
+                color: Theme.textSecondary
+            }
+        }
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: menuPopup.opened ? menuPopup.close() : menuPopup.open() }
+
+        Popup {
+            id: menuPopup
+            y: menuButton.height + 6
+            width: 380
+            height: Math.min(menuList.contentHeight + 12, 360)
+            padding: 6
+            background: Rectangle {
+                radius: 10
+                color: Theme.panelRaised
+                border.width: 1
+                border.color: Theme.cardStroke
+            }
+            contentItem: ListView {
+                id: menuList
+                clip: true
+                model: [{ value: "", label: menuButton.allLabel, detail: "" }].concat(menuButton.choices)
+                delegate: Rectangle {
+                    id: menuItem
+                    required property var modelData
+                    readonly property bool chosen: modelData.value === menuButton.value
+                    width: menuList.width
+                    height: 30
+                    radius: 6
+                    color: itemHover.hovered ? Theme.controlHover : "transparent"
+
+                    Text {
+                        x: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 30 - itemDetail.width
+                        elide: Text.ElideRight
+                        text: (menuItem.chosen ? "✓ " : "") + menuItem.modelData.label
+                        color: Theme.text
+                        font.pixelSize: 13
+                        font.weight: menuItem.chosen ? Font.DemiBold : Font.Normal
+                    }
+                    Text {
+                        id: itemDetail
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: menuItem.modelData.detail
+                        color: Theme.textSecondary
+                        font.pixelSize: 12
+                    }
+                    HoverHandler { id: itemHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: {
+                            menuButton.picked(menuItem.modelData.value)
+                            menuPopup.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     component TextButton: Rectangle {
         id: tb
         property string label: ""
@@ -455,6 +628,7 @@ Window {
                 }
 
                 DashSegmented {
+                    id: daysPicker
                     anchors.right: parent.right
                     anchors.top: parent.top
                     options: [
@@ -467,11 +641,162 @@ Window {
                 }
             }
 
-            DashSegmented {
-                visible: root.activeReadings.length > 1
-                options: root.filterOptions
-                value: root.providerFilter
-                onPicked: (v) => root.providerFilter = v
+            // Search, project and tool: what the whole page is narrowed to.
+            Column {
+                width: parent.width
+                spacing: 12
+
+                // Search box: a magnifier, the words, and a cross to clear
+                // them. Escape clears too.
+                Rectangle {
+                    width: parent.width
+                    height: 42
+                    radius: 11
+                    color: Theme.panelRaised
+                    border.width: 1
+                    border.color: searchInput.activeFocus ? Theme.textSecondary : Theme.cardStroke
+
+                    SettingsIcon {
+                        id: searchIcon
+                        x: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 16
+                        height: 16
+                        name: "search"
+                        color: root.search.length > 0 ? Theme.text : Theme.textTertiary
+                    }
+                    TextInput {
+                        id: searchInput
+                        anchors.left: searchIcon.right
+                        anchors.leftMargin: 8
+                        anchors.right: clearSearch.visible ? clearSearch.left : parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.search
+                        onTextEdited: root.search = text
+                        color: Theme.text
+                        selectionColor: Theme.textTertiary
+                        selectByMouse: true
+                        clip: true
+                        font.pixelSize: 15
+                        Keys.onEscapePressed: (event) => {
+                            event.accepted = root.search.length > 0
+                            root.search = ""
+                        }
+                        Accessible.name: "Search sessions and chats"
+
+                        Text {
+                            visible: searchInput.text.length === 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Search sessions and chats by title, project, folder or model"
+                            color: Theme.textTertiary
+                            font.pixelSize: 15
+                        }
+                    }
+                    SettingsIcon {
+                        id: clearSearch
+                        visible: root.search.length > 0
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 13
+                        height: 13
+                        name: "x"
+                        color: Theme.textTertiary
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Clear the search"
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: root.search = "" }
+                    }
+                    HoverHandler { cursorShape: Qt.IBeamCursor }
+                    TapHandler { onTapped: searchInput.forceActiveFocus() }
+                }
+
+                Row {
+                    spacing: 12
+
+                    ScopeMenu {
+                        icon: "layers"
+                        allLabel: "All projects"
+                        value: root.project
+                        chosenLabel: root.project
+                        choices: Engine.dashboardProjects.map(p => ({
+                            value: p.project, label: p.project,
+                            detail: Theme.usd(p.cost_usd) + " · " + p.sessions + (p.sessions === 1 ? " session" : " sessions")
+                        }))
+                        onPicked: (value) => root.project = value
+                    }
+                    ScopeMenu {
+                        icon: "message"
+                        allLabel: "All chats"
+                        value: root.chat
+                        chosenLabel: root.chatTitle(root.chat)
+                        choices: root.shownSessions.map(x => ({
+                            value: x.id, label: x.title, detail: Theme.usd(x.cost_usd)
+                        }))
+                        onPicked: (value) => root.chat = value
+                    }
+
+                    DashSegmented {
+                        visible: root.activeReadings.length > 1
+                        options: root.filterOptions
+                        value: root.providerFilter
+                        onPicked: (v) => root.providerFilter = v
+                    }
+                }
+
+                // What the page is narrowed to, and how to undo it.
+                Rectangle {
+                    visible: root.scoped
+                    width: parent.width
+                    height: scopeText.implicitHeight + 24
+                    radius: 10
+                    color: Theme.panelRaised
+
+                    Rectangle {
+                        x: 12
+                        y: 12
+                        width: 3
+                        height: parent.height - 24
+                        radius: 2
+                        color: Theme.text
+                    }
+                    Column {
+                        id: scopeText
+                        x: 27
+                        y: 12
+                        width: parent.width - 27 - clearScope.width - 24
+                        spacing: 3
+                        Text {
+                            text: "Showing " + root.scopeLabel
+                            color: Theme.text
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width
+                            wrapMode: Text.WordWrap
+                            text: root.scopedCount + (root.scopedCount === 1 ? " session · " : " sessions · ")
+                                  + Theme.usd(root.rangeCost) + " in the last " + root.days
+                                  + " days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
+                            color: Theme.textSecondary
+                            font.pixelSize: 12
+                        }
+                    }
+                    TextButton {
+                        id: clearScope
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        anchors.top: parent.top
+                        anchors.topMargin: 12
+                        label: "Clear"
+                        onClicked: {
+                            root.search = ""
+                            root.project = ""
+                            root.chat = ""
+                        }
+                    }
+                }
             }
 
             // Headline numbers.
@@ -711,7 +1036,10 @@ Window {
                 id: sessionsCard
                 width: parent.width
                 heading: "Dearest sessions"
-                caption: root.shownSessions.length === 0
+                caption: root.scoped
+                         ? root.shownSessions.length + (root.shownSessions.length === 1 ? " session" : " sessions")
+                           + " for " + root.scopeLabel + " in the last " + root.days + " days, by estimated cost"
+                         : root.shownSessions.length === 0
                          ? "By estimated cost in the last " + root.days + " days"
                          : "Top " + root.shownSessions.length + " by estimated cost in the last " + root.days
                            + " days · click one for its models"
@@ -748,7 +1076,7 @@ Window {
                     }
 
                     Repeater {
-                        model: root.showAllSessions ? root.shownSessions : root.shownSessions.slice(0, 8)
+                        model: root.showAllSessions ? root.listedSessions : root.listedSessions.slice(0, 8)
                         delegate: DashSessionRow {
                             required property var modelData
                             required property int index
@@ -759,7 +1087,9 @@ Window {
                             rangeCost: root.rangeCost
                             shades: root.modelShades
                             otherShade: root.shades[root.shades.length - 1]
-                            expanded: root.openSession === modelData.id
+                            expanded: root.openSession === modelData.id || Engine.dashboardSession.length > 0
+                            focusable: Engine.dashboardSession.length === 0
+                            onFocusRequested: root.chat = modelData.id
                             onToggled: root.openSession = expanded ? "" : modelData.id
                             onOpenRequested: Engine.openChat(modelData)
                         }
@@ -768,7 +1098,8 @@ Window {
                     Text {
                         visible: root.shownSessions.length === 0
                         topPadding: 8
-                        text: "No session history in this range yet."
+                        text: root.scoped ? "No session in this range matches."
+                                                                : "No session history in this range yet."
                         color: Theme.textTertiary
                         font.pixelSize: 13
                     }
@@ -784,11 +1115,14 @@ Window {
                     id: chatsCard
                     width: parent.width
                     heading: "Recent chats"
-                    caption: root.shownChats.length + (root.shownChats.length === 1 ? " chat" : " chats")
-                             + (root.unreadCount > 0 ? " · " + root.unreadCount + " to read" : "") + " · click one to jump to it"
+                    caption: (!root.chatsNarrowed
+                              ? root.foundChats.length + (root.foundChats.length === 1 ? " chat" : " chats")
+                              : root.foundChats.length + " of " + root.shownChats.length
+                                + (root.shownChats.length === 1 ? " chat matches" : " chats match"))
+                             + (root.foundUnread > 0 ? " · " + root.foundUnread + " to read" : "") + " · click one to jump to it"
                     trailing: TextButton {
-                        visible: root.shownChats.length > 8
-                        label: root.showAllChats ? "Show fewer" : "Show all " + root.shownChats.length
+                        visible: root.foundChats.length > 8
+                        label: root.showAllChats ? "Show fewer" : "Show all " + root.foundChats.length
                         onClicked: root.showAllChats = !root.showAllChats
                     }
 
@@ -800,7 +1134,7 @@ Window {
                         Item {
                             width: parent.width
                             height: 20
-                            visible: root.shownChats.length > 0
+                            visible: root.foundChats.length > 0
                             Text {
                                 x: 44
                                 text: "Chat"
@@ -830,9 +1164,9 @@ Window {
                         }
 
                         Text {
-                            visible: root.shownChats.length === 0
+                            visible: root.foundChats.length === 0
                             topPadding: 8
-                            text: "No recent chats found."
+                            text: root.chatsNarrowed ? "No recent chat matches." : "No recent chats found."
                             color: Theme.textTertiary
                             font.pixelSize: 13
                         }

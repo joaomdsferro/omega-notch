@@ -226,6 +226,17 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                         cost_usd: 1.27,
                     }],
                 }],
+                // What the engine sends for this session's own words.
+                search: "sidebar".into(),
+                project: "omega-zap".into(),
+                session: String::new(),
+                projects: vec![ProjectCost {
+                    provider: ProviderId::ClaudeCode,
+                    project: "omega-zap".into(),
+                    sessions: 12,
+                    total: 48_200_000,
+                    cost_usd: 38.6,
+                }],
             },
         ),
         (

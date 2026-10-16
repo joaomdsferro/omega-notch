@@ -36,6 +36,10 @@ public final class EngineClient {
   @ObservationIgnored private var socket: LineSocket?
   @ObservationIgnored private var reconnect: Timer?
   @ObservationIgnored private var peekTimer: Timer?
+  @ObservationIgnored private var dashboardDays = 30
+  @ObservationIgnored private var dashboardSearch = ""
+  @ObservationIgnored private var dashboardProject = ""
+  @ObservationIgnored private var dashboardSession = ""
   @ObservationIgnored private let encoder = JSONEncoder()
 
   public init(socketPath: String = EnginePaths.socket) {
@@ -88,8 +92,39 @@ public final class EngineClient {
     send(.object(message))
   }
 
+  /// Asks for the dashboard over `days`, with the search it has now.
   public func requestDashboard(days: Int = 30) {
-    send(.object(["type": .string("get_dashboard"), "days": .number(Double(min(90, max(7, days))))]))
+    dashboardDays = min(90, max(7, days))
+    var message: [String: JSONValue] = [
+      "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
+    ]
+    if !dashboardSearch.isEmpty { message["search"] = .string(dashboardSearch) }
+    if !dashboardProject.isEmpty { message["project"] = .string(dashboardProject) }
+    if !dashboardSession.isEmpty { message["session"] = .string(dashboardSession) }
+    send(.object(message))
+  }
+
+  /// Narrows the whole dashboard to one project's sessions; empty for all.
+  public func setDashboardProject(_ project: String) {
+    guard project != dashboardProject else { return }
+    dashboardProject = project
+    requestDashboard(days: dashboardDays)
+  }
+
+  /// Narrows the dashboard's numbers to one session, by id; empty for all.
+  public func setDashboardSession(_ session: String) {
+    guard session != dashboardSession else { return }
+    dashboardSession = session
+    requestDashboard(days: dashboardDays)
+  }
+
+  /// Narrows the whole dashboard to the sessions carrying every word; every
+  /// later request keeps the search until it changes.
+  public func searchDashboard(_ search: String) {
+    let search = DashboardData.searchWords(search).joined(separator: " ")
+    guard search != dashboardSearch else { return }
+    dashboardSearch = search
+    requestDashboard(days: dashboardDays)
   }
 
   public func openChat(_ chat: ChatSummary) {

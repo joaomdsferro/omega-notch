@@ -336,6 +336,18 @@ pub struct SessionModelCost {
     pub cost_usd: f64,
 }
 
+/// One project's Claude Code sessions over the dashboard range: what the
+/// dashboard can be narrowed to (additive).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectCost {
+    pub provider: ProviderId,
+    /// The folder's name, as sessions carry it.
+    pub project: String,
+    pub sessions: u32,
+    pub total: u64,
+    pub cost_usd: f64,
+}
+
 /// One session's spend over the dashboard range, dearest first in the
 /// dashboard (v6, additive). Subagents count towards the session that ran
 /// them.
@@ -440,6 +452,19 @@ pub enum ClientMessage {
     GetDashboard {
         #[serde(default = "default_dashboard_days")]
         days: u32,
+        /// Words a session must all carry, in its title, project, folder, id
+        /// or a model's name; the sessions are then every match in the range,
+        /// not only the dearest.
+        #[serde(default)]
+        search: String,
+        /// Narrows the whole dashboard to the sessions run in this project
+        /// (a folder's name, as `projects` lists them).
+        #[serde(default)]
+        project: String,
+        /// Narrows the numbers to one session, by id; `sessions` still lists
+        /// the rest of the scope, to pick another from.
+        #[serde(default)]
+        session: String,
     },
     Ping,
 }
@@ -507,6 +532,19 @@ pub enum ServerMessage {
         /// The range's dearest sessions, with their models (v6, additive).
         #[serde(default)]
         sessions: Vec<SessionCost>,
+        /// The search `sessions` answers, as the engine read it; empty when
+        /// there was none.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        search: String,
+        /// The project everything answers; empty when there was none.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        project: String,
+        /// The session the numbers answer; empty when there was none.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        session: String,
+        /// Every project in the range, dearest first, to narrow to.
+        #[serde(default)]
+        projects: Vec<ProjectCost>,
     },
     CopilotLogin {
         login: CopilotLogin,

@@ -115,6 +115,96 @@ struct TextButton: View {
   }
 }
 
+/// A search box: a magnifier, the words, and a cross to clear them. Escape
+/// clears too.
+struct SearchField: View {
+  var prompt: String
+  @Binding var text: String
+  /// The page's own search: as wide as it can be, and taller.
+  var large = false
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass").font(.system(size: large ? 14 : 12, weight: .medium))
+        .foregroundStyle(text.isEmpty ? Theme.textTertiary : Theme.text)
+      TextField(prompt, text: $text)
+        .textFieldStyle(.plain)
+        .font(.notch(large ? 15 : 13))
+        .foregroundStyle(Theme.text)
+        .focused($focused)
+        .onKeyPress(.escape) {
+          guard !text.isEmpty else { return .ignored }
+          text = ""
+          return .handled
+        }
+      if !text.isEmpty {
+        Image(systemName: "xmark.circle.fill").font(.system(size: 12))
+          .foregroundStyle(Theme.textTertiary)
+          .clickable()
+          .onTapGesture { text = "" }
+          .accessibilityLabel("Clear the search")
+          .accessibilityAddTraits(.isButton)
+      }
+    }
+    .padding(.horizontal, large ? 14 : 10)
+    .frame(maxWidth: large ? .infinity : 240)
+    .frame(height: large ? 42 : 32)
+    .background(
+      RoundedRectangle(cornerRadius: large ? 11 : 9).fill(large ? Theme.panelRaised : Theme.controlFill)
+        .strokeBorder(focused ? Theme.textSecondary : large ? Theme.cardStroke : .clear, lineWidth: 1)
+    )
+    .contentShape(Rectangle())
+    .onTapGesture { focused = true }
+  }
+}
+
+/// Narrows the dashboard to one of a few: "All …" first, then each choice
+/// with what it spent. The chosen one wears a tick.
+struct ScopeMenu: View {
+  struct Choice: Identifiable {
+    var value: String
+    var label: String
+    var detail: String
+    var id: String { value }
+  }
+
+  var icon: String
+  var all: String
+  var choices: [Choice]
+  var value: String
+  /// What the button reads while one is chosen.
+  var chosenLabel: String
+  var pick: (String) -> Void
+
+  var body: some View {
+    Menu {
+      Button(value.isEmpty ? "✓ \(all)" : all) { pick("") }
+      if !choices.isEmpty { Divider() }
+      ForEach(choices) { choice in
+        Button((choice.value == value ? "✓ " : "") + choice.label + " — " + choice.detail) { pick(choice.value) }
+      }
+    } label: {
+      HStack(spacing: 7) {
+        Image(systemName: icon).font(.system(size: 12, weight: .medium))
+        Text(value.isEmpty ? all : chosenLabel).font(.notch(13, value.isEmpty ? .regular : .semibold))
+          .lineLimit(1)
+        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+      }
+      .foregroundStyle(value.isEmpty ? Theme.textSecondary : Theme.text)
+      .padding(.horizontal, 12)
+      .frame(height: 32)
+      .background(RoundedRectangle(cornerRadius: 9).fill(value.isEmpty ? Theme.controlFill : Theme.controlChosen))
+      .contentShape(Rectangle())
+    }
+    .menuStyle(.button)
+    .buttonStyle(.plain)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .accessibilityLabel(value.isEmpty ? all : chosenLabel)
+  }
+}
+
 /// The notch's ring, dashboard-sized: track, coloured sweep, number inside.
 struct DashRing: View {
   /// 0...100, or below zero for no data.

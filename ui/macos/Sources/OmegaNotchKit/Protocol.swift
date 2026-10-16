@@ -149,6 +149,18 @@ public struct SessionModelCost: Codable, Equatable, Sendable, Identifiable {
   public var id: String { model }
 }
 
+/// One project's Claude Code sessions over the dashboard range.
+public struct ProjectCost: Decodable, Equatable, Sendable, Identifiable {
+  public var provider: String
+  /// The folder's name, as sessions carry it.
+  public var project: String
+  public var sessions: Int
+  public var total: Double
+  public var costUsd: Double
+
+  public var id: String { provider + ":" + project }
+}
+
 /// One session's spend over the dashboard range, split by model (v6).
 public struct SessionCost: Codable, Equatable, Sendable, Identifiable {
   public var provider: String
@@ -173,8 +185,22 @@ public struct Dashboard: Equatable, Sendable {
   public var points: [HistoryPoint] = []
   public var costs: [CostEstimate] = []
   public var models: [ModelDayPoint] = []
-  /// The range's dearest sessions, dearest first (v6).
+  /// The range's dearest sessions, dearest first (v6); with a search, the
+  /// range's sessions that match it.
   public var sessions: [SessionCost] = []
+  /// The search everything answers, as the engine read it; empty for none.
+  public var search = ""
+  /// The project everything answers; empty for none.
+  public var project = ""
+  /// The session the numbers answer, by id; empty for none. `sessions` still
+  /// lists the rest of the scope, to pick another from.
+  public var session = ""
+  /// Every project in the range, dearest first, to narrow to.
+  public var projects: [ProjectCost] = []
+
+  /// Whether the numbers are narrowed to a project or a search, so they come
+  /// from Claude Code's sessions alone.
+  public var isScoped: Bool { !search.isEmpty || !project.isEmpty || !session.isEmpty }
   public var totalUsd: Double = 0
 
   public init() {}
@@ -291,6 +317,10 @@ extension ServerMessage {
     var costs: [CostEstimate]
     var models: [ModelDayPoint]?
     var sessions: [SessionCost]?
+    var search: String?
+    var project: String?
+    var session: String?
+    var projects: [ProjectCost]?
     var totalUsd: Double
   }
 
@@ -327,6 +357,10 @@ extension ServerMessage {
       dashboard.costs = body.costs
       dashboard.models = body.models ?? []
       dashboard.sessions = body.sessions ?? []
+      dashboard.search = body.search ?? ""
+      dashboard.project = body.project ?? ""
+      dashboard.session = body.session ?? ""
+      dashboard.projects = body.projects ?? []
       dashboard.totalUsd = body.totalUsd
       return .dashboard(dashboard)
     case "copilot_login":
