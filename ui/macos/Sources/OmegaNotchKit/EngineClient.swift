@@ -13,6 +13,8 @@ public final class EngineClient {
   public private(set) var tokens: [TokenStats] = []
   public private(set) var dashboard = Dashboard()
   public private(set) var copilotLogin: CopilotLogin?
+  /// Claude's latest advice on usage, if one was asked for.
+  public private(set) var analysis: UsageAnalysis?
   public private(set) var config = NotchConfig(raw: .object([:]))
   /// Whether a config has arrived from the engine yet.
   public private(set) var hasConfig = false
@@ -40,6 +42,9 @@ public final class EngineClient {
   @ObservationIgnored private var dashboardSearch = ""
   @ObservationIgnored private var dashboardProject = ""
   @ObservationIgnored private var dashboardSession = ""
+  /// The analysis this shell is waiting for; answers to anything else, or
+  /// to a scope since left, are dropped.
+  @ObservationIgnored private var analysisRequest = ""
   @ObservationIgnored private let encoder = JSONEncoder()
 
   public init(socketPath: String = EnginePaths.socket) {
@@ -94,7 +99,9 @@ public final class EngineClient {
 
   /// Asks for the dashboard over `days`, with the search it has now.
   public func requestDashboard(days: Int = 30) {
-    dashboardDays = min(90, max(7, days))
+    let days = min(90, max(7, days))
+    if days != dashboardDays { clearAnalysis() }
+    dashboardDays = days
     var message: [String: JSONValue] = [
       "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
     ]
@@ -107,13 +114,41 @@ public final class EngineClient {
   /// Narrows the whole dashboard to one project's sessions; empty for all.
   public func setDashboardProject(_ project: String) {
     guard project != dashboardProject else { return }
+    clearAnalysis()
     dashboardProject = project
     requestDashboard(days: dashboardDays)
+  }
+
+  /// Asks Claude, through the user's own `claude`, for advice on what the
+  /// dashboard shows now. Only numbers are sent.
+  public func analyzeUsage(model: String) {
+    guard connected, socket != nil else {
+      analysis = UsageAnalysis(state: "failed", model: model, text: "The engine is not running.")
+      return
+    }
+    analysisRequest = String(UUID().uuidString.prefix(8))
+    var message: [String: JSONValue] = [
+      "type": .string("analyze_usage"), "days": .number(Double(dashboardDays)), "model": .string(model),
+      "request": .string(analysisRequest),
+    ]
+    for (key, value) in [("search", dashboardSearch), ("project", dashboardProject), ("session", dashboardSession)]
+    where !value.isEmpty {
+      message[key] = .string(value)
+    }
+    analysis = UsageAnalysis(state: "running", model: model, text: "", request: analysisRequest)
+    send(.object(message))
+  }
+
+  /// Advice belongs to the numbers it was asked about; they changed.
+  private func clearAnalysis() {
+    analysisRequest = ""
+    if analysis != nil { analysis = nil }
   }
 
   /// Narrows the dashboard's numbers to one session, by id; empty for all.
   public func setDashboardSession(_ session: String) {
     guard session != dashboardSession else { return }
+    clearAnalysis()
     dashboardSession = session
     requestDashboard(days: dashboardDays)
   }
@@ -123,6 +158,7 @@ public final class EngineClient {
   public func searchDashboard(_ search: String) {
     let search = DashboardData.searchWords(search).joined(separator: " ")
     guard search != dashboardSearch else { return }
+    clearAnalysis()
     dashboardSearch = search
     requestDashboard(days: dashboardDays)
   }
@@ -187,6 +223,12 @@ public final class EngineClient {
   private func disconnected() {
     socket = nil
     connected = false
+    // The answer would come on this connection; it will not now.
+    if analysis?.state == "running" {
+      analysis?.state = "failed"
+      analysis?.text = "Lost the engine before Claude answered. Ask again."
+      analysisRequest = ""
+    }
   }
 
   private func send(_ message: JSONValue) {
@@ -245,6 +287,11 @@ public final class EngineClient {
       if login.state == "pending" { onCopilotCode?(login) }
     case .raiseWindow(let request):
       onRaiseWindow?(request)
+    case .usageAnalysis(let answer):
+      // Only an answer to what this shell asked, for the numbers in view.
+      guard !analysisRequest.isEmpty, answer.request == analysisRequest else { break }
+      analysis = answer
+      if answer.state != "running" { analysisRequest = "" }
     case .hello, .pong, .error, .unknown:
       break
     }

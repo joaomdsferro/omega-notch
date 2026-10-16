@@ -110,7 +110,8 @@ To remove it, run `./uninstall.sh` from the same folder.
     tokens, models, sessions and chats then cover only those Claude Code sessions, cheap ones too
   - Suggestions from local rules over those sessions, with what each would roughly have saved: small
     jobs run on a top model, a prompt cache rebuilt more than reused, a very long session, a chat
-    near its context limit. Each can narrow the page to the chat it is about, or open it
+    near its context limit. Each can narrow the page to the chat it is about, or open it. On
+    request, Claude (Sonnet or Opus, through your own `claude` and subscription) adds its own advice
 - **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from
@@ -173,7 +174,8 @@ packaging/                  installer, desktop entry, icons
 
 - Everything except the usage endpoints is read from local files, read-only.
 - The only network requests go to each tool's own usage endpoint, with the sign-in that tool already
-  saved. Nothing goes to a server of ours, because there is none.
+  saved, and, only when you press "Ask Claude" in the dashboard, to Anthropic through your own
+  `claude` command (see below). Nothing goes to a server of ours, because there is none.
 - On macOS, the downloaded app also checks GitHub once a day for a newer release (you can switch
   that off in Settings → General). It asks before installing anything, and installs only updates
   signed with the project's key. The check sends nothing about you or your usage.
@@ -189,6 +191,10 @@ packaging/                  installer, desktop entry, icons
   and you are using the Mac, the app tells the engine which app is in front and, with
   Accessibility, its window's title, so it can tell when you are looking at that chat. That
   stays on your Mac, goes no further than the engine, and is not stored.
+- "Ask Claude" in the dashboard's Suggestions sends Anthropic, through your own `claude` command,
+  only numbers: totals, ratios, models, cost per day and the dearest sessions as S1, S2… No title,
+  folder, project name or chat text. It runs with no tools and does not save a session. Nothing is
+  sent unless you press it.
 - The hook server listens on `127.0.0.1` only.
 
 ## Build from source

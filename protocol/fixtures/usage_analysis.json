@@ -1,0 +1,7 @@
+{
+  "type": "usage_analysis",
+  "state": "done",
+  "model": "sonnet",
+  "text": "- **Use Sonnet for small jobs.** 46 sessions wrote under 20k tokens on Opus.",
+  "request": "r7"
+}

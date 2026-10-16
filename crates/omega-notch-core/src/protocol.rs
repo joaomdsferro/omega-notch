@@ -485,6 +485,25 @@ pub enum ClientMessage {
         #[serde(default)]
         session: String,
     },
+    /// Asks Claude, through the user's own `claude` CLI, for advice on the
+    /// sessions a dashboard of this scope covers. Only numbers are sent
+    /// (see `analysis.rs`). The answer comes as `usage_analysis`, to every
+    /// shell.
+    AnalyzeUsage {
+        #[serde(default = "default_dashboard_days")]
+        days: u32,
+        #[serde(default)]
+        search: String,
+        #[serde(default)]
+        project: String,
+        #[serde(default)]
+        session: String,
+        /// `sonnet` or `opus`.
+        model: String,
+        /// The shell's own id for this request, sent back with the answer.
+        #[serde(default)]
+        request: String,
+    },
     Ping,
 }
 
@@ -568,6 +587,17 @@ pub enum ServerMessage {
         /// the likeliest saving first.
         #[serde(default)]
         suggestions: Vec<Suggestion>,
+    },
+    /// Claude's advice on usage, asked for with `analyze_usage`: `running`,
+    /// then `done` with `text` (Markdown) or `failed` with `text` saying why.
+    UsageAnalysis {
+        state: String,
+        model: String,
+        #[serde(default)]
+        text: String,
+        /// The `request` it answers.
+        #[serde(default)]
+        request: String,
     },
     CopilotLogin {
         login: CopilotLogin,

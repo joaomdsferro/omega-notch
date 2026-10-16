@@ -74,6 +74,27 @@ final class ProtocolTests: XCTestCase {
     XCTAssertTrue(notch.opensNotch(for: "waiting_you"))
   }
 
+  func testUsageAnalysis() throws {
+    guard case .usageAnalysis(let analysis) = try fixture("usage_analysis") else {
+      return XCTFail("not an analysis")
+    }
+    XCTAssertEqual(analysis.state, "done")
+    XCTAssertEqual(analysis.model, "sonnet")
+    XCTAssertTrue(analysis.text.hasPrefix("- **Use Sonnet"))
+  }
+
+  @MainActor
+  func testAnAnalysisIsOnlyEverTheAnswerToThisShellsRequest() {
+    let client = EngineClient(socketPath: "/nonexistent/omega-notch-test.sock")
+    // No engine: it fails at once rather than waiting for ever.
+    client.analyzeUsage(model: "sonnet")
+    XCTAssertEqual(client.analysis?.state, "failed")
+    // An answer to another shell's request is not ours.
+    client.apply(.usageAnalysis(UsageAnalysis(state: "done", model: "opus", text: "Theirs", request: "other")))
+    XCTAssertEqual(client.analysis?.state, "failed")
+    XCTAssertNotEqual(client.analysis?.text, "Theirs")
+  }
+
   func testDashboardAndCopilotLogin() throws {
     guard case .dashboard(let dashboard) = try fixture("dashboard") else {
       return XCTFail("not a dashboard")

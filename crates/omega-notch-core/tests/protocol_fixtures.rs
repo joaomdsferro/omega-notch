@@ -248,6 +248,17 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
             },
         ),
         (
+            "usage_analysis",
+            ServerMessage::UsageAnalysis {
+                state: "done".into(),
+                model: "sonnet".into(),
+                request: "r7".into(),
+                text:
+                    "- **Use Sonnet for small jobs.** 46 sessions wrote under 20k tokens on Opus."
+                        .into(),
+            },
+        ),
+        (
             "copilot_login",
             ServerMessage::CopilotLogin {
                 login: CopilotLogin::Pending {

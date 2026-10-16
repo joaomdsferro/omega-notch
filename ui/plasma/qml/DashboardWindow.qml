@@ -37,6 +37,8 @@ Window {
     property string project: ""
     // One session, by id, that the numbers narrow to.
     property string chat: ""
+    // The model Claude's analysis runs on.
+    property string analysisModel: "sonnet"
     onProjectChanged: {
         // A chat from another project would leave nothing to show.
         chat = ""
@@ -870,20 +872,49 @@ Window {
             // What to change, from the engine's local rules over the sessions
             // in view. Each can narrow the page to its chat, or open it.
             DashCard {
-                visible: Engine.dashboardSuggestions.length > 0
+                id: suggestionsCard
                 width: parent.width
                 heading: "Suggestions"
                 caption: {
-                    const saving = Engine.dashboardSuggestions.reduce((a, s) => a + (s.saving_usd || 0), 0)
+                    const saving = Engine.dashboardSuggestions.filter(s => root.matches(s.provider)).reduce((a, s) => a + (s.saving_usd || 0), 0)
                     return (saving > 0 ? "Up to " + Theme.usd(saving) + " less in the last " + root.days + " days · " : "")
                            + "from local rules over these sessions, nothing leaves your computer"
+                }
+                // The rules and Claude read Claude Code's sessions: with
+                // another tool picked, there is nothing of its own to say.
+                readonly property bool canAsk: root.matches("claude_code")
+                readonly property var shownSuggestions: Engine.dashboardSuggestions.filter(s => root.matches(s.provider))
+                trailing: Row {
+                    visible: suggestionsCard.canAsk
+                    spacing: 8
+                    DashSegmented {
+                        options: [{ value: "sonnet", label: "Sonnet" }, { value: "opus", label: "Opus" }]
+                        value: root.analysisModel
+                        onPicked: (v) => root.analysisModel = v
+                    }
+                    TextButton {
+                        label: Engine.analysis.state === "running" ? "Asking Claude…" : "Ask Claude"
+                        onClicked: if (Engine.analysis.state !== "running") Engine.analyzeUsage(root.analysisModel)
+                    }
                 }
 
                 Column {
                     width: parent.width
 
+                    Text {
+                        visible: suggestionsCard.shownSuggestions.length === 0
+                        width: parent.width
+                        topPadding: 8
+                        bottomPadding: 8
+                        wrapMode: Text.WordWrap
+                        text: suggestionsCard.canAsk ? "Nothing stands out in these sessions. Ask Claude for a closer look."
+                                                     : "Suggestions read Claude Code's sessions. Pick All tools or Claude Code to see them."
+                        color: Theme.textTertiary
+                        font.pixelSize: 13
+                    }
+
                     Repeater {
-                        model: Engine.dashboardSuggestions
+                        model: suggestionsCard.shownSuggestions
                         delegate: Item {
                             id: tip
                             required property var modelData
@@ -959,6 +990,49 @@ Window {
                                 }
                             }
                         }
+                    }
+
+                    // Claude's answer: a line while it thinks, then its
+                    // Markdown, or why not.
+                    Column {
+                        visible: suggestionsCard.canAsk && Engine.analysis.state !== undefined
+                        width: parent.width
+                        topPadding: 12
+                        bottomPadding: 12
+                        spacing: 8
+                        readonly property string name: Engine.analysis.model === "opus" ? "Opus" : "Sonnet"
+
+                        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+                        Text {
+                            text: Engine.analysis.state === "running" ? "Claude (" + parent.name + ") is reading the numbers…"
+                                : Engine.analysis.state === "failed" ? "Claude could not answer"
+                                : "Claude (" + parent.name + ") suggests"
+                            color: Theme.text
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                        }
+                        TextEdit {
+                            visible: (Engine.analysis.text || "").length > 0
+                            width: parent.width
+                            readOnly: true
+                            selectByMouse: true
+                            wrapMode: Text.WordWrap
+                            textFormat: Engine.analysis.state === "failed" ? TextEdit.PlainText : TextEdit.MarkdownText
+                            text: Engine.analysis.text || ""
+                            color: Engine.analysis.state === "failed" ? Theme.critical : Theme.textSecondary
+                            selectionColor: Theme.textTertiary
+                            font.pixelSize: 13
+                        }
+                    }
+
+                    Text {
+                        visible: suggestionsCard.canAsk
+                        width: parent.width
+                        topPadding: 10
+                        wrapMode: Text.WordWrap
+                        text: "Ask Claude sends only totals, ratios and models, with sessions as S1, S2…: no titles, folders or chat text. It runs through your own claude command and subscription, with no tools."
+                        color: Theme.textTertiary
+                        font.pixelSize: 11
                     }
                 }
             }
