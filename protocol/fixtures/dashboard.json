@@ -32,5 +32,33 @@
       "total": 3514805,
       "cost_usd": 1.27
     }
+  ],
+  "sessions": [
+    {
+      "provider": "claude_code",
+      "id": "3f1c9a52-5d0e-4c43-9a8e-1b2f6f0a7d11",
+      "title": "Sidebar resize performance",
+      "project": "omega-zap",
+      "cwd": "/home/me/omega-zap",
+      "surface": "VS Code",
+      "last_date": "2026-10-01",
+      "input": 412,
+      "output": 28247,
+      "cache_read": 3357968,
+      "cache_write": 128178,
+      "total": 3514805,
+      "cost_usd": 1.27,
+      "models": [
+        {
+          "model": "Opus 5.5",
+          "input": 412,
+          "output": 28247,
+          "cache_read": 3357968,
+          "cache_write": 128178,
+          "total": 3514805,
+          "cost_usd": 1.27
+        }
+      ]
+    }
   ]
 }

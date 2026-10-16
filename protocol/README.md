@@ -10,7 +10,7 @@ $XDG_RUNTIME_DIR/omega-notch.sock                                  (Linux)
 Only its owner can connect: the socket is `0600`, in a folder only its owner
 can open.
 
-Protocol version: **5**
+Protocol version: **6**
 
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
@@ -36,7 +36,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
-| `dashboard` | `points`, `costs`, `total_usd`, `models` |
+| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions` |
 | `session_updated` | `session` |
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
@@ -128,6 +128,25 @@ with its estimated cost:
 {
   "provider": "claude_code", "model": "Opus 5.5",
   "total": 3490835, "cost_usd": 1.27
+}
+```
+
+`sessions` (v6) comes from `session_model_tokens`: the range's dearest
+sessions, at most 100, each split by model, dearest first. A subagent's tokens
+count towards the session that ran it. `last_date` is the session's last day
+in the range with tokens. `title`, `project`, `cwd` and `surface` come from
+`session_meta`; a session whose transcript is gone is named by its id. Session
+rows hold chat titles, so the engine drops them once they are older than the
+history (90 days). Older clients ignore the field.
+
+```json
+{
+  "provider": "claude_code", "id": "3f1c9a52-…", "title": "Sidebar resize performance",
+  "project": "omega-zap", "cwd": "/home/me/omega-zap", "surface": "VS Code",
+  "last_date": "2026-10-01", "input": 412, "output": 28247,
+  "cache_read": 3357968, "cache_write": 128178, "total": 3514805, "cost_usd": 1.27,
+  "models": [{ "model": "Opus 5.5", "input": 412, "output": 28247,
+    "cache_read": 3357968, "cache_write": 128178, "total": 3514805, "cost_usd": 1.27 }]
 }
 ```
 

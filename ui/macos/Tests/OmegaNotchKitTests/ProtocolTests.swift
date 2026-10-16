@@ -79,6 +79,11 @@ final class ProtocolTests: XCTestCase {
     }
     XCTAssertEqual(dashboard.totalUsd, 1.27)
     XCTAssertEqual(dashboard.models.first?.costUsd, 1.27)
+    let session = try XCTUnwrap(dashboard.sessions.first)
+    XCTAssertEqual(session.title, "Sidebar resize performance")
+    XCTAssertEqual(session.lastDate, "2026-10-01")
+    XCTAssertEqual(session.cacheRead, 3357968)
+    XCTAssertEqual(session.models.first?.model, "Opus 5.5")
 
     guard case .copilotLogin(let login) = try fixture("copilot_login") else {
       return XCTFail("not a login")

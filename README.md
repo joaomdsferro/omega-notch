@@ -102,7 +102,7 @@ To remove it, run `./uninstall.sh` from the same folder.
   notifications for these are optional and off by default
 - A **dashboard** window, from the bars button in the notch's footer: every limit, estimated cost and
   tokens per day over 7, 30 or 90 days (by model, by tool or by kind), each model's share of the
-  spend, today's mix and the recent chats. History starts with every Claude Code day still on disk.
+  spend, today's mix, the dearest sessions with each one's models, and the recent chats. History starts with every Claude Code day still on disk.
   Costs are estimates at API list prices, not a bill
 - Click a ring to refresh it; hover the notch for Settings and a grip to slide it along the edge;
   right-click opens Settings
@@ -169,7 +169,9 @@ packaging/                  installer, desktop entry, icons
   (mode 600). Settings live in `~/.config/omega-notch/config.json`. On macOS both are in
   `~/Library/Application Support/omega-notch`.
 - The dashboard's daily token history is kept in `history.db`, in the same folder as the Copilot
-  sign-in: counts per day and model only, no chat content.
+  sign-in: token counts per day and model, and per Claude Code session with its title, project
+  folder and where it ran. No chat content is kept. Session rows are deleted once they are more than
+  90 days old.
 - The hook server listens on `127.0.0.1` only.
 
 ## Build from source

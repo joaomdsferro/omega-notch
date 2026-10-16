@@ -47,6 +47,7 @@ qt_add_qml_module(omega-notch-plasma
         qml/DashCostBreakdown.qml
         qml/DashChatRow.qml
         qml/DashModelTable.qml
+        qml/DashSessionRow.qml
         qml/SettingsWindow.qml
         qml/SettingsSwitch.qml
         qml/SettingsSegmented.qml

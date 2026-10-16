@@ -3,8 +3,8 @@ import OmegaNotchKit
 import SwiftUI
 
 /// Every tool's limits, token and cost history from the engine's database,
-/// today's estimated spend and the recent chats. One tool filter at the top
-/// scopes the whole page.
+/// today's estimated spend, the dearest sessions and the recent chats. One
+/// tool filter at the top scopes the whole page.
 struct DashboardView: View {
   var client: EngineClient
   var openSettings: () -> Void
@@ -14,6 +14,8 @@ struct DashboardView: View {
   @State private var tokensBy = "tool"
   @State private var costBy = "model"
   @State private var showAllChats = false
+  @State private var showAllSessions = false
+  @State private var openSession: String?
   @State private var now = Date()
 
   private let ticker = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -102,6 +104,7 @@ struct DashboardView: View {
 
   private var shownCosts: [CostEstimate] { client.dashboard.costs.filter { matches($0.provider) } }
   private var shownChats: [ChatSummary] { client.chats.filter { matches($0.provider) } }
+  private var shownSessions: [SessionCost] { client.dashboard.sessions.filter { matches($0.provider) } }
 
   private var workingCount: Int { client.sessions.filter { $0.kind == .busy && matches($0.provider) }.count }
   private var waitingCount: Int {
@@ -166,8 +169,8 @@ struct DashboardView: View {
           Legend(series: tokens.series)
         }
 
+        let rows = DashboardData.modelRows(modelPoints, dates: dates)
         HStack(alignment: .top, spacing: 16) {
-          let rows = DashboardData.modelRows(modelPoints, dates: dates)
           DashCard(
             heading: "Models",
             caption: "\(rows.count) \(rows.count == 1 ? "model" : "models") in the last \(days) days · by estimated cost"
@@ -181,6 +184,7 @@ struct DashboardView: View {
         }
         .fixedSize(horizontal: false, vertical: true)
 
+        sessions(models: rows, rangeCost: costs.total)
         chats
       }
       .padding(.horizontal, 32)
@@ -294,6 +298,61 @@ struct DashboardView: View {
               reading: reading, session: client.session(for: reading.provider), now: now,
               windowSlots: maxWindows
             ) { client.refresh(reading.provider) }
+          }
+        }
+      }
+    }
+  }
+
+  /// The range's dearest sessions. A model keeps the colour it has in the
+  /// Models table, so the two read together.
+  private func sessions(models: [DashboardData.ModelRow], rangeCost: Double) -> some View {
+    let all = shownSessions
+    let shown = showAllSessions ? all : Array(all.prefix(8))
+    let shades = Dictionary(
+      models.enumerated().map { ($1.model, Theme.shades[$0 % Theme.shades.count]) },
+      uniquingKeysWith: { first, _ in first })
+    return DashCard(
+      heading: "Dearest sessions",
+      caption: all.isEmpty
+        ? "By estimated cost in the last \(days) days"
+        : "Top \(all.count) by estimated cost in the last \(days) days · click one for its models",
+      trailing: {
+        if all.count > 8 {
+          TextButton(label: showAllSessions ? "Show fewer" : "Show all \(all.count)") {
+            showAllSessions.toggle()
+          }
+        }
+      }
+    ) {
+      if all.isEmpty {
+        Text("No session history in this range yet.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
+          .padding(.top, 8)
+      } else {
+        VStack(spacing: 0) {
+          HStack(spacing: 0) {
+            Text("Session").padding(.leading, 44)
+            Spacer()
+            Text("Models").frame(width: 112)
+            Text("Tokens").frame(width: 76, alignment: .trailing)
+            Text("Est. cost").frame(width: 84, alignment: .trailing)
+            Text("Share").frame(width: 64, alignment: .trailing)
+            Text("Last day").frame(width: 84, alignment: .trailing)
+          }
+          .font(.notch(11, .medium))
+          .foregroundStyle(Theme.textTertiary)
+          .frame(height: 20)
+          ForEach(Array(shown.enumerated()), id: \.element.id) { index, session in
+            SessionRow(
+              session: session, today: today, first: index == 0, rangeCost: rangeCost,
+              shade: { shades[$0] ?? Theme.shades[Theme.shades.count - 1] },
+              expanded: openSession == session.id,
+              toggle: {
+                withAnimation(.easeOut(duration: 0.18)) {
+                  openSession = openSession == session.id ? nil : session.id
+                }
+              },
+              open: { client.openChat(session) })
           }
         }
       }
@@ -515,6 +574,141 @@ private struct CostBreakdown: View {
       Text("Estimated from list prices per model, cache-aware. Not a bill: plans and vendors price differently.")
         .font(.notch(11)).foregroundStyle(Theme.textTertiary)
         .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+}
+
+/// One session in the dearest list: its title and where it ran, a bar of its
+/// spend by model, tokens, estimated cost, share of the range's spend and the
+/// last day it ran. Click to see each model's tokens by kind.
+private struct SessionRow: View {
+  var session: SessionCost
+  var today: String
+  var first: Bool
+  var rangeCost: Double
+  var shade: (String) -> Color
+  var expanded: Bool
+  var toggle: () -> Void
+  var open: () -> Void
+
+  @State private var hovered = false
+
+  private var place: String {
+    var parts: [String] = []
+    for part in [session.project, session.surface] {
+      if let part, !part.isEmpty { parts.append(part) }
+    }
+    parts.append(session.models.map(\.model).joined(separator: ", "))
+    return parts.joined(separator: "  ·  ")
+  }
+
+  private static func percent(_ share: Double) -> String {
+    share > 0 && share < 0.01 ? "<1%" : "\(Int((share * 100).rounded()))%"
+  }
+
+  var body: some View {
+    let share = rangeCost > 0 ? session.costUsd / rangeCost : 0
+    VStack(spacing: 0) {
+      HStack(spacing: 0) {
+        RoundedRectangle(cornerRadius: 8).fill(Theme.controlFill).frame(width: 32, height: 32)
+          .overlay(
+            ProviderGlyph(provider: session.provider, color: Theme.textSecondary).frame(width: 16, height: 16))
+        VStack(alignment: .leading, spacing: 3) {
+          Text(session.title).font(.notch(13, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+          Text(place).font(.notch(11)).foregroundStyle(Theme.textTertiary).lineLimit(1)
+        }
+        .padding(.leading, 12)
+        Spacer(minLength: 16)
+        mix.frame(width: 96).frame(width: 112)
+        Text(Format.tokens(session.total)).font(.notch(12, tabular: true))
+          .foregroundStyle(Theme.textSecondary).frame(width: 76, alignment: .trailing)
+        Text(Format.usd(session.costUsd)).font(.notch(13, .semibold, tabular: true))
+          .foregroundStyle(Theme.text).frame(width: 84, alignment: .trailing)
+        Text(Self.percent(share)).font(.notch(12, tabular: true))
+          .foregroundStyle(Theme.textSecondary).frame(width: 64, alignment: .trailing)
+        Text(Format.day(session.lastDate, today: today)).font(.notch(12, tabular: true))
+          .foregroundStyle(Theme.textSecondary).frame(width: 84, alignment: .trailing)
+      }
+      .frame(height: 56)
+      .contentShape(Rectangle())
+      .onHover { hovered = $0 }
+      .clickable()
+      .onTapGesture(perform: toggle)
+      .accessibilityElement(children: .combine)
+      .accessibilityAddTraits(.isButton)
+      .accessibilityHint(expanded ? "Hide its models" : "Show its models")
+
+      if expanded { details.padding(.leading, 44).padding(.bottom, 14) }
+    }
+    .padding(.horizontal, 8)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.panelHover).opacity(hovered || expanded ? 1 : 0))
+    .overlay(alignment: .top) {
+      if !first && !hovered && !expanded {
+        Rectangle().fill(Theme.hairline).frame(height: 1).padding(.horizontal, 8)
+      }
+    }
+    .padding(.horizontal, -8)
+  }
+
+  /// The session's spend as one bar, a segment per model.
+  private var mix: some View {
+    GeometryReader { geo in
+      let gaps = CGFloat(max(0, session.models.count - 1)) * 2
+      HStack(spacing: 2) {
+        ForEach(session.models) { model in
+          Rectangle().fill(shade(model.model))
+            .frame(
+              width: max(2, (geo.size.width - gaps) * model.costUsd / max(session.costUsd, 0.0001)))
+        }
+      }
+    }
+    .frame(height: 6)
+    .background(Theme.track)
+    .clipShape(Capsule())
+  }
+
+  private var details: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 0) {
+        Text("Model")
+        Spacer()
+        ForEach(["Input", "Output", "Cache write", "Cache read"], id: \.self) {
+          Text($0).frame(width: 84, alignment: .trailing)
+        }
+        Text("Est. cost").frame(width: 84, alignment: .trailing)
+        Text("Share").frame(width: 64, alignment: .trailing)
+      }
+      .font(.notch(11, .medium)).foregroundStyle(Theme.textTertiary).frame(height: 22)
+      ForEach(session.models) { model in
+        HStack(spacing: 0) {
+          RoundedRectangle(cornerRadius: 2).fill(shade(model.model)).frame(width: 8, height: 8)
+          Text(model.model).font(.notch(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+            .padding(.leading, 10)
+          Spacer(minLength: 12)
+          ForEach(Array([model.input, model.output, model.cacheWrite, model.cacheRead].enumerated()), id: \.offset) {
+            _, value in
+            Text(Format.tokens(value)).font(.notch(12, tabular: true))
+              .foregroundStyle(Theme.textSecondary).frame(width: 84, alignment: .trailing)
+          }
+          Text(Format.usd(model.costUsd)).font(.notch(12, .semibold, tabular: true))
+            .foregroundStyle(Theme.text).frame(width: 84, alignment: .trailing)
+          Text(Self.percent(session.costUsd > 0 ? model.costUsd / session.costUsd : 0))
+            .font(.notch(12, tabular: true)).foregroundStyle(Theme.textSecondary)
+            .frame(width: 64, alignment: .trailing)
+        }
+        .frame(height: 30)
+      }
+      HStack {
+        Text(
+          session.total > 0
+            ? "\(Int((100 * session.cacheRead / session.total).rounded()))% served from cache"
+            : ""
+        )
+        .font(.notch(11, tabular: true)).foregroundStyle(Theme.textTertiary)
+        Spacer()
+        TextButton(label: "Open chat", action: open)
+      }
+      .padding(.top, 8)
     }
   }
 }
