@@ -288,7 +288,18 @@ impl Transcript {
             }
             Some("assistant") => {
                 let Some(message) = line.message else { return };
-                self.replied_at = latest(self.replied_at, at);
+                // Only words to read: a turn that is all tool calls is not a reply.
+                let says = match &message.content {
+                    Some(RawContent::Text(text)) => !text.trim().is_empty(),
+                    Some(RawContent::Blocks(blocks)) => blocks.iter().any(|b| {
+                        b.kind.as_deref() == Some("text")
+                            && b.text.as_deref().is_some_and(|t| !t.trim().is_empty())
+                    }),
+                    None => false,
+                };
+                if says {
+                    self.replied_at = latest(self.replied_at, at);
+                }
                 let Some(usage) = message.usage else { return };
                 let model = message.model.unwrap_or_default();
                 if model.is_empty() || model.starts_with('<') {
@@ -1015,9 +1026,15 @@ mod tests {
         for output in [10, 250] {
             t.ingest(line(&format!(
                 r#"{{"type":"assistant","timestamp":"2026-09-30T10:00:05Z","message":{{"id":"m1","model":"claude-opus-5-5",
+                    "content":[{{"type":"text","text":"Hi!"}}],
                     "usage":{{"input_tokens":2,"output_tokens":{output},"cache_read_input_tokens":1000,"cache_creation_input_tokens":500}}}}}}"#
             )));
         }
+        // All tool calls, nothing to read.
+        t.ingest(line(
+            r#"{"type":"assistant","timestamp":"2026-09-30T10:00:07Z",
+                "message":{"id":"m2","content":[{"type":"tool_use","name":"Bash"}]}}"#,
+        ));
         t.ingest(line(r#"{"type":"ai-title","aiTitle":"Greeting"}"#));
 
         assert_eq!(t.prompts, 1);
