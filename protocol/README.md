@@ -12,6 +12,11 @@ can open.
 
 Protocol version: **6**
 
+New messages and new fields are optional, and clients ignore what they do
+not know, so adding them leaves the version as it is. It goes up only when a
+message or field is removed or changes meaning. The `(vN)` tags below mark
+when something arrived before this rule.
+
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
 ## Client → Engine

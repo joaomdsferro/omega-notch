@@ -525,6 +525,8 @@ pub enum ServerMessage {
     },
 }
 
+/// Goes up only for a change an older client would misread: a message or
+/// field removed or changed in meaning. Additions keep it (protocol/README.md).
 pub const PROTOCOL_VERSION: u32 = 6;
 pub const ENGINE_NAME: &str = "omega-notch-engine";
 
