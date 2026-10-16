@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Window
 import OmegaNotch
 
@@ -29,9 +30,19 @@ Window {
     property bool showAllChats: false
     property bool showAllSessions: false
     property string openSession: ""
-    // Words that sessions and chats must carry; the engine searches the
-    // sessions, the chats are already here.
+    // Words that sessions must carry, and the project they ran in: both
+    // narrow the whole page. The engine narrows its numbers; the chats are
+    // already here.
     property string search: ""
+    property string project: ""
+    onProjectChanged: Engine.setDashboardProject(project)
+    // Whether the numbers on screen are narrowed; they lag the field a little.
+    readonly property bool scoped: Engine.dashboardSearch.length > 0 || Engine.dashboardProject.length > 0
+    readonly property string scopeLabel: [Engine.dashboardProject,
+                                          Engine.dashboardSearch.length > 0 ? "“" + Engine.dashboardSearch + "”" : ""]
+                                         .filter(p => p.length > 0).join(" · ")
+    // Narrowed, today and the days before come from the sessions in scope.
+    function scopedDay(date) { return root.points.filter(p => p.date === date) }
     // The words of a search, as the engine reads them.
     readonly property var searchWords: search.slice(0, 200).toLowerCase().split(/\s+/).filter(w => w.length > 0).slice(0, 8)
     function found(fields) {
@@ -217,6 +228,8 @@ Window {
     }
 
     readonly property real tokensToday: {
+        if (root.scoped)
+            return root.scopedDay(root.today).reduce((a, p) => a + (p.total || 0), 0)
         let sum = 0
         for (let i = 0; i < Engine.tokens.length; ++i) {
             if (root.matches(Engine.tokens[i].provider))
@@ -226,6 +239,12 @@ Window {
     }
     // Mean of the six days before today, from the live seven-day window.
     readonly property real priorAverage: {
+        if (root.scoped) {
+            let sum = 0
+            for (let i = 1; i <= 6; ++i)
+                sum += root.scopedDay(root.isoDay(root.now - i * 86400000)).reduce((a, p) => a + (p.total || 0), 0)
+            return sum / 6
+        }
         const sums = [0, 0, 0, 0, 0, 0]
         for (let i = 0; i < Engine.tokens.length; ++i) {
             if (!root.matches(Engine.tokens[i].provider)) continue
@@ -253,7 +272,9 @@ Window {
         return shades
     }
     readonly property int unreadCount: shownChats.filter(c => c.unread).length
-    readonly property var foundChats: shownChats.filter(c => root.found([c.title, c.project, c.cwd, c.model, c.id]))
+    readonly property bool chatsNarrowed: searchWords.length > 0 || project.length > 0
+    readonly property var foundChats: shownChats.filter(c => (root.project.length === 0 || c.project === root.project)
+                                                             && root.found([c.title, c.project, c.cwd, c.model, c.id]))
     readonly property int foundUnread: foundChats.filter(c => c.unread).length
     // Chats to read first, so the ones counted are never past "Show all".
     readonly property var listedChats: foundChats.filter(c => c.unread).concat(foundChats.filter(c => !c.unread))
@@ -262,6 +283,12 @@ Window {
 
     readonly property var todayTotals: {
         const t = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
+        if (root.scoped) {
+            const day = root.scopedDay(root.today)
+            for (let i = 0; i < day.length; ++i)
+                for (const k in t) t[k] += day[i][k] || 0
+            return t
+        }
         for (let i = 0; i < Engine.tokens.length; ++i) {
             if (!root.matches(Engine.tokens[i].provider)) continue
             const d = Engine.tokens[i].today || {}
@@ -473,74 +500,6 @@ Window {
                     }
                 }
 
-                // Search box: a magnifier, the words, and a cross to clear
-                // them. Escape clears too.
-                Rectangle {
-                    anchors.right: daysPicker.left
-                    anchors.rightMargin: 12
-                    anchors.verticalCenter: daysPicker.verticalCenter
-                    width: 240
-                    height: 32
-                    radius: 9
-                    color: Theme.controlFill
-                    border.width: 1
-                    border.color: searchInput.activeFocus ? Theme.textTertiary : "transparent"
-
-                    SettingsIcon {
-                        id: searchIcon
-                        x: 10
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 14
-                        height: 14
-                        name: "search"
-                        color: Theme.textTertiary
-                    }
-                    TextInput {
-                        id: searchInput
-                        anchors.left: searchIcon.right
-                        anchors.leftMargin: 6
-                        anchors.right: clearSearch.visible ? clearSearch.left : parent.right
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.search
-                        onTextEdited: root.search = text
-                        color: Theme.text
-                        selectionColor: Theme.textTertiary
-                        selectByMouse: true
-                        clip: true
-                        font.pixelSize: 13
-                        Keys.onEscapePressed: (event) => {
-                            event.accepted = root.search.length > 0
-                            root.search = ""
-                        }
-                        Accessible.name: "Search sessions and chats"
-
-                        Text {
-                            visible: searchInput.text.length === 0
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "Search sessions and chats"
-                            color: Theme.textTertiary
-                            font.pixelSize: 13
-                        }
-                    }
-                    SettingsIcon {
-                        id: clearSearch
-                        visible: root.search.length > 0
-                        anchors.right: parent.right
-                        anchors.rightMargin: 10
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 12
-                        height: 12
-                        name: "x"
-                        color: Theme.textTertiary
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Clear the search"
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: root.search = "" }
-                    }
-                    HoverHandler { cursorShape: Qt.IBeamCursor }
-                }
-
                 DashSegmented {
                     id: daysPicker
                     anchors.right: parent.right
@@ -555,11 +514,236 @@ Window {
                 }
             }
 
-            DashSegmented {
-                visible: root.activeReadings.length > 1
-                options: root.filterOptions
-                value: root.providerFilter
-                onPicked: (v) => root.providerFilter = v
+            // Search, project and tool: what the whole page is narrowed to.
+            Column {
+                width: parent.width
+                spacing: 12
+
+                // Search box: a magnifier, the words, and a cross to clear
+                // them. Escape clears too.
+                Rectangle {
+                    width: parent.width
+                    height: 42
+                    radius: 11
+                    color: Theme.panelRaised
+                    border.width: 1
+                    border.color: searchInput.activeFocus ? Theme.textSecondary : Theme.cardStroke
+
+                    SettingsIcon {
+                        id: searchIcon
+                        x: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 16
+                        height: 16
+                        name: "search"
+                        color: root.search.length > 0 ? Theme.text : Theme.textTertiary
+                    }
+                    TextInput {
+                        id: searchInput
+                        anchors.left: searchIcon.right
+                        anchors.leftMargin: 8
+                        anchors.right: clearSearch.visible ? clearSearch.left : parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.search
+                        onTextEdited: root.search = text
+                        color: Theme.text
+                        selectionColor: Theme.textTertiary
+                        selectByMouse: true
+                        clip: true
+                        font.pixelSize: 15
+                        Keys.onEscapePressed: (event) => {
+                            event.accepted = root.search.length > 0
+                            root.search = ""
+                        }
+                        Accessible.name: "Search sessions and chats"
+
+                        Text {
+                            visible: searchInput.text.length === 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Search sessions and chats by title, project, folder or model"
+                            color: Theme.textTertiary
+                            font.pixelSize: 15
+                        }
+                    }
+                    SettingsIcon {
+                        id: clearSearch
+                        visible: root.search.length > 0
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 13
+                        height: 13
+                        name: "x"
+                        color: Theme.textTertiary
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Clear the search"
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: root.search = "" }
+                    }
+                    HoverHandler { cursorShape: Qt.IBeamCursor }
+                    TapHandler { onTapped: searchInput.forceActiveFocus() }
+                }
+
+                Row {
+                    spacing: 12
+
+                    // Narrows to one project: "All projects", then each one
+                    // in the range, dearest first, with what it spent.
+                    Rectangle {
+                        id: projectButton
+                        width: projectRow.implicitWidth + 24
+                        height: 32
+                        radius: 9
+                        color: root.project.length > 0 ? Theme.controlChosen : Theme.controlFill
+                        Accessible.role: Accessible.ComboBox
+                        Accessible.name: root.project.length > 0 ? "Project: " + root.project : "Project: all"
+
+                        Row {
+                            id: projectRow
+                            anchors.centerIn: parent
+                            spacing: 7
+                            SettingsIcon {
+                                width: 14; height: 14
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: "layers"
+                                color: root.project.length > 0 ? Theme.text : Theme.textSecondary
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.project.length > 0 ? root.project : "All projects"
+                                color: root.project.length > 0 ? Theme.text : Theme.textSecondary
+                                font.pixelSize: 13
+                                font.weight: root.project.length > 0 ? Font.DemiBold : Font.Normal
+                            }
+                            SettingsIcon {
+                                width: 11; height: 11
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: "chevron-down"
+                                color: Theme.textSecondary
+                            }
+                        }
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: projectMenu.opened ? projectMenu.close() : projectMenu.open() }
+
+                        Popup {
+                            id: projectMenu
+                            y: projectButton.height + 6
+                            width: 340
+                            height: Math.min(projectList.contentHeight + 12, 360)
+                            padding: 6
+                            background: Rectangle {
+                                radius: 10
+                                color: Theme.panelRaised
+                                border.width: 1
+                                border.color: Theme.cardStroke
+                            }
+                            contentItem: ListView {
+                                id: projectList
+                                clip: true
+                                model: [{ project: "", cost_usd: -1, sessions: 0 }].concat(Engine.dashboardProjects)
+                                delegate: Rectangle {
+                                    id: projectItem
+                                    required property var modelData
+                                    readonly property bool chosen: modelData.project === root.project
+                                    width: projectList.width
+                                    height: 30
+                                    radius: 6
+                                    color: itemHover.hovered ? Theme.controlHover : "transparent"
+
+                                    Text {
+                                        x: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: parent.width - 20 - detail.width
+                                        elide: Text.ElideRight
+                                        text: (projectItem.chosen ? "✓ " : "")
+                                              + (projectItem.modelData.project || "All projects")
+                                        color: Theme.text
+                                        font.pixelSize: 13
+                                        font.weight: projectItem.chosen ? Font.DemiBold : Font.Normal
+                                    }
+                                    Text {
+                                        id: detail
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: projectItem.modelData.cost_usd >= 0
+                                        text: Theme.usd(projectItem.modelData.cost_usd) + " · " + projectItem.modelData.sessions
+                                              + (projectItem.modelData.sessions === 1 ? " session" : " sessions")
+                                        color: Theme.textSecondary
+                                        font.pixelSize: 12
+                                    }
+                                    HoverHandler { id: itemHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler {
+                                        onTapped: {
+                                            root.project = projectItem.modelData.project
+                                            projectMenu.close()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    DashSegmented {
+                        visible: root.activeReadings.length > 1
+                        options: root.filterOptions
+                        value: root.providerFilter
+                        onPicked: (v) => root.providerFilter = v
+                    }
+                }
+
+                // What the page is narrowed to, and how to undo it.
+                Rectangle {
+                    visible: root.scoped
+                    width: parent.width
+                    height: scopeText.implicitHeight + 24
+                    radius: 10
+                    color: Theme.panelRaised
+
+                    Rectangle {
+                        x: 12
+                        y: 12
+                        width: 3
+                        height: parent.height - 24
+                        radius: 2
+                        color: Theme.text
+                    }
+                    Column {
+                        id: scopeText
+                        x: 27
+                        y: 12
+                        width: parent.width - 27 - clearScope.width - 24
+                        spacing: 3
+                        Text {
+                            text: "Showing " + root.scopeLabel
+                            color: Theme.text
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width
+                            wrapMode: Text.WordWrap
+                            text: root.shownSessions.length + (root.shownSessions.length === 1 ? " session · " : " sessions · ")
+                                  + Theme.usd(root.rangeCost) + " in the last " + root.days
+                                  + " days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
+                            color: Theme.textSecondary
+                            font.pixelSize: 12
+                        }
+                    }
+                    TextButton {
+                        id: clearScope
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        anchors.top: parent.top
+                        anchors.topMargin: 12
+                        label: "Clear"
+                        onClicked: {
+                            root.search = ""
+                            root.project = ""
+                        }
+                    }
+                }
             }
 
             // Headline numbers.
@@ -799,9 +983,9 @@ Window {
                 id: sessionsCard
                 width: parent.width
                 heading: "Dearest sessions"
-                caption: Engine.dashboardSearch.length > 0
-                         ? root.shownSessions.length + (root.shownSessions.length === 1 ? " session matches" : " sessions match")
-                           + " “" + Engine.dashboardSearch + "” in the last " + root.days + " days, by estimated cost"
+                caption: root.scoped
+                         ? root.shownSessions.length + (root.shownSessions.length === 1 ? " session" : " sessions")
+                           + " for " + root.scopeLabel + " in the last " + root.days + " days, by estimated cost"
                          : root.shownSessions.length === 0
                          ? "By estimated cost in the last " + root.days + " days"
                          : "Top " + root.shownSessions.length + " by estimated cost in the last " + root.days
@@ -859,7 +1043,7 @@ Window {
                     Text {
                         visible: root.shownSessions.length === 0
                         topPadding: 8
-                        text: Engine.dashboardSearch.length > 0 ? "No session in this range matches."
+                        text: root.scoped ? "No session in this range matches."
                                                                 : "No session history in this range yet."
                         color: Theme.textTertiary
                         font.pixelSize: 13
@@ -876,7 +1060,7 @@ Window {
                     id: chatsCard
                     width: parent.width
                     heading: "Recent chats"
-                    caption: (root.searchWords.length === 0
+                    caption: (!root.chatsNarrowed
                               ? root.foundChats.length + (root.foundChats.length === 1 ? " chat" : " chats")
                               : root.foundChats.length + " of " + root.shownChats.length
                                 + (root.shownChats.length === 1 ? " chat matches" : " chats match"))
@@ -927,7 +1111,7 @@ Window {
                         Text {
                             visible: root.foundChats.length === 0
                             topPadding: 8
-                            text: root.searchWords.length > 0 ? "No recent chat matches." : "No recent chats found."
+                            text: root.chatsNarrowed ? "No recent chat matches." : "No recent chats found."
                             color: Theme.textTertiary
                             font.pixelSize: 13
                         }

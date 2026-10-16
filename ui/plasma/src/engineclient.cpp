@@ -248,6 +248,8 @@ void EngineClient::applyDashboard(const QJsonObject &obj)
     m_dashboardModels = obj.value(QStringLiteral("models")).toArray().toVariantList();
     m_dashboardSessions = obj.value(QStringLiteral("sessions")).toArray().toVariantList();
     m_dashboardAnswered = obj.value(QStringLiteral("search")).toString();
+    m_dashboardProjectAnswered = obj.value(QStringLiteral("project")).toString();
+    m_dashboardProjects = obj.value(QStringLiteral("projects")).toArray().toVariantList();
     m_dashboardTotalUsd = obj.value(QStringLiteral("total_usd")).toDouble(0.0);
     emit dashboardChanged();
 }
@@ -379,7 +381,19 @@ void EngineClient::requestDashboard(int days)
     if (!m_dashboardSearch.isEmpty()) {
         obj.insert(QStringLiteral("search"), m_dashboardSearch);
     }
+    if (!m_dashboardProject.isEmpty()) {
+        obj.insert(QStringLiteral("project"), m_dashboardProject);
+    }
     sendJson(obj);
+}
+
+void EngineClient::setDashboardProject(const QString &project)
+{
+    if (project == m_dashboardProject) {
+        return;
+    }
+    m_dashboardProject = project;
+    requestDashboard(m_dashboardDays);
 }
 
 void EngineClient::searchDashboard(const QString &search)

@@ -61,5 +61,15 @@
       ]
     }
   ],
-  "search": "parser"
+  "search": "parser",
+  "project": "omega-notch",
+  "projects": [
+    {
+      "provider": "claude_code",
+      "project": "omega-notch",
+      "sessions": 12,
+      "total": 48200000,
+      "cost_usd": 38.6
+    }
+  ]
 }

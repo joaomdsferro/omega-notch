@@ -38,6 +38,7 @@ public final class EngineClient {
   @ObservationIgnored private var peekTimer: Timer?
   @ObservationIgnored private var dashboardDays = 30
   @ObservationIgnored private var dashboardSearch = ""
+  @ObservationIgnored private var dashboardProject = ""
   @ObservationIgnored private let encoder = JSONEncoder()
 
   public init(socketPath: String = EnginePaths.socket) {
@@ -97,11 +98,19 @@ public final class EngineClient {
       "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
     ]
     if !dashboardSearch.isEmpty { message["search"] = .string(dashboardSearch) }
+    if !dashboardProject.isEmpty { message["project"] = .string(dashboardProject) }
     send(.object(message))
   }
 
-  /// Searches the dashboard's sessions; every later request keeps the search
-  /// until it changes.
+  /// Narrows the whole dashboard to one project's sessions; empty for all.
+  public func setDashboardProject(_ project: String) {
+    guard project != dashboardProject else { return }
+    dashboardProject = project
+    requestDashboard(days: dashboardDays)
+  }
+
+  /// Narrows the whole dashboard to the sessions carrying every word; every
+  /// later request keeps the search until it changes.
   public func searchDashboard(_ search: String) {
     let search = DashboardData.searchWords(search).joined(separator: " ")
     guard search != dashboardSearch else { return }

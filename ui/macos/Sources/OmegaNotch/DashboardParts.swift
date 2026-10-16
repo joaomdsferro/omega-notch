@@ -120,15 +120,17 @@ struct TextButton: View {
 struct SearchField: View {
   var prompt: String
   @Binding var text: String
+  /// The page's own search: as wide as it can be, and taller.
+  var large = false
   @FocusState private var focused: Bool
 
   var body: some View {
     HStack(spacing: 6) {
-      Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Theme.textTertiary)
+      Image(systemName: "magnifyingglass").font(.system(size: large ? 14 : 12, weight: .medium))
+        .foregroundStyle(text.isEmpty ? Theme.textTertiary : Theme.text)
       TextField(prompt, text: $text)
         .textFieldStyle(.plain)
-        .font(.notch(13))
+        .font(.notch(large ? 15 : 13))
         .foregroundStyle(Theme.text)
         .focused($focused)
         .onKeyPress(.escape) {
@@ -145,14 +147,53 @@ struct SearchField: View {
           .accessibilityAddTraits(.isButton)
       }
     }
-    .padding(.horizontal, 10)
-    .frame(width: 240, height: 32)
+    .padding(.horizontal, large ? 14 : 10)
+    .frame(maxWidth: large ? .infinity : 240)
+    .frame(height: large ? 42 : 32)
     .background(
-      RoundedRectangle(cornerRadius: 9).fill(Theme.controlFill)
-        .strokeBorder(focused ? Theme.textTertiary : .clear, lineWidth: 1)
+      RoundedRectangle(cornerRadius: large ? 11 : 9).fill(large ? Theme.panelRaised : Theme.controlFill)
+        .strokeBorder(focused ? Theme.textSecondary : large ? Theme.cardStroke : .clear, lineWidth: 1)
     )
     .contentShape(Rectangle())
     .onTapGesture { focused = true }
+  }
+}
+
+/// Narrows the dashboard to one project: "All projects", then each project
+/// in the range, dearest first, with what it spent.
+struct ProjectPicker: View {
+  var projects: [ProjectCost]
+  var value: String
+  var pick: (String) -> Void
+
+  var body: some View {
+    Menu {
+      Button(value.isEmpty ? "✓ All projects" : "All projects") { pick("") }
+      if !projects.isEmpty { Divider() }
+      ForEach(projects) { project in
+        Button(
+          (project.project == value ? "✓ " : "") + project.project + " — " + Format.usd(project.costUsd)
+            + " · \(project.sessions) \(project.sessions == 1 ? "session" : "sessions")"
+        ) { pick(project.project) }
+      }
+    } label: {
+      HStack(spacing: 7) {
+        Image(systemName: "folder").font(.system(size: 12, weight: .medium))
+        Text(value.isEmpty ? "All projects" : value).font(.notch(13, value.isEmpty ? .regular : .semibold))
+          .lineLimit(1)
+        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+      }
+      .foregroundStyle(value.isEmpty ? Theme.textSecondary : Theme.text)
+      .padding(.horizontal, 12)
+      .frame(height: 32)
+      .background(RoundedRectangle(cornerRadius: 9).fill(value.isEmpty ? Theme.controlFill : Theme.controlChosen))
+      .contentShape(Rectangle())
+    }
+    .menuStyle(.button)
+    .buttonStyle(.plain)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .accessibilityLabel(value.isEmpty ? "Project: all" : "Project: \(value)")
   }
 }
 

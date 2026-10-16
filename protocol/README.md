@@ -30,7 +30,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `get_config` | — | current config |
 | `set_config` | `config` | replace config (persisted) |
 | `open_chat` | `provider`, `id`, `cwd?`, `title?`, `surface?` | raise the chat's window, or resume it in a new one |
-| `get_dashboard` | `days?` (7–90, default 30), `search?` | persisted history + cost estimates |
+| `get_dashboard` | `days?` (7–90, default 30), `search?`, `project?` | persisted history + cost estimates |
 | `window_focused` | `pid`, `title?` | the window now in front (macOS); a finished chat it shows is read |
 | `ping` | — | liveness |
 
@@ -42,7 +42,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
-| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?` |
+| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `projects` |
 | `session_updated` | `session` |
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
@@ -157,12 +157,18 @@ in the range with tokens. `title`, `project`, `cwd` and `surface` come from
 rows hold chat titles, so the engine drops them once they are older than the
 history (90 days). Older clients ignore the field.
 
-With a `search` in `get_dashboard`, `sessions` holds the range's sessions that
-carry every word of it (case aside) in their title, project, folder, id or a
-model's name, dearest first, still at most 100: a cheap session is found
-too. The engine reads at most 8 words from 200 characters, and sends back
-what it read as `search`, so a client knows which search a list answers. No
-`search`, or one of blanks, is the plain list, and `search` is left out.
+`get_dashboard` can narrow the whole dashboard. With a `search`, only the
+sessions that carry every word of it (case aside) in their title, project,
+folder, id or a model's name count; with a `project` (a name from
+`projects`), only the sessions run there. Then `points`, `models`, `costs`
+and `total_usd` are summed from those sessions' rows instead of the daily
+tables, so they cover Claude Code alone, and `sessions` is every match in
+the range, dearest first, still at most 100: a cheap session is found too.
+The engine reads at most 8 words from 200 characters and sends back what it
+read as `search` and `project`, so a client knows what the numbers answer;
+both are left out when empty. `projects` is every project in the range,
+dearest first, with its `sessions`, `total` and `cost_usd`, whatever the
+scope: what a client offers to narrow to.
 
 ```json
 {

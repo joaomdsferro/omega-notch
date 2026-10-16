@@ -108,6 +108,8 @@ To remove it, run `./uninstall.sh` from the same folder.
     any series can have a colour of its own, in Settings → Notch
   - Search sessions and chats by title, project, folder or model: every session in the range that
     matches, not only the dearest
+  - Narrow the whole page to one project, or to a search by title, folder or model: costs, tokens,
+    models, sessions and chats then cover only those Claude Code sessions, including the cheap ones
 - **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from

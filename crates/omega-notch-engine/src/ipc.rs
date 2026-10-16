@@ -176,8 +176,12 @@ async fn handle_message(
         ClientMessage::WindowFocused { pid, title } => {
             store.window_focused(pid, title).await;
         }
-        ClientMessage::GetDashboard { days, search } => {
-            write_msg(writer, &store.dashboard(days, search).await).await?;
+        ClientMessage::GetDashboard {
+            days,
+            search,
+            project,
+        } => {
+            write_msg(writer, &store.dashboard(days, search, project).await).await?;
         }
         ClientMessage::Ping => {
             write_msg(writer, &ServerMessage::Pong).await?;

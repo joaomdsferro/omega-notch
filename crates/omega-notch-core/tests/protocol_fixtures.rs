@@ -227,6 +227,14 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                     }],
                 }],
                 search: "parser".into(),
+                project: "omega-notch".into(),
+                projects: vec![ProjectCost {
+                    provider: ProviderId::ClaudeCode,
+                    project: "omega-notch".into(),
+                    sessions: 12,
+                    total: 48_200_000,
+                    cost_usd: 38.6,
+                }],
             },
         ),
         (

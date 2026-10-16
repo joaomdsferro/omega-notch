@@ -23,6 +23,9 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList dashboardSessions READ dashboardSessions NOTIFY dashboardChanged)
     // The search dashboardSessions answers, as the engine read it.
     Q_PROPERTY(QString dashboardSearch READ dashboardSearch NOTIFY dashboardChanged)
+    // The project it answers, and every project in the range to narrow to.
+    Q_PROPERTY(QString dashboardProject READ dashboardProject NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantList dashboardProjects READ dashboardProjects NOTIFY dashboardChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
     Q_PROPERTY(double edgePosition READ edgePosition NOTIFY configChanged)
@@ -81,6 +84,8 @@ public:
     QVariantList dashboardModels() const { return m_dashboardModels; }
     QVariantList dashboardSessions() const { return m_dashboardSessions; }
     QString dashboardSearch() const { return m_dashboardAnswered; }
+    QString dashboardProject() const { return m_dashboardProjectAnswered; }
+    QVariantList dashboardProjects() const { return m_dashboardProjects; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
     double edgePosition() const { return m_edgePosition; }
@@ -129,6 +134,8 @@ public:
     // Searches the dashboard's sessions; later requests keep the search
     // until it changes.
     Q_INVOKABLE void searchDashboard(const QString &search);
+    // Narrows the whole dashboard to one project's sessions; empty for all.
+    Q_INVOKABLE void setDashboardProject(const QString &project);
     Q_INVOKABLE void setEdge(const QString &edge);
     Q_INVOKABLE void setEdgePosition(double pos);
     Q_INVOKABLE void setSizePreset(const QString &size);
@@ -224,6 +231,9 @@ private:
     int m_dashboardDays = 30;
     QString m_dashboardSearch;
     QString m_dashboardAnswered;
+    QString m_dashboardProject;
+    QString m_dashboardProjectAnswered;
+    QVariantList m_dashboardProjects;
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;
