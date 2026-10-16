@@ -142,8 +142,7 @@ async fn handle_message(
             title,
             surface,
         } => {
-            // Clicking a chat is going to read it, whatever the jump manages.
-            store.mark_seen(provider, &id).await;
+            let seen_id = id.clone();
             // Raising windows shells out and may wait for a new one to appear.
             let opened = tokio::task::spawn_blocking(move || {
                 let target = ChatTarget {
@@ -158,6 +157,10 @@ async fn handle_message(
                 })
             })
             .await?;
+            // Read once it opened; a failed jump leaves it to read.
+            if opened.is_ok() {
+                store.mark_seen(provider, &seen_id).await;
+            }
             if let Ok(Some(raise)) = opened {
                 write_msg(
                     writer,

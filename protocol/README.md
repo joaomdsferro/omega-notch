@@ -90,7 +90,7 @@ provider.
 
 `unread` (v6) is true for a chat that stopped with a reply newer than both
 your latest prompt in it and the last time you looked at it. Looking means
-`open_chat` on it, or (macOS) `window_focused` naming the app that runs it:
+`open_chat` on it that succeeds, or (macOS) `window_focused` naming the app that runs it:
 the engine picks the live session under `pid` whose chat title, name or
 folder the window's `title` carries best, or the only one when there is no
 title. Sessions the title fits equally well (VS Code captions a chat's tab
