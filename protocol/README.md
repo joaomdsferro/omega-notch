@@ -234,4 +234,5 @@ after 3 minutes, or one already running: one at a time). Each answer carries
 the `request` id it answers, as the asking shell sent it (up to 64
 characters), so a shell keeps only answers to its own request, and drops
 them once its scope changes. The rules and the analysis read Claude Code's
-sessions only.
+sessions only; the engine drops any other tool's rows before it builds the
+summary.

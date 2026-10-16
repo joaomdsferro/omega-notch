@@ -473,6 +473,14 @@ impl UsageStore {
             .await;
             let result = match scoped {
                 Ok(Ok(mut scoped)) => {
+                    // Claude Code's own sessions only: another tool's usage is
+                    // not Anthropic's to see.
+                    scoped
+                        .matched
+                        .retain(|s| s.provider == ProviderId::ClaudeCode);
+                    scoped
+                        .models
+                        .retain(|m| m.provider == ProviderId::ClaudeCode);
                     if !scope.session.trim().is_empty() {
                         scoped.matched.retain(|s| s.id == scope.session.trim());
                     }
