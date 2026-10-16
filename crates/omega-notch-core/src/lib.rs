@@ -1,6 +1,7 @@
 //! Shared types, providers, poller, and session watchers for Omega Notch.
 
 pub mod advice;
+pub mod analysis;
 pub mod chats;
 pub mod config;
 pub mod copilot_auth;

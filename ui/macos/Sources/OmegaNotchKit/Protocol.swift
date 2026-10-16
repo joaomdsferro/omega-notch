@@ -149,6 +149,22 @@ public struct SessionModelCost: Codable, Equatable, Sendable, Identifiable {
   public var id: String { model }
 }
 
+/// Claude's advice on usage, asked for through the user's own `claude`.
+public struct UsageAnalysis: Decodable, Equatable, Sendable {
+  /// `running`, `done` or `failed`.
+  public var state: String
+  /// `sonnet` or `opus`.
+  public var model: String
+  /// The answer in Markdown, or why it failed.
+  public var text: String
+
+  public init(state: String, model: String, text: String) {
+    self.state = state
+    self.model = model
+    self.text = text
+  }
+}
+
 /// One way to spend less or get more, from the engine's local rules.
 public struct Suggestion: Decodable, Equatable, Sendable, Identifiable {
   /// `model_choice`, `cache_churn`, `long_session` or `context_full`.
@@ -270,6 +286,8 @@ public enum ServerMessage: Sendable {
   case copilotLogin(CopilotLogin)
   /// The chat runs in a live session: pick its window (v4).
   case raiseWindow(RaiseRequest)
+  /// Claude's advice on usage: running, then done or failed.
+  case usageAnalysis(UsageAnalysis)
   case pong
   case error(String)
   /// A message this shell does not know; ignored.
@@ -386,6 +404,8 @@ extension ServerMessage {
       return .copilotLogin(try d.decode(LoginBody.self, from: line).login)
     case "raise_window":
       return .raiseWindow(try d.decode(RaiseRequest.self, from: line))
+    case "usage_analysis":
+      return .usageAnalysis(try d.decode(UsageAnalysis.self, from: line))
     case "pong":
       return .pong
     case "error":

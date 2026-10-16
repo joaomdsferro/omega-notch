@@ -31,6 +31,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `set_config` | `config` | replace config (persisted) |
 | `open_chat` | `provider`, `id`, `cwd?`, `title?`, `surface?` | raise the chat's window, or resume it in a new one |
 | `get_dashboard` | `days?` (7–90, default 30), `search?`, `project?`, `session?` | persisted history + cost estimates |
+| `analyze_usage` | `model` (`sonnet`/`opus`), `days?`, `search?`, `project?`, `session?` | ask Claude for advice on that dashboard's sessions |
 | `window_focused` | `pid`, `title?` | the window now in front (macOS); a finished chat it shows is read |
 | `ping` | — | liveness |
 
@@ -49,6 +50,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `limit_reached` | `limit` |
 | `config_updated` | `config` |
 | `raise_window` | `pids`, `hints`, `tty?` |
+| `usage_analysis` | `state`, `model`, `text` |
 | `pong` | — |
 | `error` | `message` |
 
@@ -215,3 +217,16 @@ Only local tools may post, never a web page. A request must send
 `Content-Type: application/json` (otherwise `415`), a `Host` of
 `127.0.0.1:17337` or `localhost:17337`, and no `Origin` header (otherwise
 `403`). curl does all of that by default once given the content type.
+
+`analyze_usage` asks Claude, through the user's own `claude` command and
+subscription, for advice on the sessions a `get_dashboard` with the same
+scope covers. The engine sends only numbers: totals and ratios, cost per model
+and per day, the median output, the dearest ten sessions as `S1`…`S10` with
+their models and token kinds, and which local rules fired. No title, folder,
+project name, id or chat text is sent. `claude -p` runs with no tools, no MCP
+servers, only project settings (so no user hooks), in an empty folder of its
+own, without saving the session, and without inherited `CLAUDE*` variables;
+the summary goes on stdin. Every subscribed shell hears `usage_analysis`:
+`running` at once, then `done` with `text` in Markdown, or `failed` with
+`text` saying why (no sessions, `claude` missing or signed out, a timeout
+after 3 minutes, or one already running: one at a time).

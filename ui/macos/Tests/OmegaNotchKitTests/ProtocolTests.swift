@@ -74,6 +74,15 @@ final class ProtocolTests: XCTestCase {
     XCTAssertTrue(notch.opensNotch(for: "waiting_you"))
   }
 
+  func testUsageAnalysis() throws {
+    guard case .usageAnalysis(let analysis) = try fixture("usage_analysis") else {
+      return XCTFail("not an analysis")
+    }
+    XCTAssertEqual(analysis.state, "done")
+    XCTAssertEqual(analysis.model, "sonnet")
+    XCTAssertTrue(analysis.text.hasPrefix("- **Use Sonnet"))
+  }
+
   func testDashboardAndCopilotLogin() throws {
     guard case .dashboard(let dashboard) = try fixture("dashboard") else {
       return XCTFail("not a dashboard")

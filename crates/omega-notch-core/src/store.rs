@@ -36,6 +36,8 @@ struct Inner {
     copilot_login: Arc<Mutex<()>>,
     /// Set once the history backfill has been looked at this run.
     backfill_checked: AtomicBool,
+    /// An analysis by Claude is under way; one at a time.
+    analyzing: AtomicBool,
     /// The usage thresholds already announced, per provider. Never held
     /// across an await.
     limits: std::sync::Mutex<LimitWatch>,
@@ -56,6 +58,7 @@ impl UsageStore {
                 index: Arc::new(Mutex::new(ActivityIndex::new())),
                 copilot_login: Arc::new(Mutex::new(())),
                 backfill_checked: AtomicBool::new(false),
+                analyzing: AtomicBool::new(false),
                 limits: std::sync::Mutex::new(LimitWatch::default()),
                 seen: std::sync::Mutex::new(Seen::load()),
                 events,
@@ -436,6 +439,72 @@ impl UsageStore {
             projects: scoped.projects,
             suggestions,
         }
+    }
+
+    /// Asks Claude for advice on the sessions this scope covers, in the
+    /// background; every shell hears `running`, then the answer. A second
+    /// request while one runs is turned away.
+    pub fn analyze_usage(&self, days: u32, scope: history::Scope, model: String) {
+        let send = |state: &str, text: String| {
+            let _ = self.inner.events.send(ServerMessage::UsageAnalysis {
+                state: state.into(),
+                model: model.clone(),
+                text,
+            });
+        };
+        if !crate::analysis::MODELS.contains(&model.as_str()) {
+            return send("failed", "Pick Sonnet or Opus.".into());
+        }
+        if self.inner.analyzing.swap(true, Ordering::SeqCst) {
+            return send("failed", "An analysis is already running.".into());
+        }
+        send("running", String::new());
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            let days = days.clamp(7, history::MAX_HISTORY_DAYS);
+            let what = if !scope.session.trim().is_empty() {
+                "for one chat"
+            } else if !scope.project.trim().is_empty() {
+                "for one project"
+            } else if !history::search_words(&scope.search).is_empty() {
+                "for the sessions matching a search"
+            } else {
+                "for the whole account"
+            };
+            let asked = scope.clone();
+            let scoped = tokio::task::spawn_blocking(move || {
+                history::query_scoped(days, history::MAX_SESSIONS, &asked)
+            })
+            .await;
+            let result = match scoped {
+                Ok(Ok(mut scoped)) => {
+                    if !scope.session.trim().is_empty() {
+                        scoped.matched.retain(|s| s.id == scope.session.trim());
+                    }
+                    if scoped.matched.is_empty() {
+                        Err(anyhow::anyhow!("No sessions in this range to look at."))
+                    } else {
+                        let flagged = crate::advice::suggest(&scoped.matched, &[]);
+                        let summary = crate::analysis::summary(days, what, &scoped, &flagged);
+                        crate::analysis::ask(&model, &summary).await
+                    }
+                }
+                _ => Err(anyhow::anyhow!("Could not read the usage history.")),
+            };
+            inner.analyzing.store(false, Ordering::SeqCst);
+            let (state, text) = match result {
+                Ok(text) => ("done", text),
+                Err(err) => {
+                    warn!(error = %err, "usage analysis failed");
+                    ("failed", err.to_string())
+                }
+            };
+            let _ = inner.events.send(ServerMessage::UsageAnalysis {
+                state: state.into(),
+                model,
+                text,
+            });
+        });
     }
 
     /// Records a provider's state without reading a transition into it.

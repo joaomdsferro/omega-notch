@@ -29,6 +29,8 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList dashboardProjects READ dashboardProjects NOTIFY dashboardChanged)
     // What to change, from the engine's local rules; likeliest saving first.
     Q_PROPERTY(QVariantList dashboardSuggestions READ dashboardSuggestions NOTIFY dashboardChanged)
+    // Claude's latest advice on usage: { state, model, text }, empty until asked.
+    Q_PROPERTY(QVariantMap analysis READ analysis NOTIFY analysisChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
     Q_PROPERTY(double edgePosition READ edgePosition NOTIFY configChanged)
@@ -91,6 +93,7 @@ public:
     QString dashboardSession() const { return m_dashboardSessionAnswered; }
     QVariantList dashboardProjects() const { return m_dashboardProjects; }
     QVariantList dashboardSuggestions() const { return m_dashboardSuggestions; }
+    QVariantMap analysis() const { return m_analysis; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
     double edgePosition() const { return m_edgePosition; }
@@ -143,6 +146,9 @@ public:
     Q_INVOKABLE void setDashboardProject(const QString &project);
     // Narrows the dashboard's numbers to one session, by id; empty for all.
     Q_INVOKABLE void setDashboardSession(const QString &session);
+    // Asks Claude, through the user's own claude, for advice on what the
+    // dashboard shows now; only numbers are sent.
+    Q_INVOKABLE void analyzeUsage(const QString &model);
     Q_INVOKABLE void setEdge(const QString &edge);
     Q_INVOKABLE void setEdgePosition(double pos);
     Q_INVOKABLE void setSizePreset(const QString &size);
@@ -185,6 +191,7 @@ public:
     Q_INVOKABLE void setInputRegion(QWindow *window, const QVariantList &rects);
 
 signals:
+    void analysisChanged();
     void connectedChanged();
     void readingsChanged();
     void sessionsChanged();
@@ -244,6 +251,7 @@ private:
     QString m_dashboardSessionAnswered;
     QVariantList m_dashboardProjects;
     QVariantList m_dashboardSuggestions;
+    QVariantMap m_analysis;
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;

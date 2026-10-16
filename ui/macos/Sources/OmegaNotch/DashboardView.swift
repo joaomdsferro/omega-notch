@@ -23,6 +23,8 @@ struct DashboardView: View {
   @State private var project = ""
   /// One session, by id, that the numbers narrow to.
   @State private var chat = ""
+  /// The model Claude's analysis runs on.
+  @State private var analysisModel = "sonnet"
   @State private var now = Date()
 
   private let ticker = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -178,7 +180,7 @@ struct DashboardView: View {
         stats(
           rangeTotal: rangeTotal, activeDays: activeDays, rangeCost: costs.total, costDays: costDays,
           costToday: costToday, cacheRead: kinds.cacheRead)
-        if !client.dashboard.suggestions.isEmpty { suggestions }
+        suggestions
         limits
 
         DashCard(
@@ -418,12 +420,30 @@ struct DashboardView: View {
   private var suggestions: some View {
     let all = client.dashboard.suggestions
     let saving = all.compactMap(\.savingUsd).reduce(0, +)
+    let asking = client.analysis?.state == "running"
     return DashCard(
       heading: "Suggestions",
       caption: (saving > 0 ? "Up to \(Format.usd(saving)) less in the last \(days) days · " : "")
-        + "from local rules over these sessions, nothing leaves your Mac"
+        + "from local rules over these sessions, nothing leaves your Mac",
+      trailing: {
+        HStack(spacing: 8) {
+          DashSegmented(
+            options: [.init(value: "sonnet", label: "Sonnet"), .init(value: "opus", label: "Opus")],
+            value: analysisModel
+          ) { analysisModel = $0 }
+          TextButton(label: asking ? "Asking Claude…" : "Ask Claude") {
+            if !asking { client.analyzeUsage(model: analysisModel) }
+          }
+        }
+      }
     ) {
       VStack(spacing: 0) {
+        if all.isEmpty {
+          Text("Nothing stands out in these sessions. Ask Claude for a closer look.")
+            .font(.notch(13)).foregroundStyle(Theme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+        }
         ForEach(Array(all.enumerated()), id: \.element.id) { index, item in
           if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
           SuggestionRow(
@@ -435,6 +455,17 @@ struct DashboardView: View {
               client.chats.first { $0.id == id }.map { found in { client.openChat(found) } }
             })
         }
+        if let analysis = client.analysis {
+          Rectangle().fill(Theme.hairline).frame(height: 1)
+          AnalysisView(analysis: analysis)
+        }
+        Text(
+          "Ask Claude sends only totals, ratios and models, with sessions as S1, S2…: no titles, folders or chat text. It runs through your own claude command and subscription, with no tools."
+        )
+        .font(.notch(11)).foregroundStyle(Theme.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 10)
       }
     }
   }
@@ -739,6 +770,44 @@ private struct CostBreakdown: View {
 /// One session in the dearest list: its title and where it ran, a bar of its
 /// spend by model, tokens, estimated cost, share of the range's spend and the
 /// last day it ran. Click to see each model's tokens by kind.
+/// Claude's answer: a line while it thinks, then its Markdown, or why not.
+private struct AnalysisView: View {
+  var analysis: UsageAnalysis
+
+  private var name: String { analysis.model == "opus" ? "Opus" : "Sonnet" }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        Image(systemName: "sparkles").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.textSecondary)
+        Text(
+          analysis.state == "running" ? "Claude (\(name)) is reading the numbers…"
+            : analysis.state == "failed" ? "Claude could not answer" : "Claude (\(name)) suggests"
+        )
+        .font(.notch(14, .semibold)).foregroundStyle(Theme.text)
+        if analysis.state == "running" { ProgressView().controlSize(.small) }
+      }
+      if !analysis.text.isEmpty {
+        Text(markdown)
+          .font(.notch(13))
+          .foregroundStyle(analysis.state == "failed" ? Theme.critical : Theme.textSecondary)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.vertical, 12)
+  }
+
+  /// Bold, code and links render; bullets and line breaks stay as written.
+  private var markdown: AttributedString {
+    (try? AttributedString(
+      markdown: analysis.text,
+      options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+      ?? AttributedString(analysis.text)
+  }
+}
+
 private struct SuggestionRow: View {
   var item: Suggestion
   /// Narrows the page to the chat it is about; nil when it cannot.

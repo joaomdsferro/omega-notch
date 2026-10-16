@@ -13,6 +13,8 @@ public final class EngineClient {
   public private(set) var tokens: [TokenStats] = []
   public private(set) var dashboard = Dashboard()
   public private(set) var copilotLogin: CopilotLogin?
+  /// Claude's latest advice on usage, if one was asked for.
+  public private(set) var analysis: UsageAnalysis?
   public private(set) var config = NotchConfig(raw: .object([:]))
   /// Whether a config has arrived from the engine yet.
   public private(set) var hasConfig = false
@@ -109,6 +111,20 @@ public final class EngineClient {
     guard project != dashboardProject else { return }
     dashboardProject = project
     requestDashboard(days: dashboardDays)
+  }
+
+  /// Asks Claude, through the user's own `claude`, for advice on what the
+  /// dashboard shows now. Only numbers are sent.
+  public func analyzeUsage(model: String) {
+    var message: [String: JSONValue] = [
+      "type": .string("analyze_usage"), "days": .number(Double(dashboardDays)), "model": .string(model),
+    ]
+    for (key, value) in [("search", dashboardSearch), ("project", dashboardProject), ("session", dashboardSession)]
+    where !value.isEmpty {
+      message[key] = .string(value)
+    }
+    analysis = UsageAnalysis(state: "running", model: model, text: "")
+    send(.object(message))
   }
 
   /// Narrows the dashboard's numbers to one session, by id; empty for all.
@@ -245,6 +261,8 @@ public final class EngineClient {
       if login.state == "pending" { onCopilotCode?(login) }
     case .raiseWindow(let request):
       onRaiseWindow?(request)
+    case .usageAnalysis(let answer):
+      analysis = answer
     case .hello, .pong, .error, .unknown:
       break
     }

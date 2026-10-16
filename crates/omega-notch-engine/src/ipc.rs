@@ -188,6 +188,20 @@ async fn handle_message(
             )
             .await?;
         }
+        ClientMessage::AnalyzeUsage {
+            days,
+            search,
+            project,
+            session,
+            model,
+        } => {
+            let scope = omega_notch_core::history::Scope {
+                search,
+                project,
+                session,
+            };
+            store.analyze_usage(days, scope, model);
+        }
         ClientMessage::Ping => {
             write_msg(writer, &ServerMessage::Pong).await?;
         }

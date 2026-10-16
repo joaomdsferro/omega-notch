@@ -597,7 +597,7 @@ fn ring_bell(pid: u32) {
     }
 }
 
-fn which(program: &str) -> Option<String> {
+pub(crate) fn which(program: &str) -> Option<String> {
     if program.contains('/') {
         return Path::new(program).is_file().then(|| program.to_string());
     }

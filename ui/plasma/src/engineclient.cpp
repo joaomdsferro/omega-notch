@@ -202,6 +202,9 @@ void EngineClient::handleServerMessage(const QJsonObject &obj)
         applyActivity(obj);
     } else if (type == QLatin1String("dashboard")) {
         applyDashboard(obj);
+    } else if (type == QLatin1String("usage_analysis")) {
+        m_analysis = obj.toVariantMap();
+        emit analysisChanged();
     } else if (type == QLatin1String("config_updated")) {
         applyConfig(obj.value(QStringLiteral("config")).toObject());
     } else if (type == QLatin1String("copilot_login")) {
@@ -389,6 +392,29 @@ void EngineClient::requestDashboard(int days)
     if (!m_dashboardSession.isEmpty()) {
         obj.insert(QStringLiteral("session"), m_dashboardSession);
     }
+    sendJson(obj);
+}
+
+void EngineClient::analyzeUsage(const QString &model)
+{
+    QJsonObject obj{
+        {QStringLiteral("type"), QStringLiteral("analyze_usage")},
+        {QStringLiteral("days"), m_dashboardDays},
+        {QStringLiteral("model"), model},
+    };
+    const QList<QPair<QString, QString>> scope = {
+        {QStringLiteral("search"), m_dashboardSearch},
+        {QStringLiteral("project"), m_dashboardProject},
+        {QStringLiteral("session"), m_dashboardSession},
+    };
+    for (const auto &[key, value] : scope) {
+        if (!value.isEmpty()) {
+            obj.insert(key, value);
+        }
+    }
+    m_analysis = QVariantMap{{QStringLiteral("state"), QStringLiteral("running")},
+                             {QStringLiteral("model"), model}};
+    emit analysisChanged();
     sendJson(obj);
 }
 
