@@ -25,6 +25,7 @@ class EngineClient : public QObject
     Q_PROPERTY(QString dashboardSearch READ dashboardSearch NOTIFY dashboardChanged)
     // The project it answers, and every project in the range to narrow to.
     Q_PROPERTY(QString dashboardProject READ dashboardProject NOTIFY dashboardChanged)
+    Q_PROPERTY(QString dashboardSession READ dashboardSession NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList dashboardProjects READ dashboardProjects NOTIFY dashboardChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
@@ -85,6 +86,7 @@ public:
     QVariantList dashboardSessions() const { return m_dashboardSessions; }
     QString dashboardSearch() const { return m_dashboardAnswered; }
     QString dashboardProject() const { return m_dashboardProjectAnswered; }
+    QString dashboardSession() const { return m_dashboardSessionAnswered; }
     QVariantList dashboardProjects() const { return m_dashboardProjects; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
@@ -136,6 +138,8 @@ public:
     Q_INVOKABLE void searchDashboard(const QString &search);
     // Narrows the whole dashboard to one project's sessions; empty for all.
     Q_INVOKABLE void setDashboardProject(const QString &project);
+    // Narrows the dashboard's numbers to one session, by id; empty for all.
+    Q_INVOKABLE void setDashboardSession(const QString &session);
     Q_INVOKABLE void setEdge(const QString &edge);
     Q_INVOKABLE void setEdgePosition(double pos);
     Q_INVOKABLE void setSizePreset(const QString &size);
@@ -233,6 +237,8 @@ private:
     QString m_dashboardAnswered;
     QString m_dashboardProject;
     QString m_dashboardProjectAnswered;
+    QString m_dashboardSession;
+    QString m_dashboardSessionAnswered;
     QVariantList m_dashboardProjects;
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;

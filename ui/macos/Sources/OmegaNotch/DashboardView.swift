@@ -21,6 +21,8 @@ struct DashboardView: View {
   /// already here.
   @State private var search = ""
   @State private var project = ""
+  /// One session, by id, that the numbers narrow to.
+  @State private var chat = ""
   @State private var now = Date()
 
   private let ticker = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -133,9 +135,19 @@ struct DashboardView: View {
   private var scoped: Bool { client.dashboard.isScoped }
   /// What they are narrowed to, as a few words.
   private var scopeLabel: String {
-    [client.dashboard.project.isEmpty ? nil : client.dashboard.project,
-     client.dashboard.search.isEmpty ? nil : "“\(client.dashboard.search)”"]
+    let d = client.dashboard
+    let chat = d.session.isEmpty ? nil : chatTitle(d.session)
+    return [d.project.isEmpty ? nil : d.project, d.search.isEmpty ? nil : "“\(d.search)”", chat]
       .compactMap { $0 }.joined(separator: " · ")
+  }
+
+  /// Sessions in scope: one when one is picked.
+  private var scopedCount: Int { client.dashboard.session.isEmpty ? shownSessions.count : 1 }
+
+  /// A session's title, short enough for a button.
+  private func chatTitle(_ id: String) -> String {
+    let title = client.dashboard.sessions.first { $0.id == id }?.title ?? "One chat"
+    return title.count > 40 ? String(title.prefix(39)) + "…" : title
   }
   private var shownSessions: [SessionCost] { client.dashboard.sessions.filter { matches($0.provider) } }
 
@@ -265,7 +277,23 @@ struct DashboardView: View {
     VStack(alignment: .leading, spacing: 12) {
       SearchField(prompt: "Search sessions and chats by title, project, folder or model", text: $search, large: true)
       HStack(spacing: 12) {
-        ProjectPicker(projects: client.dashboard.projects, value: project) { project = $0 }
+        ScopeMenu(
+          icon: "folder", all: "All projects",
+          choices: client.dashboard.projects.map {
+            .init(
+              value: $0.project, label: $0.project,
+              detail: Format.usd($0.costUsd) + " · \($0.sessions) \($0.sessions == 1 ? "session" : "sessions")")
+          },
+          value: project, chosenLabel: project
+        ) { project = $0 }
+        ScopeMenu(
+          icon: "bubble.left.and.bubble.right", all: "All chats",
+          choices: shownSessions.map {
+            .init(value: $0.id, label: $0.title.count > 60 ? String($0.title.prefix(59)) + "…" : $0.title,
+                  detail: Format.usd($0.costUsd))
+          },
+          value: chat, chosenLabel: chatTitle(chat)
+        ) { chat = $0 }
         if activeReadings.count > 1 {
           DashSegmented(options: filterOptions, value: providerFilter) { providerFilter = $0 }
         }
@@ -277,7 +305,7 @@ struct DashboardView: View {
           VStack(alignment: .leading, spacing: 3) {
             Text("Showing \(scopeLabel)").font(.notch(14, .semibold)).foregroundStyle(Theme.text)
             Text(
-              "\(shownSessions.count) \(shownSessions.count == 1 ? "session" : "sessions") · \(Format.usd(rangeCost)) in the last \(days) days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
+              "\(scopedCount) \(scopedCount == 1 ? "session" : "sessions") · \(Format.usd(rangeCost)) in the last \(days) days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
             )
             .font(.notch(12)).foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -286,6 +314,7 @@ struct DashboardView: View {
           TextButton(label: "Clear") {
             search = ""
             project = ""
+            chat = ""
           }
         }
         .padding(12)
@@ -297,7 +326,12 @@ struct DashboardView: View {
       guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
       client.searchDashboard(search)
     }
-    .onChange(of: project) { _, new in client.setDashboardProject(new) }
+    .onChange(of: project) { _, new in
+      // A chat from another project would leave nothing to show.
+      chat = ""
+      client.setDashboardProject(new)
+    }
+    .onChange(of: chat) { _, new in client.setDashboardSession(new) }
   }
 
   private var statusLine: String {
@@ -381,7 +415,8 @@ struct DashboardView: View {
   /// The range's dearest sessions. A model keeps the colour it has in the
   /// Models table, so the two read together.
   private func sessions(models: [DashboardData.ModelRow], rangeCost: Double) -> some View {
-    let all = shownSessions
+    let chosen = client.dashboard.session
+    let all = chosen.isEmpty ? shownSessions : shownSessions.filter { $0.id == chosen }
     let shown = showAllSessions ? all : Array(all.prefix(8))
     let modelShades = Dictionary(
       models.enumerated().map { ($1.model, shades[$0 % shades.count]) },
@@ -426,13 +461,14 @@ struct DashboardView: View {
             SessionRow(
               session: session, today: today, first: index == 0, rangeCost: rangeCost,
               shade: { modelShades[$0] ?? shades[shades.count - 1] },
-              expanded: openSession == session.id,
+              expanded: openSession == session.id || !chosen.isEmpty,
               toggle: {
                 withAnimation(.easeOut(duration: 0.18)) {
                   openSession = openSession == session.id ? nil : session.id
                 }
               },
-              open: { client.openChat(session) })
+              open: { client.openChat(session) },
+              focus: chosen.isEmpty ? { chat = session.id } : nil)
           }
         }
       }
@@ -442,10 +478,10 @@ struct DashboardView: View {
   private var chats: some View {
     let words = searchWords
     let found = shownChats.filter {
-      (project.isEmpty || $0.project == project)
+      (project.isEmpty || $0.project == project) && (chat.isEmpty || $0.id == chat)
         && DashboardData.matches(words, in: [$0.title, $0.project, $0.cwd, $0.model, $0.id])
     }
-    let narrowed = !words.isEmpty || !project.isEmpty
+    let narrowed = !words.isEmpty || !project.isEmpty || !chat.isEmpty
     // Chats to read first, so the ones counted are never past "Show all".
     let all = found.filter(\.isUnread) + found.filter { !$0.isUnread }
     let shown = showAllChats ? all : Array(all.prefix(8))
@@ -685,6 +721,8 @@ private struct SessionRow: View {
   var expanded: Bool
   var toggle: () -> Void
   var open: () -> Void
+  /// Narrows the page to this session; nil once it is.
+  var focus: (() -> Void)?
 
   @State private var hovered = false
 
@@ -801,6 +839,7 @@ private struct SessionRow: View {
         )
         .font(.notch(11, tabular: true)).foregroundStyle(Theme.textTertiary)
         Spacer()
+        if let focus { TextButton(label: "Only this chat", action: focus) }
         TextButton(label: "Open chat", action: open)
       }
       .padding(.top, 8)

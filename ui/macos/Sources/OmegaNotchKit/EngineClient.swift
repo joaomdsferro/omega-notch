@@ -39,6 +39,7 @@ public final class EngineClient {
   @ObservationIgnored private var dashboardDays = 30
   @ObservationIgnored private var dashboardSearch = ""
   @ObservationIgnored private var dashboardProject = ""
+  @ObservationIgnored private var dashboardSession = ""
   @ObservationIgnored private let encoder = JSONEncoder()
 
   public init(socketPath: String = EnginePaths.socket) {
@@ -99,6 +100,7 @@ public final class EngineClient {
     ]
     if !dashboardSearch.isEmpty { message["search"] = .string(dashboardSearch) }
     if !dashboardProject.isEmpty { message["project"] = .string(dashboardProject) }
+    if !dashboardSession.isEmpty { message["session"] = .string(dashboardSession) }
     send(.object(message))
   }
 
@@ -106,6 +108,13 @@ public final class EngineClient {
   public func setDashboardProject(_ project: String) {
     guard project != dashboardProject else { return }
     dashboardProject = project
+    requestDashboard(days: dashboardDays)
+  }
+
+  /// Narrows the dashboard's numbers to one session, by id; empty for all.
+  public func setDashboardSession(_ session: String) {
+    guard session != dashboardSession else { return }
+    dashboardSession = session
     requestDashboard(days: dashboardDays)
   }
 

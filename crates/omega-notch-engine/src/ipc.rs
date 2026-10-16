@@ -180,8 +180,13 @@ async fn handle_message(
             days,
             search,
             project,
+            session,
         } => {
-            write_msg(writer, &store.dashboard(days, search, project).await).await?;
+            write_msg(
+                writer,
+                &store.dashboard(days, search, project, session).await,
+            )
+            .await?;
         }
         ClientMessage::Ping => {
             write_msg(writer, &ServerMessage::Pong).await?;

@@ -110,6 +110,8 @@ To remove it, run `./uninstall.sh` from the same folder.
     matches, not only the dearest
   - Narrow the whole page to one project, or to a search by title, folder or model: costs, tokens,
     models, sessions and chats then cover only those Claude Code sessions, including the cheap ones
+  - Narrow the whole page to one project, one chat, or a search by title, folder or model: costs,
+    tokens, models, sessions and chats then cover only those Claude Code sessions, cheap ones too
 - **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from

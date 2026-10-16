@@ -30,7 +30,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `get_config` | — | current config |
 | `set_config` | `config` | replace config (persisted) |
 | `open_chat` | `provider`, `id`, `cwd?`, `title?`, `surface?` | raise the chat's window, or resume it in a new one |
-| `get_dashboard` | `days?` (7–90, default 30), `search?`, `project?` | persisted history + cost estimates |
+| `get_dashboard` | `days?` (7–90, default 30), `search?`, `project?`, `session?` | persisted history + cost estimates |
 | `window_focused` | `pid`, `title?` | the window now in front (macOS); a finished chat it shows is read |
 | `ping` | — | liveness |
 
@@ -42,7 +42,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
-| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `projects` |
+| `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `session?`, `projects` |
 | `session_updated` | `session` |
 | `session_finished` | `session` |
 | `session_waiting` | `session` |
@@ -168,7 +168,10 @@ The engine reads at most 8 words from 200 characters and sends back what it
 read as `search` and `project`, so a client knows what the numbers answer;
 both are left out when empty. `projects` is every project in the range,
 dearest first, with its `sessions`, `total` and `cost_usd`, whatever the
-scope: what a client offers to narrow to.
+scope: what a client offers to narrow to. A `session` (an id from
+`sessions`) narrows the numbers further, to that one session, but not
+`sessions` itself, so a client can still offer the others; it is echoed
+like the rest.
 
 ```json
 {

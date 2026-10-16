@@ -330,11 +330,22 @@ impl UsageStore {
     /// Dashboard payload: persisted daily points, the range's dearest
     /// sessions, and today's per-model cost estimates. `days` clamps to
     /// 7..=90 inside `history`.
-    pub async fn dashboard(&self, days: u32, search: String, project: String) -> ServerMessage {
+    pub async fn dashboard(
+        &self,
+        days: u32,
+        search: String,
+        project: String,
+        session: String,
+    ) -> ServerMessage {
         let days = days.clamp(7, history::MAX_HISTORY_DAYS);
         let scope = history::Scope {
             search: history::search_words(&search).join(" "),
             project: project
+                .trim()
+                .chars()
+                .take(history::MAX_SEARCH_CHARS)
+                .collect(),
+            session: session
                 .trim()
                 .chars()
                 .take(history::MAX_SEARCH_CHARS)
@@ -407,6 +418,7 @@ impl UsageStore {
             sessions: scoped.sessions,
             search: scope.search,
             project: scope.project,
+            session: scope.session,
             projects: scoped.projects,
         }
     }

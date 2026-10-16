@@ -88,6 +88,7 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(dashboard.search, "parser")
     XCTAssertEqual(dashboard.project, "omega-notch")
     XCTAssertTrue(dashboard.isScoped)
+    XCTAssertEqual(dashboard.session, "")
     XCTAssertEqual(dashboard.projects.first?.sessions, 12)
     XCTAssertEqual(dashboard.projects.first?.costUsd, 38.6)
 

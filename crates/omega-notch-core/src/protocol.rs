@@ -461,6 +461,10 @@ pub enum ClientMessage {
         /// (a folder's name, as `projects` lists them).
         #[serde(default)]
         project: String,
+        /// Narrows the numbers to one session, by id; `sessions` still lists
+        /// the rest of the scope, to pick another from.
+        #[serde(default)]
+        session: String,
     },
     Ping,
 }
@@ -535,6 +539,9 @@ pub enum ServerMessage {
         /// The project everything answers; empty when there was none.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         project: String,
+        /// The session the numbers answer; empty when there was none.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        session: String,
         /// Every project in the range, dearest first, to narrow to.
         #[serde(default)]
         projects: Vec<ProjectCost>,

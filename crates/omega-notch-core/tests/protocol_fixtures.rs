@@ -228,6 +228,7 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                 }],
                 search: "parser".into(),
                 project: "omega-notch".into(),
+                session: String::new(),
                 projects: vec![ProjectCost {
                     provider: ProviderId::ClaudeCode,
                     project: "omega-notch".into(),

@@ -159,27 +159,35 @@ struct SearchField: View {
   }
 }
 
-/// Narrows the dashboard to one project: "All projects", then each project
-/// in the range, dearest first, with what it spent.
-struct ProjectPicker: View {
-  var projects: [ProjectCost]
+/// Narrows the dashboard to one of a few: "All …" first, then each choice
+/// with what it spent. The chosen one wears a tick.
+struct ScopeMenu: View {
+  struct Choice: Identifiable {
+    var value: String
+    var label: String
+    var detail: String
+    var id: String { value }
+  }
+
+  var icon: String
+  var all: String
+  var choices: [Choice]
   var value: String
+  /// What the button reads while one is chosen.
+  var chosenLabel: String
   var pick: (String) -> Void
 
   var body: some View {
     Menu {
-      Button(value.isEmpty ? "✓ All projects" : "All projects") { pick("") }
-      if !projects.isEmpty { Divider() }
-      ForEach(projects) { project in
-        Button(
-          (project.project == value ? "✓ " : "") + project.project + " — " + Format.usd(project.costUsd)
-            + " · \(project.sessions) \(project.sessions == 1 ? "session" : "sessions")"
-        ) { pick(project.project) }
+      Button(value.isEmpty ? "✓ \(all)" : all) { pick("") }
+      if !choices.isEmpty { Divider() }
+      ForEach(choices) { choice in
+        Button((choice.value == value ? "✓ " : "") + choice.label + " — " + choice.detail) { pick(choice.value) }
       }
     } label: {
       HStack(spacing: 7) {
-        Image(systemName: "folder").font(.system(size: 12, weight: .medium))
-        Text(value.isEmpty ? "All projects" : value).font(.notch(13, value.isEmpty ? .regular : .semibold))
+        Image(systemName: icon).font(.system(size: 12, weight: .medium))
+        Text(value.isEmpty ? all : chosenLabel).font(.notch(13, value.isEmpty ? .regular : .semibold))
           .lineLimit(1)
         Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
       }
@@ -193,7 +201,7 @@ struct ProjectPicker: View {
     .buttonStyle(.plain)
     .menuIndicator(.hidden)
     .fixedSize()
-    .accessibilityLabel(value.isEmpty ? "Project: all" : "Project: \(value)")
+    .accessibilityLabel(value.isEmpty ? all : chosenLabel)
   }
 }
 

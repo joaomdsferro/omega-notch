@@ -385,17 +385,20 @@ pub fn query_models(days: u32) -> anyhow::Result<Vec<ModelDayPoint>> {
     Ok(rows.flatten().collect())
 }
 
-/// What the dashboard narrows to: words a session must carry and the
-/// project it ran in. Both empty is everything.
+/// What the dashboard narrows to: words a session must carry, the project
+/// it ran in, and one session by id. All empty is everything.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scope {
     pub search: String,
     pub project: String,
+    pub session: String,
 }
 
 impl Scope {
     pub fn is_empty(&self) -> bool {
-        search_words(&self.search).is_empty() && self.project.trim().is_empty()
+        search_words(&self.search).is_empty()
+            && self.project.trim().is_empty()
+            && self.session.trim().is_empty()
     }
 }
 
@@ -403,6 +406,8 @@ impl Scope {
 #[derive(Debug, Default)]
 pub struct Scoped {
     /// Dearest first, at most the limit, each with its models dearest first.
+    /// One session asked for narrows the numbers, not this list: it is what
+    /// the dashboard offers to pick from.
     pub sessions: Vec<SessionCost>,
     /// Every project in the range, dearest first, whatever the scope: what
     /// the dashboard offers to narrow to.
@@ -576,6 +581,7 @@ fn scoped_since(
 
     let words = search_words(&scope.search);
     let project = scope.project.trim();
+    let picked = scope.session.trim();
     let mut points: HashMap<(ProviderId, String), HistoryPoint> = HashMap::new();
     let mut models: HashMap<(ProviderId, String, String), ModelDayPoint> = HashMap::new();
     let mut spent_today: HashMap<(ProviderId, String), CostEstimate> = HashMap::new();
@@ -589,7 +595,8 @@ fn scoped_since(
             continue;
         }
         let provider = session.provider;
-        for (date, model, t) in &spent.days {
+        let counted = picked.is_empty() || session.id == picked;
+        for (date, model, t) in spent.days.iter().filter(|_| counted) {
             let cost = pricing::estimate_cost_usd(model, t);
             let point = points
                 .entry((provider, date.clone()))
@@ -709,6 +716,7 @@ mod tests {
         let scope = Scope {
             search: search.into(),
             project: String::new(),
+            session: String::new(),
         };
         Ok(scoped_since(conn, first_date, &ago(0), limit, &scope)?.sessions)
     }
@@ -866,6 +874,7 @@ mod tests {
         let scope = Scope {
             search: String::new(),
             project: "omega-notch".into(),
+            session: String::new(),
         };
         let scoped = scoped_since(&conn, &ago(7), &today, 10, &scope).unwrap();
 
@@ -895,10 +904,22 @@ mod tests {
         let scope = Scope {
             search: "haiku".into(),
             project: String::new(),
+            session: String::new(),
         };
         let scoped = scoped_since(&conn, &ago(7), &today, 10, &scope).unwrap();
         assert_eq!(scoped.sessions.len(), 1);
         assert!(Scope::default().is_empty());
+
+        // One session narrows the numbers but still lists what it was picked from.
+        let scope = Scope {
+            search: String::new(),
+            project: String::new(),
+            session: "other".into(),
+        };
+        let scoped = scoped_since(&conn, &ago(7), &today, 10, &scope).unwrap();
+        assert_eq!(scoped.sessions.len(), 2);
+        let days: Vec<u64> = scoped.points.iter().map(|p| p.output).collect();
+        assert_eq!(days, vec![9_000]);
     }
 
     #[test]

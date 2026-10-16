@@ -192,12 +192,15 @@ public struct Dashboard: Equatable, Sendable {
   public var search = ""
   /// The project everything answers; empty for none.
   public var project = ""
+  /// The session the numbers answer, by id; empty for none. `sessions` still
+  /// lists the rest of the scope, to pick another from.
+  public var session = ""
   /// Every project in the range, dearest first, to narrow to.
   public var projects: [ProjectCost] = []
 
   /// Whether the numbers are narrowed to a project or a search, so they come
   /// from Claude Code's sessions alone.
-  public var isScoped: Bool { !search.isEmpty || !project.isEmpty }
+  public var isScoped: Bool { !search.isEmpty || !project.isEmpty || !session.isEmpty }
   public var totalUsd: Double = 0
 
   public init() {}
@@ -316,6 +319,7 @@ extension ServerMessage {
     var sessions: [SessionCost]?
     var search: String?
     var project: String?
+    var session: String?
     var projects: [ProjectCost]?
     var totalUsd: Double
   }
@@ -355,6 +359,7 @@ extension ServerMessage {
       dashboard.sessions = body.sessions ?? []
       dashboard.search = body.search ?? ""
       dashboard.project = body.project ?? ""
+      dashboard.session = body.session ?? ""
       dashboard.projects = body.projects ?? []
       dashboard.totalUsd = body.totalUsd
       return .dashboard(dashboard)

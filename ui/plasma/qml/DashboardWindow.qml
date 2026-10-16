@@ -35,11 +35,32 @@ Window {
     // already here.
     property string search: ""
     property string project: ""
-    onProjectChanged: Engine.setDashboardProject(project)
+    // One session, by id, that the numbers narrow to.
+    property string chat: ""
+    onProjectChanged: {
+        // A chat from another project would leave nothing to show.
+        chat = ""
+        Engine.setDashboardProject(project)
+    }
+    onChatChanged: Engine.setDashboardSession(chat)
+    // A session's title, short enough for a button.
+    function chatTitle(id) {
+        const s = Engine.dashboardSessions.find(x => x.id === id)
+        const title = s ? s.title : "One chat"
+        return title.length > 40 ? title.slice(0, 39) + "…" : title
+    }
+    // The sessions card: only the picked one, when one is.
+    readonly property var listedSessions: Engine.dashboardSession.length > 0
+                                          ? shownSessions.filter(s => s.id === Engine.dashboardSession)
+                                          : shownSessions
+    // Sessions in scope: one when one is picked.
+    readonly property int scopedCount: Engine.dashboardSession.length > 0 ? 1 : shownSessions.length
     // Whether the numbers on screen are narrowed; they lag the field a little.
     readonly property bool scoped: Engine.dashboardSearch.length > 0 || Engine.dashboardProject.length > 0
+                                   || Engine.dashboardSession.length > 0
     readonly property string scopeLabel: [Engine.dashboardProject,
-                                          Engine.dashboardSearch.length > 0 ? "“" + Engine.dashboardSearch + "”" : ""]
+                                          Engine.dashboardSearch.length > 0 ? "“" + Engine.dashboardSearch + "”" : "",
+                                          Engine.dashboardSession.length > 0 ? chatTitle(Engine.dashboardSession) : ""]
                                          .filter(p => p.length > 0).join(" · ")
     // Narrowed, today and the days before come from the sessions in scope.
     function scopedDay(date) { return root.points.filter(p => p.date === date) }
@@ -272,8 +293,9 @@ Window {
         return shades
     }
     readonly property int unreadCount: shownChats.filter(c => c.unread).length
-    readonly property bool chatsNarrowed: searchWords.length > 0 || project.length > 0
+    readonly property bool chatsNarrowed: searchWords.length > 0 || project.length > 0 || chat.length > 0
     readonly property var foundChats: shownChats.filter(c => (root.project.length === 0 || c.project === root.project)
+                                                             && (root.chat.length === 0 || c.id === root.chat)
                                                              && root.found([c.title, c.project, c.cwd, c.model, c.id]))
     readonly property int foundUnread: foundChats.filter(c => c.unread).length
     // Chats to read first, so the ones counted are never past "Show all".
@@ -414,6 +436,111 @@ Window {
                 value: (legend.money ? Theme.usd(modelData.total) : Theme.tokens(modelData.total))
                        + (legend.series.length > 1 && legend.sum > 0
                           ? "  " + Math.round(100 * modelData.total / legend.sum) + "%" : "")
+            }
+        }
+    }
+
+    // Narrows the page to one of a few: "All …" first, then each choice
+    // with what it spent. The chosen one wears a tick.
+    component ScopeMenu: Rectangle {
+        id: menuButton
+        property string icon: ""
+        property string allLabel: ""
+        property string value: ""
+        property string chosenLabel: ""
+        property var choices: []        // [{ value, label, detail }]
+        signal picked(string value)
+
+        readonly property bool chosen: value.length > 0
+        width: Math.min(menuRow.implicitWidth, 320) + 24
+        height: 32
+        radius: 9
+        color: chosen ? Theme.controlChosen : Theme.controlFill
+        Accessible.role: Accessible.ComboBox
+        Accessible.name: chosen ? chosenLabel : allLabel
+
+        Row {
+            id: menuRow
+            anchors.verticalCenter: parent.verticalCenter
+            x: 12
+            spacing: 7
+            SettingsIcon {
+                width: 14; height: 14
+                anchors.verticalCenter: parent.verticalCenter
+                name: menuButton.icon
+                color: menuButton.chosen ? Theme.text : Theme.textSecondary
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(implicitWidth, 320 - 46)
+                elide: Text.ElideRight
+                text: menuButton.chosen ? menuButton.chosenLabel : menuButton.allLabel
+                color: menuButton.chosen ? Theme.text : Theme.textSecondary
+                font.pixelSize: 13
+                font.weight: menuButton.chosen ? Font.DemiBold : Font.Normal
+            }
+            SettingsIcon {
+                width: 11; height: 11
+                anchors.verticalCenter: parent.verticalCenter
+                name: "chevron-down"
+                color: Theme.textSecondary
+            }
+        }
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: menuPopup.opened ? menuPopup.close() : menuPopup.open() }
+
+        Popup {
+            id: menuPopup
+            y: menuButton.height + 6
+            width: 380
+            height: Math.min(menuList.contentHeight + 12, 360)
+            padding: 6
+            background: Rectangle {
+                radius: 10
+                color: Theme.panelRaised
+                border.width: 1
+                border.color: Theme.cardStroke
+            }
+            contentItem: ListView {
+                id: menuList
+                clip: true
+                model: [{ value: "", label: menuButton.allLabel, detail: "" }].concat(menuButton.choices)
+                delegate: Rectangle {
+                    id: menuItem
+                    required property var modelData
+                    readonly property bool chosen: modelData.value === menuButton.value
+                    width: menuList.width
+                    height: 30
+                    radius: 6
+                    color: itemHover.hovered ? Theme.controlHover : "transparent"
+
+                    Text {
+                        x: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 30 - itemDetail.width
+                        elide: Text.ElideRight
+                        text: (menuItem.chosen ? "✓ " : "") + menuItem.modelData.label
+                        color: Theme.text
+                        font.pixelSize: 13
+                        font.weight: menuItem.chosen ? Font.DemiBold : Font.Normal
+                    }
+                    Text {
+                        id: itemDetail
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: menuItem.modelData.detail
+                        color: Theme.textSecondary
+                        font.pixelSize: 12
+                    }
+                    HoverHandler { id: itemHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: {
+                            menuButton.picked(menuItem.modelData.value)
+                            menuPopup.close()
+                        }
+                    }
+                }
             }
         }
     }
@@ -588,101 +715,26 @@ Window {
                 Row {
                     spacing: 12
 
-                    // Narrows to one project: "All projects", then each one
-                    // in the range, dearest first, with what it spent.
-                    Rectangle {
-                        id: projectButton
-                        width: projectRow.implicitWidth + 24
-                        height: 32
-                        radius: 9
-                        color: root.project.length > 0 ? Theme.controlChosen : Theme.controlFill
-                        Accessible.role: Accessible.ComboBox
-                        Accessible.name: root.project.length > 0 ? "Project: " + root.project : "Project: all"
-
-                        Row {
-                            id: projectRow
-                            anchors.centerIn: parent
-                            spacing: 7
-                            SettingsIcon {
-                                width: 14; height: 14
-                                anchors.verticalCenter: parent.verticalCenter
-                                name: "layers"
-                                color: root.project.length > 0 ? Theme.text : Theme.textSecondary
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: root.project.length > 0 ? root.project : "All projects"
-                                color: root.project.length > 0 ? Theme.text : Theme.textSecondary
-                                font.pixelSize: 13
-                                font.weight: root.project.length > 0 ? Font.DemiBold : Font.Normal
-                            }
-                            SettingsIcon {
-                                width: 11; height: 11
-                                anchors.verticalCenter: parent.verticalCenter
-                                name: "chevron-down"
-                                color: Theme.textSecondary
-                            }
-                        }
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: projectMenu.opened ? projectMenu.close() : projectMenu.open() }
-
-                        Popup {
-                            id: projectMenu
-                            y: projectButton.height + 6
-                            width: 340
-                            height: Math.min(projectList.contentHeight + 12, 360)
-                            padding: 6
-                            background: Rectangle {
-                                radius: 10
-                                color: Theme.panelRaised
-                                border.width: 1
-                                border.color: Theme.cardStroke
-                            }
-                            contentItem: ListView {
-                                id: projectList
-                                clip: true
-                                model: [{ project: "", cost_usd: -1, sessions: 0 }].concat(Engine.dashboardProjects)
-                                delegate: Rectangle {
-                                    id: projectItem
-                                    required property var modelData
-                                    readonly property bool chosen: modelData.project === root.project
-                                    width: projectList.width
-                                    height: 30
-                                    radius: 6
-                                    color: itemHover.hovered ? Theme.controlHover : "transparent"
-
-                                    Text {
-                                        x: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width - 20 - detail.width
-                                        elide: Text.ElideRight
-                                        text: (projectItem.chosen ? "✓ " : "")
-                                              + (projectItem.modelData.project || "All projects")
-                                        color: Theme.text
-                                        font.pixelSize: 13
-                                        font.weight: projectItem.chosen ? Font.DemiBold : Font.Normal
-                                    }
-                                    Text {
-                                        id: detail
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        visible: projectItem.modelData.cost_usd >= 0
-                                        text: Theme.usd(projectItem.modelData.cost_usd) + " · " + projectItem.modelData.sessions
-                                              + (projectItem.modelData.sessions === 1 ? " session" : " sessions")
-                                        color: Theme.textSecondary
-                                        font.pixelSize: 12
-                                    }
-                                    HoverHandler { id: itemHover; cursorShape: Qt.PointingHandCursor }
-                                    TapHandler {
-                                        onTapped: {
-                                            root.project = projectItem.modelData.project
-                                            projectMenu.close()
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    ScopeMenu {
+                        icon: "layers"
+                        allLabel: "All projects"
+                        value: root.project
+                        chosenLabel: root.project
+                        choices: Engine.dashboardProjects.map(p => ({
+                            value: p.project, label: p.project,
+                            detail: Theme.usd(p.cost_usd) + " · " + p.sessions + (p.sessions === 1 ? " session" : " sessions")
+                        }))
+                        onPicked: (value) => root.project = value
+                    }
+                    ScopeMenu {
+                        icon: "message"
+                        allLabel: "All chats"
+                        value: root.chat
+                        chosenLabel: root.chatTitle(root.chat)
+                        choices: root.shownSessions.map(x => ({
+                            value: x.id, label: x.title, detail: Theme.usd(x.cost_usd)
+                        }))
+                        onPicked: (value) => root.chat = value
                     }
 
                     DashSegmented {
@@ -724,7 +776,7 @@ Window {
                         Text {
                             width: parent.width
                             wrapMode: Text.WordWrap
-                            text: root.shownSessions.length + (root.shownSessions.length === 1 ? " session · " : " sessions · ")
+                            text: root.scopedCount + (root.scopedCount === 1 ? " session · " : " sessions · ")
                                   + Theme.usd(root.rangeCost) + " in the last " + root.days
                                   + " days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
                             color: Theme.textSecondary
@@ -741,6 +793,7 @@ Window {
                         onClicked: {
                             root.search = ""
                             root.project = ""
+                            root.chat = ""
                         }
                     }
                 }
@@ -1023,7 +1076,7 @@ Window {
                     }
 
                     Repeater {
-                        model: root.showAllSessions ? root.shownSessions : root.shownSessions.slice(0, 8)
+                        model: root.showAllSessions ? root.listedSessions : root.listedSessions.slice(0, 8)
                         delegate: DashSessionRow {
                             required property var modelData
                             required property int index
@@ -1034,7 +1087,9 @@ Window {
                             rangeCost: root.rangeCost
                             shades: root.modelShades
                             otherShade: root.shades[root.shades.length - 1]
-                            expanded: root.openSession === modelData.id
+                            expanded: root.openSession === modelData.id || Engine.dashboardSession.length > 0
+                            focusable: Engine.dashboardSession.length === 0
+                            onFocusRequested: root.chat = modelData.id
                             onToggled: root.openSession = expanded ? "" : modelData.id
                             onOpenRequested: Engine.openChat(modelData)
                         }
