@@ -226,6 +226,7 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                         cost_usd: 1.27,
                     }],
                 }],
+                search: "parser".into(),
             },
         ),
         (

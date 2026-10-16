@@ -115,6 +115,47 @@ struct TextButton: View {
   }
 }
 
+/// A search box: a magnifier, the words, and a cross to clear them. Escape
+/// clears too.
+struct SearchField: View {
+  var prompt: String
+  @Binding var text: String
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium))
+        .foregroundStyle(Theme.textTertiary)
+      TextField(prompt, text: $text)
+        .textFieldStyle(.plain)
+        .font(.notch(13))
+        .foregroundStyle(Theme.text)
+        .focused($focused)
+        .onKeyPress(.escape) {
+          guard !text.isEmpty else { return .ignored }
+          text = ""
+          return .handled
+        }
+      if !text.isEmpty {
+        Image(systemName: "xmark.circle.fill").font(.system(size: 12))
+          .foregroundStyle(Theme.textTertiary)
+          .clickable()
+          .onTapGesture { text = "" }
+          .accessibilityLabel("Clear the search")
+          .accessibilityAddTraits(.isButton)
+      }
+    }
+    .padding(.horizontal, 10)
+    .frame(width: 240, height: 32)
+    .background(
+      RoundedRectangle(cornerRadius: 9).fill(Theme.controlFill)
+        .strokeBorder(focused ? Theme.textTertiary : .clear, lineWidth: 1)
+    )
+    .contentShape(Rectangle())
+    .onTapGesture { focused = true }
+  }
+}
+
 /// The notch's ring, dashboard-sized: track, coloured sweep, number inside.
 struct DashRing: View {
   /// 0...100, or below zero for no data.

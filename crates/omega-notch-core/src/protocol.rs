@@ -440,6 +440,11 @@ pub enum ClientMessage {
     GetDashboard {
         #[serde(default = "default_dashboard_days")]
         days: u32,
+        /// Words a session must all carry, in its title, project, folder, id
+        /// or a model's name; the sessions are then every match in the range,
+        /// not only the dearest.
+        #[serde(default)]
+        search: String,
     },
     Ping,
 }
@@ -507,6 +512,10 @@ pub enum ServerMessage {
         /// The range's dearest sessions, with their models (v6, additive).
         #[serde(default)]
         sessions: Vec<SessionCost>,
+        /// The search `sessions` answers, as the engine read it; empty when
+        /// there was none.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        search: String,
     },
     CopilotLogin {
         login: CopilotLogin,

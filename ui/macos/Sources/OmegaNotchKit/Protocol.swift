@@ -173,8 +173,11 @@ public struct Dashboard: Equatable, Sendable {
   public var points: [HistoryPoint] = []
   public var costs: [CostEstimate] = []
   public var models: [ModelDayPoint] = []
-  /// The range's dearest sessions, dearest first (v6).
+  /// The range's dearest sessions, dearest first (v6); with a search, the
+  /// range's sessions that match it.
   public var sessions: [SessionCost] = []
+  /// The search `sessions` answers, as the engine read it; empty for none.
+  public var search = ""
   public var totalUsd: Double = 0
 
   public init() {}
@@ -291,6 +294,7 @@ extension ServerMessage {
     var costs: [CostEstimate]
     var models: [ModelDayPoint]?
     var sessions: [SessionCost]?
+    var search: String?
     var totalUsd: Double
   }
 
@@ -327,6 +331,7 @@ extension ServerMessage {
       dashboard.costs = body.costs
       dashboard.models = body.models ?? []
       dashboard.sessions = body.sessions ?? []
+      dashboard.search = body.search ?? ""
       dashboard.totalUsd = body.totalUsd
       return .dashboard(dashboard)
     case "copilot_login":

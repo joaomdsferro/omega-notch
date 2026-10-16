@@ -85,6 +85,7 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(session.lastDate, "2026-10-01")
     XCTAssertEqual(session.cacheRead, 3357968)
     XCTAssertEqual(session.models.first?.model, "Opus 5.5")
+    XCTAssertEqual(dashboard.search, "parser")
 
     guard case .copilotLogin(let login) = try fixture("copilot_login") else {
       return XCTFail("not a login")

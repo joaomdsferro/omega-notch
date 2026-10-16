@@ -37,6 +37,18 @@ public enum DashboardData {
   }
 
   public static let otherKey = "__other"
+  /// The words of a search, lowercased, as the engine reads them: at most 8,
+  /// from at most 200 characters.
+  public static func searchWords(_ search: String) -> [String] {
+    Array(String(search.prefix(200)).lowercased().split(whereSeparator: \.isWhitespace).prefix(8).map(String.init))
+  }
+
+  /// Whether every word is somewhere in the fields.
+  public static func matches(_ words: [String], in fields: [String?]) -> Bool {
+    let haystack = fields.compactMap { $0 }.joined(separator: " ").lowercased()
+    return words.allSatisfy { haystack.contains($0) }
+  }
+
   public static let shadeCount = DashboardPalette.series
 
   /// `yyyy-MM-dd` in the local time zone.

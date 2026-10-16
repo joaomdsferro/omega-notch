@@ -106,6 +106,8 @@ To remove it, run `./uninstall.sh` from the same folder.
   starts with every Claude Code day still on disk. Costs are estimates at API list prices, not a bill
   - Its charts and tables come in greys, a vivid palette or a colour-blind safe one (Okabe–Ito), and
     any series can have a colour of its own, in Settings → Notch
+  - Search sessions and chats by title, project, folder or model: every session in the range that
+    matches, not only the dearest
 - **Chats to read.** A chat that finished since you last looked at it gets a green badge on its
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from

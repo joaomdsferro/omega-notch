@@ -330,8 +330,9 @@ impl UsageStore {
     /// Dashboard payload: persisted daily points, the range's dearest
     /// sessions, and today's per-model cost estimates. `days` clamps to
     /// 7..=90 inside `history`.
-    pub async fn dashboard(&self, days: u32) -> ServerMessage {
+    pub async fn dashboard(&self, days: u32, search: String) -> ServerMessage {
         let days = days.clamp(7, history::MAX_HISTORY_DAYS);
+        let search = history::search_words(&search).join(" ");
         let points: Vec<HistoryPoint> =
             tokio::task::spawn_blocking(move || history::query_history(days))
                 .await
@@ -344,8 +345,9 @@ impl UsageStore {
                 .ok()
                 .and_then(|r| r.ok())
                 .unwrap_or_default();
+        let words = search.clone();
         let sessions: Vec<SessionCost> = tokio::task::spawn_blocking(move || {
-            history::query_sessions(days, history::MAX_SESSIONS)
+            history::query_sessions(days, history::MAX_SESSIONS, &words)
         })
         .await
         .ok()
@@ -389,6 +391,7 @@ impl UsageStore {
             total_usd,
             models,
             sessions,
+            search,
         }
     }
 

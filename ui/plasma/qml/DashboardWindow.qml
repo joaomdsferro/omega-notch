@@ -29,6 +29,23 @@ Window {
     property bool showAllChats: false
     property bool showAllSessions: false
     property string openSession: ""
+    // Words that sessions and chats must carry; the engine searches the
+    // sessions, the chats are already here.
+    property string search: ""
+    // The words of a search, as the engine reads them.
+    readonly property var searchWords: search.slice(0, 200).toLowerCase().split(/\s+/).filter(w => w.length > 0).slice(0, 8)
+    function found(fields) {
+        const haystack = fields.filter(f => !!f).join(" ").toLowerCase()
+        return searchWords.every(w => haystack.indexOf(w) >= 0)
+    }
+
+    // Typing settles before the engine is asked again.
+    onSearchChanged: searchSettle.restart()
+    Timer {
+        id: searchSettle
+        interval: 250
+        onTriggered: Engine.searchDashboard(root.search)
+    }
 
     Component.onCompleted: Engine.requestDashboard(root.days)
     onDaysChanged: Engine.requestDashboard(root.days)
@@ -236,9 +253,11 @@ Window {
         return shades
     }
     readonly property int unreadCount: shownChats.filter(c => c.unread).length
+    readonly property var foundChats: shownChats.filter(c => root.found([c.title, c.project, c.cwd, c.model, c.id]))
+    readonly property int foundUnread: foundChats.filter(c => c.unread).length
     // Chats to read first, so the ones counted are never past "Show all".
-    readonly property var listedChats: shownChats.filter(c => c.unread).concat(shownChats.filter(c => !c.unread))
-    readonly property bool chatsHaveContext: shownChats.some(
+    readonly property var listedChats: foundChats.filter(c => c.unread).concat(foundChats.filter(c => !c.unread))
+    readonly property bool chatsHaveContext: foundChats.some(
         c => c.context_pct !== undefined && c.context_pct !== null)
 
     readonly property var todayTotals: {
@@ -454,7 +473,76 @@ Window {
                     }
                 }
 
+                // Search box: a magnifier, the words, and a cross to clear
+                // them. Escape clears too.
+                Rectangle {
+                    anchors.right: daysPicker.left
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: daysPicker.verticalCenter
+                    width: 240
+                    height: 32
+                    radius: 9
+                    color: Theme.controlFill
+                    border.width: 1
+                    border.color: searchInput.activeFocus ? Theme.textTertiary : "transparent"
+
+                    SettingsIcon {
+                        id: searchIcon
+                        x: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 14
+                        height: 14
+                        name: "search"
+                        color: Theme.textTertiary
+                    }
+                    TextInput {
+                        id: searchInput
+                        anchors.left: searchIcon.right
+                        anchors.leftMargin: 6
+                        anchors.right: clearSearch.visible ? clearSearch.left : parent.right
+                        anchors.rightMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.search
+                        onTextEdited: root.search = text
+                        color: Theme.text
+                        selectionColor: Theme.textTertiary
+                        selectByMouse: true
+                        clip: true
+                        font.pixelSize: 13
+                        Keys.onEscapePressed: (event) => {
+                            event.accepted = root.search.length > 0
+                            root.search = ""
+                        }
+                        Accessible.name: "Search sessions and chats"
+
+                        Text {
+                            visible: searchInput.text.length === 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Search sessions and chats"
+                            color: Theme.textTertiary
+                            font.pixelSize: 13
+                        }
+                    }
+                    SettingsIcon {
+                        id: clearSearch
+                        visible: root.search.length > 0
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 12
+                        height: 12
+                        name: "x"
+                        color: Theme.textTertiary
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Clear the search"
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: root.search = "" }
+                    }
+                    HoverHandler { cursorShape: Qt.IBeamCursor }
+                }
+
                 DashSegmented {
+                    id: daysPicker
                     anchors.right: parent.right
                     anchors.top: parent.top
                     options: [
@@ -711,7 +799,10 @@ Window {
                 id: sessionsCard
                 width: parent.width
                 heading: "Dearest sessions"
-                caption: root.shownSessions.length === 0
+                caption: Engine.dashboardSearch.length > 0
+                         ? root.shownSessions.length + (root.shownSessions.length === 1 ? " session matches" : " sessions match")
+                           + " “" + Engine.dashboardSearch + "” in the last " + root.days + " days, by estimated cost"
+                         : root.shownSessions.length === 0
                          ? "By estimated cost in the last " + root.days + " days"
                          : "Top " + root.shownSessions.length + " by estimated cost in the last " + root.days
                            + " days · click one for its models"
@@ -768,7 +859,8 @@ Window {
                     Text {
                         visible: root.shownSessions.length === 0
                         topPadding: 8
-                        text: "No session history in this range yet."
+                        text: Engine.dashboardSearch.length > 0 ? "No session in this range matches."
+                                                                : "No session history in this range yet."
                         color: Theme.textTertiary
                         font.pixelSize: 13
                     }
@@ -784,11 +876,14 @@ Window {
                     id: chatsCard
                     width: parent.width
                     heading: "Recent chats"
-                    caption: root.shownChats.length + (root.shownChats.length === 1 ? " chat" : " chats")
-                             + (root.unreadCount > 0 ? " · " + root.unreadCount + " to read" : "") + " · click one to jump to it"
+                    caption: (root.searchWords.length === 0
+                              ? root.foundChats.length + (root.foundChats.length === 1 ? " chat" : " chats")
+                              : root.foundChats.length + " of " + root.shownChats.length
+                                + (root.shownChats.length === 1 ? " chat matches" : " chats match"))
+                             + (root.foundUnread > 0 ? " · " + root.foundUnread + " to read" : "") + " · click one to jump to it"
                     trailing: TextButton {
-                        visible: root.shownChats.length > 8
-                        label: root.showAllChats ? "Show fewer" : "Show all " + root.shownChats.length
+                        visible: root.foundChats.length > 8
+                        label: root.showAllChats ? "Show fewer" : "Show all " + root.foundChats.length
                         onClicked: root.showAllChats = !root.showAllChats
                     }
 
@@ -800,7 +895,7 @@ Window {
                         Item {
                             width: parent.width
                             height: 20
-                            visible: root.shownChats.length > 0
+                            visible: root.foundChats.length > 0
                             Text {
                                 x: 44
                                 text: "Chat"
@@ -830,9 +925,9 @@ Window {
                         }
 
                         Text {
-                            visible: root.shownChats.length === 0
+                            visible: root.foundChats.length === 0
                             topPadding: 8
-                            text: "No recent chats found."
+                            text: root.searchWords.length > 0 ? "No recent chat matches." : "No recent chats found."
                             color: Theme.textTertiary
                             font.pixelSize: 13
                         }

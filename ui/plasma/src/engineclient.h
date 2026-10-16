@@ -21,6 +21,8 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList dashboardCosts READ dashboardCosts NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList dashboardModels READ dashboardModels NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList dashboardSessions READ dashboardSessions NOTIFY dashboardChanged)
+    // The search dashboardSessions answers, as the engine read it.
+    Q_PROPERTY(QString dashboardSearch READ dashboardSearch NOTIFY dashboardChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
     Q_PROPERTY(QString edge READ edge NOTIFY configChanged)
     Q_PROPERTY(double edgePosition READ edgePosition NOTIFY configChanged)
@@ -78,6 +80,7 @@ public:
     QVariantList dashboardCosts() const { return m_dashboardCosts; }
     QVariantList dashboardModels() const { return m_dashboardModels; }
     QVariantList dashboardSessions() const { return m_dashboardSessions; }
+    QString dashboardSearch() const { return m_dashboardAnswered; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
     double edgePosition() const { return m_edgePosition; }
@@ -123,6 +126,9 @@ public:
 
     Q_INVOKABLE void refresh(const QString &provider = QString());
     Q_INVOKABLE void requestDashboard(int days = 30);
+    // Searches the dashboard's sessions; later requests keep the search
+    // until it changes.
+    Q_INVOKABLE void searchDashboard(const QString &search);
     Q_INVOKABLE void setEdge(const QString &edge);
     Q_INVOKABLE void setEdgePosition(double pos);
     Q_INVOKABLE void setSizePreset(const QString &size);
@@ -215,6 +221,9 @@ private:
     QVariantList m_dashboardCosts;
     QVariantList m_dashboardModels;
     QVariantList m_dashboardSessions;
+    int m_dashboardDays = 30;
+    QString m_dashboardSearch;
+    QString m_dashboardAnswered;
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;

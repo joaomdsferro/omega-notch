@@ -388,15 +388,47 @@ pub fn query_models(days: u32) -> anyhow::Result<Vec<ModelDayPoint>> {
 /// The range's dearest sessions, at most `limit`, each with its models
 /// dearest first. A session without a name (its own transcript is gone) is
 /// shown by its project or id.
-pub fn query_sessions(days: u32, limit: usize) -> anyhow::Result<Vec<SessionCost>> {
+/// The range's dearest sessions, only those carrying every word of `search`
+/// when it has any.
+pub fn query_sessions(days: u32, limit: usize, search: &str) -> anyhow::Result<Vec<SessionCost>> {
     let conn = connect()?;
-    sessions_since(&conn, &cutoff(days), limit)
+    sessions_since(&conn, &cutoff(days), limit, search)
+}
+
+/// The words of a search, lowercased: at most `MAX_SEARCH_WORDS`, from at
+/// most `MAX_SEARCH_CHARS` characters.
+pub fn search_words(search: &str) -> Vec<String> {
+    let search: String = search.chars().take(MAX_SEARCH_CHARS).collect();
+    search
+        .split_whitespace()
+        .take(MAX_SEARCH_WORDS)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+pub const MAX_SEARCH_CHARS: usize = 200;
+const MAX_SEARCH_WORDS: usize = 8;
+
+/// Whether every word is somewhere in the session's names or models.
+fn session_matches(session: &SessionCost, words: &[String]) -> bool {
+    let mut haystack = format!("{} {}", session.title, session.id);
+    for part in [&session.project, &session.cwd].into_iter().flatten() {
+        haystack.push(' ');
+        haystack.push_str(part);
+    }
+    for model in &session.models {
+        haystack.push(' ');
+        haystack.push_str(&model.model);
+    }
+    let haystack = haystack.to_lowercase();
+    words.iter().all(|word| haystack.contains(word.as_str()))
 }
 
 fn sessions_since(
     conn: &Connection,
     first_date: &str,
     limit: usize,
+    search: &str,
 ) -> anyhow::Result<Vec<SessionCost>> {
     let mut stmt = conn.prepare(
         "SELECT s.provider, s.session_id, s.model,
@@ -465,7 +497,11 @@ fn sessions_since(
         });
     }
 
-    let mut sessions: Vec<SessionCost> = by_session.into_values().collect();
+    let words = search_words(search);
+    let mut sessions: Vec<SessionCost> = by_session
+        .into_values()
+        .filter(|session| session_matches(session, &words))
+        .collect();
     for session in &mut sessions {
         session.models.sort_by(|a, b| {
             b.cost_usd
@@ -562,7 +598,7 @@ mod tests {
             ],
             &[named("dear", "Big refactor", 1), named("cheap", "Typo", 2)],
         );
-        let sessions = sessions_since(&conn, &ago(7), 10).unwrap();
+        let sessions = sessions_since(&conn, &ago(7), 10, "").unwrap();
         assert_eq!(sessions.len(), 2);
         let dear = &sessions[0];
         assert_eq!(dear.title, "Big refactor");
@@ -576,8 +612,8 @@ mod tests {
         assert_eq!(sessions[1].id, "cheap");
 
         // The range and the limit both cut.
-        assert_eq!(sessions_since(&conn, &d2, 10).unwrap().len(), 1);
-        assert_eq!(sessions_since(&conn, &ago(7), 1).unwrap()[0].id, "dear");
+        assert_eq!(sessions_since(&conn, &d2, 10, "").unwrap().len(), 1);
+        assert_eq!(sessions_since(&conn, &ago(7), 1, "").unwrap()[0].id, "dear");
     }
 
     #[test]
@@ -590,14 +626,56 @@ mod tests {
             &[spent("s", &d, "Opus 4.7", 5), spent("s", &d, "Opus 4.7", 7)],
             &[],
         );
-        let sessions = sessions_since(&conn, &ago(7), 10).unwrap();
+        let sessions = sessions_since(&conn, &ago(7), 10, "").unwrap();
         assert_eq!(sessions[0].output, 12);
         // No name stored: the id stands in.
         assert_eq!(sessions[0].title, "s");
 
         // A rescan of the same day replaces it rather than adding to it.
         write_sessions(&mut conn, &[spent("s", &d, "Opus 4.7", 20)], &[]);
-        assert_eq!(sessions_since(&conn, &ago(7), 10).unwrap()[0].output, 20);
+        assert_eq!(
+            sessions_since(&conn, &ago(7), 10, "").unwrap()[0].output,
+            20
+        );
+    }
+
+    #[test]
+    fn a_search_finds_sessions_by_every_word_past_the_dearest() {
+        let mut conn = memory();
+        let d = ago(1);
+        write_sessions(
+            &mut conn,
+            &[
+                spent("dear", &d, "Opus 4.7", 9_000_000),
+                spent("cheap", &d, "Haiku 4.5", 1_000),
+            ],
+            &[
+                named("dear", "Rewrite the parser", 1),
+                named("cheap", "Fix the Parser tests", 1),
+            ],
+        );
+        let ids = |search: &str, limit: usize| -> Vec<String> {
+            sessions_since(&conn, &ago(7), limit, search)
+                .unwrap()
+                .into_iter()
+                .map(|s| s.id)
+                .collect()
+        };
+        // Case does not matter, and the search reaches past the limit.
+        assert_eq!(ids("PARSER", 1), vec!["dear".to_string()]);
+        assert_eq!(ids("parser tests", 1), vec!["cheap".to_string()]);
+        // A model, or the project (both sessions are in omega-notch).
+        assert_eq!(ids("haiku", 10), vec!["cheap".to_string()]);
+        assert_eq!(ids("omega-notch", 10).len(), 2);
+        assert!(ids("parser nothing", 10).is_empty());
+        assert_eq!(ids("   ", 10).len(), 2);
+    }
+
+    #[test]
+    fn search_words_are_bounded() {
+        assert_eq!(search_words("  Foo   BAR "), vec!["foo", "bar"]);
+        assert_eq!(search_words(&"a ".repeat(50)).len(), MAX_SEARCH_WORDS);
+        assert_eq!(search_words(&"x".repeat(500))[0].len(), MAX_SEARCH_CHARS);
     }
 
     #[test]
@@ -615,7 +693,7 @@ mod tests {
             &[named("s", "First prompt", 30)],
         );
         assert_eq!(
-            sessions_since(&conn, &ago(7), 10).unwrap()[0].title,
+            sessions_since(&conn, &ago(7), 10, "").unwrap()[0].title,
             "Renamed"
         );
     }

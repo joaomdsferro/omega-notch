@@ -16,6 +16,9 @@ struct DashboardView: View {
   @State private var showAllChats = false
   @State private var showAllSessions = false
   @State private var openSession: String?
+  /// Words that sessions and chats must carry; the engine searches the
+  /// sessions, the chats are already here.
+  @State private var search = ""
   @State private var now = Date()
 
   private let ticker = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -107,6 +110,9 @@ struct DashboardView: View {
 
   private var shownCosts: [CostEstimate] { client.dashboard.costs.filter { matches($0.provider) } }
   private var shownChats: [ChatSummary] { client.chats.filter { matches($0.provider) } }
+  private var searchWords: [String] { DashboardData.searchWords(search) }
+  /// The search the sessions on screen answer, which lags the field a little.
+  private var sessionSearch: String { client.dashboard.search }
   private var shownSessions: [SessionCost] { client.dashboard.sessions.filter { matches($0.provider) } }
 
   private var workingCount: Int { client.sessions.filter { $0.kind == .busy && matches($0.provider) }.count }
@@ -226,9 +232,16 @@ struct DashboardView: View {
         }
       }
       Spacer()
+      SearchField(prompt: "Search sessions and chats", text: $search)
+        .padding(.trailing, 12)
       DashSegmented(
         options: [7, 30, 90].map { .init(value: "\($0)", label: "\($0) days") }, value: "\(days)"
       ) { days = Int($0) ?? 30 }
+    }
+    // Typing settles before the engine is asked again.
+    .task(id: search) {
+      guard (try? await Task.sleep(for: .milliseconds(250))) != nil else { return }
+      client.searchDashboard(search)
     }
   }
 
@@ -318,11 +331,17 @@ struct DashboardView: View {
     let modelShades = Dictionary(
       models.enumerated().map { ($1.model, shades[$0 % shades.count]) },
       uniquingKeysWith: { first, _ in first })
+    let caption: String = {
+      if !sessionSearch.isEmpty {
+        return "\(all.count) \(all.count == 1 ? "session matches" : "sessions match") “\(sessionSearch)” in the last \(days) days, by estimated cost"
+      }
+      return all.isEmpty
+        ? "By estimated cost in the last \(days) days"
+        : "Top \(all.count) by estimated cost in the last \(days) days · click one for its models"
+    }()
     return DashCard(
       heading: "Dearest sessions",
-      caption: all.isEmpty
-        ? "By estimated cost in the last \(days) days"
-        : "Top \(all.count) by estimated cost in the last \(days) days · click one for its models",
+      caption: caption,
       trailing: {
         if all.count > 8 {
           TextButton(label: showAllSessions ? "Show fewer" : "Show all \(all.count)") {
@@ -332,7 +351,7 @@ struct DashboardView: View {
       }
     ) {
       if all.isEmpty {
-        Text("No session history in this range yet.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
+        Text(sessionSearch.isEmpty ? "No session history in this range yet." : "No session in this range matches.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
           .padding(.top, 8)
       } else {
         VStack(spacing: 0) {
@@ -366,14 +385,20 @@ struct DashboardView: View {
   }
 
   private var chats: some View {
+    let words = searchWords
+    let found = shownChats.filter {
+      DashboardData.matches(words, in: [$0.title, $0.project, $0.cwd, $0.model, $0.id])
+    }
     // Chats to read first, so the ones counted are never past "Show all".
-    let all = shownChats.filter(\.isUnread) + shownChats.filter { !$0.isUnread }
+    let all = found.filter(\.isUnread) + found.filter { !$0.isUnread }
     let shown = showAllChats ? all : Array(all.prefix(8))
     let showContext = all.contains { $0.contextPct != nil }
     let unreadCount = all.filter(\.isUnread).count
     return DashCard(
       heading: "Recent chats",
-      caption: "\(all.count) \(all.count == 1 ? "chat" : "chats")"
+      caption: (words.isEmpty
+        ? "\(all.count) \(all.count == 1 ? "chat" : "chats")"
+        : "\(all.count) of \(shownChats.count) \(shownChats.count == 1 ? "chat matches" : "chats match")")
         + (unreadCount > 0 ? " · \(unreadCount) to read" : "") + " · click one to jump to it",
       trailing: {
         if all.count > 8 {
@@ -382,7 +407,7 @@ struct DashboardView: View {
       }
     ) {
       if all.isEmpty {
-        Text("No recent chats found.").font(.notch(13)).foregroundStyle(Theme.textTertiary).padding(.top, 8)
+        Text(words.isEmpty ? "No recent chats found." : "No recent chat matches.").font(.notch(13)).foregroundStyle(Theme.textTertiary).padding(.top, 8)
       } else {
         VStack(spacing: 0) {
           HStack(spacing: 0) {

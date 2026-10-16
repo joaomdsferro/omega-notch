@@ -54,4 +54,13 @@ final class DashboardDataTests: XCTestCase {
     XCTAssertEqual(rows[0].activeDays, 2)
     XCTAssertEqual(rows[0].daily, [50, 10])
   }
+
+  func testASearchNeedsEveryWordAnywhere() {
+    let words = DashboardData.searchWords("  Parser  OPUS ")
+    XCTAssertEqual(words, ["parser", "opus"])
+    XCTAssertTrue(DashboardData.matches(words, in: ["Rewrite the parser", nil, "Opus 5.5"]))
+    XCTAssertFalse(DashboardData.matches(words, in: ["Rewrite the parser", "Haiku 4.5"]))
+    XCTAssertTrue(DashboardData.matches([], in: [nil]))
+    XCTAssertEqual(DashboardData.searchWords(String(repeating: "a ", count: 20)).count, 8)
+  }
 }

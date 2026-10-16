@@ -36,6 +36,8 @@ public final class EngineClient {
   @ObservationIgnored private var socket: LineSocket?
   @ObservationIgnored private var reconnect: Timer?
   @ObservationIgnored private var peekTimer: Timer?
+  @ObservationIgnored private var dashboardDays = 30
+  @ObservationIgnored private var dashboardSearch = ""
   @ObservationIgnored private let encoder = JSONEncoder()
 
   public init(socketPath: String = EnginePaths.socket) {
@@ -88,8 +90,23 @@ public final class EngineClient {
     send(.object(message))
   }
 
+  /// Asks for the dashboard over `days`, with the search it has now.
   public func requestDashboard(days: Int = 30) {
-    send(.object(["type": .string("get_dashboard"), "days": .number(Double(min(90, max(7, days))))]))
+    dashboardDays = min(90, max(7, days))
+    var message: [String: JSONValue] = [
+      "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
+    ]
+    if !dashboardSearch.isEmpty { message["search"] = .string(dashboardSearch) }
+    send(.object(message))
+  }
+
+  /// Searches the dashboard's sessions; every later request keeps the search
+  /// until it changes.
+  public func searchDashboard(_ search: String) {
+    let search = DashboardData.searchWords(search).joined(separator: " ")
+    guard search != dashboardSearch else { return }
+    dashboardSearch = search
+    requestDashboard(days: dashboardDays)
   }
 
   public func openChat(_ chat: ChatSummary) {
