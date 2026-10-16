@@ -86,9 +86,11 @@ provider.
 `unread` (v6) is true for a chat that stopped with a reply newer than both
 your latest prompt in it and the last time you looked at it. Looking means
 `open_chat` on it, or (macOS) `window_focused` naming the app that runs it:
-the engine picks the live session under `pid` whose name or folder the
-window's `title` carries, or the only one when there is no title, and marks
-nothing when that is not clear. Only Claude Code says when it last replied,
+the engine picks the live session under `pid` whose chat title, name or
+folder the window's `title` carries best, or the only one when there is no
+title. Sessions the title fits equally well (VS Code captions a chat's tab
+with the folder alone) go to the only one of them that is unread. Anything
+less clear marks nothing. Only Claude Code says when it last replied,
 so other tools' chats are never unread. The marks are kept in `seen.json`
 (mode 600) next to `history.db`; on the first run every chat already on disk
 counts as read. Older clients ignore the field.

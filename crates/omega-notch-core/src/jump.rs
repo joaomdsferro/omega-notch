@@ -16,7 +16,7 @@
 //! line tools are often not installed. A live CLI session brings its terminal
 //! app forward; picking its window or tab is left to the app shell.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -309,12 +309,16 @@ fn window_hints(
 /// `title`, the session whose chat title, name or folder it carries best
 /// (`titles` maps session ids to chat titles: VS Code names its window after
 /// the tab in front, and the chat's tab after the chat); without, only when
-/// the app runs a single session. `None` whenever it is not clear, so a chat
-/// is never marked read by a guess.
+/// the app runs a single session. Sessions the caption fits equally well
+/// (VS Code captions a chat's tab with the folder alone) are settled by
+/// `unread`: the window holds one chat to read, so that is the one in front.
+/// `None` whenever it is still not clear, so a chat is never marked read by a
+/// guess.
 pub fn session_in_window(
     pid: u32,
     title: Option<&str>,
     titles: &HashMap<String, String>,
+    unread: &HashSet<String>,
 ) -> Option<String> {
     let candidates: Vec<(String, Vec<String>)> = chats::read_claude_sessions()?
         .into_iter()
@@ -328,7 +332,7 @@ pub fn session_in_window(
             Some((id, hints))
         })
         .collect();
-    let found = pick_session(&candidates, title);
+    let found = pick_session(&candidates, title, unread);
     // Counts only: the caption may name a private file or page.
     info!(
         sessions = candidates.len(),
@@ -363,7 +367,11 @@ fn title_score(caption: &str, hints: &[String]) -> usize {
     best
 }
 
-fn pick_session(candidates: &[(String, Vec<String>)], title: Option<&str>) -> Option<String> {
+fn pick_session(
+    candidates: &[(String, Vec<String>)],
+    title: Option<&str>,
+    unread: &HashSet<String>,
+) -> Option<String> {
     let title = title.map(str::trim).filter(|t| !t.is_empty());
     let Some(title) = title else {
         return match candidates {
@@ -380,9 +388,22 @@ fn pick_session(candidates: &[(String, Vec<String>)], title: Option<&str>) -> Op
         .map(|(score, _)| *score)
         .max()
         .filter(|s| *s > 0)?;
-    let mut winners = scored.iter().filter(|(score, _)| *score == top);
-    let (_, id) = winners.next()?;
-    winners.next().is_none().then(|| (*id).clone())
+    let winners: Vec<&String> = scored
+        .iter()
+        .filter(|(score, _)| *score == top)
+        .map(|(_, id)| *id)
+        .collect();
+    let lone = |ids: &[&String]| match ids {
+        [id] => Some((*id).clone()),
+        _ => None,
+    };
+    lone(&winners).or_else(|| {
+        let to_read: Vec<&String> = winners
+            .into_iter()
+            .filter(|id| unread.contains(*id))
+            .collect();
+        lone(&to_read)
+    })
 }
 
 /// The process and its parents, nearest first: one of them owns the window
@@ -626,6 +647,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_tie_goes_to_the_only_chat_to_read() {
+        let hints = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let set = |ids: &[&str]| ids.iter().map(|i| i.to_string()).collect::<HashSet<_>>();
+        let two = vec![
+            ("a".to_string(), hints(&["CodeRabbit", "omega-notch"])),
+            ("b".to_string(), hints(&["Funcionalidades", "omega-notch"])),
+        ];
+        // VS Code captions the chat's tab with the folder alone.
+        assert_eq!(
+            pick_session(&two, Some("omega-notch"), &set(&["b"])),
+            Some("b".into())
+        );
+        assert_eq!(
+            pick_session(&two, Some("omega-notch"), &set(&["a", "b"])),
+            None
+        );
+        assert_eq!(pick_session(&two, Some("omega-notch"), &set(&[])), None);
+        // A window the caption does not fit still marks nothing.
+        assert_eq!(pick_session(&two, Some("Downloads"), &set(&["b"])), None);
+    }
+
+    fn pick_session_(c: &[(String, Vec<String>)], title: Option<&str>) -> Option<String> {
+        pick_session(c, title, &HashSet::new())
+    }
+
+    #[test]
     fn the_window_in_front_names_its_session_or_none() {
         let hints = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
         let one = vec![("a".to_string(), hints(&["fix-login", "web"]))];
@@ -634,16 +681,16 @@ mod tests {
             ("b".to_string(), hints(&["omega-notch-f9", "omega-notch"])),
         ];
         // No title: only a lone session is certain.
-        assert_eq!(pick_session(&one, None), Some("a".into()));
-        assert_eq!(pick_session(&two, None), None);
+        assert_eq!(pick_session_(&one, None), Some("a".into()));
+        assert_eq!(pick_session_(&two, None), None);
         // A title picks the session it names.
         assert_eq!(
-            pick_session(&two, Some("omega-notch — protocol.rs")),
+            pick_session_(&two, Some("omega-notch — protocol.rs")),
             Some("b".into())
         );
-        assert_eq!(pick_session(&two, Some("✳ fix-login")), Some("a".into()));
+        assert_eq!(pick_session_(&two, Some("✳ fix-login")), Some("a".into()));
         // A title naming neither, even with one session, is another window.
-        assert_eq!(pick_session(&one, Some("Downloads")), None);
+        assert_eq!(pick_session_(&one, Some("Downloads")), None);
         // Two chats in one VS Code folder: the folder ties them, the chat's
         // tab title in the window caption does not; another file in front
         // leaves it unclear.
@@ -662,14 +709,14 @@ mod tests {
             ),
         ];
         assert_eq!(
-            pick_session(
+            pick_session_(
                 &vscode,
                 Some("Funcionalidades do omega notch — omega-notch")
             ),
             Some("b".into())
         );
         assert_eq!(
-            pick_session(&vscode, Some("protocol.rs — omega-notch")),
+            pick_session_(&vscode, Some("protocol.rs — omega-notch")),
             None
         );
         // Both named equally: not clear.
@@ -677,7 +724,7 @@ mod tests {
             ("a".to_string(), hints(&["web"])),
             ("b".to_string(), hints(&["web"])),
         ];
-        assert_eq!(pick_session(&tie, Some("web")), None);
+        assert_eq!(pick_session_(&tie, Some("web")), None);
     }
 
     #[test]
