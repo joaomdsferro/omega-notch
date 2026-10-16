@@ -11,6 +11,8 @@ Item {
 
     property var reading
     property string sessionKind: "idle"
+    // Finished chats to read, counted on a green badge.
+    property int unread: 0
     property real scale_: 1.0
     property color surface: Theme.notch    // what the ring is drawn on
 
@@ -134,6 +136,33 @@ Item {
             height: width
             provider: root.reading ? root.reading.provider : ""
             color: root.hasData ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
+        }
+
+        Rectangle {
+            id: badge
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.rightMargin: -3 * root.scale_
+            anchors.topMargin: -2 * root.scale_
+            height: 15 * root.scale_
+            width: Math.max(height, badgeText.implicitWidth + 8 * root.scale_)
+            radius: height / 2
+            color: Theme.unread
+            border.color: root.surface
+            border.width: 1.5 * root.scale_
+            opacity: root.unread > 0 ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity { NumberAnimation { duration: 200 } }
+            Accessible.name: root.unread + (root.unread === 1 ? " finished chat" : " finished chats") + " to read"
+            Text {
+                id: badgeText
+                anchors.centerIn: parent
+                text: root.unread
+                color: "black"
+                font.pixelSize: 9.5 * root.scale_
+                font.weight: Font.Bold
+                font.features: { "tnum": 1 }
+            }
         }
     }
 

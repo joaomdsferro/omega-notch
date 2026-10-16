@@ -10,6 +10,7 @@ Item {
     property real scale_: 1.0
 
     readonly property string kind: chat ? (chat.state || "idle") : "idle"
+    readonly property bool unread: chat ? !!chat.unread : false
 
     readonly property string detail: {
         if (!chat) return ""
@@ -55,7 +56,7 @@ Item {
         width: 7 * root.scale_
         height: width
         radius: width / 2
-        color: Theme.stateColor(root.kind)
+        color: root.unread ? Theme.unread : Theme.stateColor(root.kind)
 
         SequentialAnimation on opacity {
             running: root.kind !== "idle" && root.visible
@@ -75,6 +76,7 @@ Item {
         text: root.chat ? root.chat.title : ""
         color: Theme.text
         font.pixelSize: 12.5 * root.scale_
+        font.weight: root.unread ? Font.DemiBold : Font.Normal
         elide: Text.ElideRight
         maximumLineCount: 1
     }
@@ -85,8 +87,10 @@ Item {
         anchors.baseline: title.baseline
         text: root.kind === "busy" ? "working"
             : root.kind === "waiting_you" ? "needs you"
-            : root.chat ? Theme.ago(root.chat.updated_at, root.now) : ""
-        color: root.kind === "waiting_you" ? Theme.waiting
+            : !root.chat ? ""
+            : (root.unread ? "finished " : "") + Theme.ago(root.chat.updated_at, root.now)
+        color: root.unread ? Theme.unread
+             : root.kind === "waiting_you" ? Theme.waiting
              : root.kind === "busy" ? Theme.text : Theme.textSecondary
         font.pixelSize: 11 * root.scale_
         font.features: { "tnum": 1 }

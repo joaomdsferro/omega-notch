@@ -5,10 +5,11 @@ import SwiftUI
 /// One provider in the notch: a ring that fills with the headline limit, the
 /// provider's mark inside it, and the number underneath. A white arc turns
 /// inside the ring while a session works; it becomes a breathing amber ring
-/// when one is waiting on you.
+/// when one is waiting on you. A green badge counts finished chats to read.
 struct RingView: View {
   var reading: UsageReading?
   var sessionKind: SessionKind
+  var unread: Int = 0
   var s: CGFloat
   var surface: String
   var hovered: Bool
@@ -61,6 +62,21 @@ struct RingView: View {
         .frame(width: 17 * s, height: 17 * s)
       }
       .frame(width: ringSize, height: ringSize)
+      .overlay(alignment: .topTrailing) {
+        if unread > 0 {
+          Text("\(unread)")
+            .font(.notch(9.5 * s, .bold, tabular: true))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 4 * s)
+            .frame(minWidth: 15 * s, minHeight: 15 * s)
+            .background(Capsule().fill(Theme.unread))
+            .overlay(Capsule().strokeBorder(Color(hex: surface), lineWidth: 1.5 * s))
+            .offset(x: 3 * s, y: -2 * s)
+            .transition(.scale.combined(with: .opacity))
+            .accessibilityLabel("\(unread) finished \(unread == 1 ? "chat" : "chats") to read")
+        }
+      }
+      .animation(.easeOut(duration: 0.2), value: unread)
       .scaleEffect(hovered ? 1.06 : 1)
       .animation(.easeOut(duration: 0.14), value: hovered)
 

@@ -142,6 +142,7 @@ async fn handle_message(
             title,
             surface,
         } => {
+            let seen_id = id.clone();
             // Raising windows shells out and may wait for a new one to appear.
             let opened = tokio::task::spawn_blocking(move || {
                 let target = ChatTarget {
@@ -156,6 +157,10 @@ async fn handle_message(
                 })
             })
             .await?;
+            // Read once it opened; a failed jump leaves it to read.
+            if opened.is_ok() {
+                store.mark_seen(provider, &seen_id).await;
+            }
             if let Ok(Some(raise)) = opened {
                 write_msg(
                     writer,
@@ -167,6 +172,9 @@ async fn handle_message(
                 )
                 .await?;
             }
+        }
+        ClientMessage::WindowFocused { pid, title } => {
+            store.window_focused(pid, title).await;
         }
         ClientMessage::GetDashboard { days } => {
             write_msg(writer, &store.dashboard(days).await).await?;

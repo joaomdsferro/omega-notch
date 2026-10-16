@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   lazy var notch = NotchPanelController(model: model)
   let notifications = Notifier()
   lazy var windows = Windows(client: client)
+  lazy var focus = FocusWatcher(client: client)
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     supervisor.start()
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     client.onCopilotCode = { login in Windows.finishCopilotSignIn(login) }
     client.onRaiseWindow = { request in WindowRaiser.raise(request) }
     client.start()
+    focus.start()
 
     notch.openSettings = { [weak self] in self?.windows.showSettings() }
     notch.openDashboard = { [weak self] in self?.windows.showDashboard() }

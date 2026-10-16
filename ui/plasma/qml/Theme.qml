@@ -24,6 +24,8 @@ QtObject {
     readonly property color watch: "#F5C542"
     readonly property color critical: "#FF5A36"
     readonly property color waiting: "#FFB020"
+    // A finished chat you have not read yet: the green of "Finished".
+    readonly property color unread: "#3DDC97"
     readonly property color busy: "#FFFFFF"
 
     // Dashboard series, brightest first: the biggest share gets the most ink.

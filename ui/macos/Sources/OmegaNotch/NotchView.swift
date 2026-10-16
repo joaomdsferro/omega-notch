@@ -18,6 +18,7 @@ struct NotchView: View {
     ZStack(alignment: .topLeading) {
       nub
       body(of: model.notchRect)
+      unreadDot
       rings
       footer
       card
@@ -49,11 +50,35 @@ struct NotchView: View {
         )
         .fill(Color(hex: model.config.idleColor).opacity(pose.fade))
         .frame(width: frame.width, height: frame.height)
+        .overlay {
+          // Finished chats to read: a green dot on the nub.
+          if unreadCount > 0 {
+            Circle().fill(Theme.unread).frame(width: depth * 0.7, height: depth * 0.7)
+          }
+        }
         .offset(x: frame.minX, y: frame.minY)
       }
       .opacity(model.revealed ? 0 : 1)
       // Each motion starts from rest, so switching never leaves it half way.
       .onChange(of: motion, initial: true) { motionStart = .now }
+    }
+  }
+
+  private var unreadCount: Int {
+    let shown = Set(client.activeReadings.map(\.provider))
+    return client.unreadChats.filter { shown.contains($0.provider) }.count
+  }
+
+  /// With the notch tucked behind a camera housing there is no nub, and no
+  /// pixels in the housing: chats to read show as a green dot just below it.
+  @ViewBuilder private var unreadDot: some View {
+    if model.onHousing && !model.revealed && unreadCount > 0 {
+      let size = 7 * s
+      Circle().fill(Theme.unread)
+        .frame(width: size, height: size)
+        .offset(x: (model.panelSize.width - size) / 2, y: model.housing.height + 3 * s)
+        .transition(.opacity)
+        .allowsHitTesting(false)
     }
   }
 
@@ -99,6 +124,7 @@ struct NotchView: View {
       RingView(
         reading: reading,
         sessionKind: reading.flatMap { client.session(for: $0.provider)?.kind } ?? .idle,
+        unread: reading.map { client.unreadCount(for: $0.provider) } ?? 0,
         s: s,
         surface: model.notchColor,
         hovered: reading != nil && model.hoveredProvider == reading?.provider

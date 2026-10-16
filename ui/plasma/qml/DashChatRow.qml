@@ -12,6 +12,7 @@ Item {
     property bool showContext: true
 
     readonly property string kind: chat ? (chat.state || "idle") : "idle"
+    readonly property bool unread: chat ? !!chat.unread : false
     readonly property real tokens: chat && chat.tokens ? Theme.totalTokens(chat.tokens) : 0
     readonly property real ctx: chat && chat.context_pct !== undefined && chat.context_pct !== null
                                 ? Number(chat.context_pct) : -1
@@ -78,13 +79,13 @@ Item {
             color: root.kind === "idle" ? Theme.textSecondary : Theme.text
         }
         Rectangle {
-            visible: root.kind !== "idle"
+            visible: root.kind !== "idle" || root.unread
             x: parent.width - width / 2 - 2
             y: -width / 2 + 2
             width: 10
             height: 10
             radius: 5
-            color: Theme.stateColor(root.kind)
+            color: root.unread ? Theme.unread : Theme.stateColor(root.kind)
             border.width: 2
             border.color: Theme.panelRaised
 
@@ -111,7 +112,7 @@ Item {
             text: root.chat ? root.chat.title : ""
             color: Theme.text
             font.pixelSize: 13
-            font.weight: Font.Medium
+            font.weight: root.unread ? Font.DemiBold : Font.Medium
             elide: Text.ElideRight
             maximumLineCount: 1
         }
@@ -180,11 +181,13 @@ Item {
         horizontalAlignment: Text.AlignRight
         text: root.kind === "busy" ? "Working"
             : root.kind === "waiting_you" ? "Needs you"
+            : root.unread ? "To read"
             : root.chat ? Theme.ago(root.chat.updated_at, root.now) : ""
-        color: root.kind === "waiting_you" ? Theme.waiting
+        color: root.unread ? Theme.unread
+             : root.kind === "waiting_you" ? Theme.waiting
              : root.kind === "busy" ? Theme.text : Theme.textSecondary
         font.pixelSize: 12
-        font.weight: root.kind === "idle" ? Font.Normal : Font.DemiBold
+        font.weight: root.kind === "idle" && !root.unread ? Font.Normal : Font.DemiBold
         font.features: { "tnum": 1 }
     }
 }

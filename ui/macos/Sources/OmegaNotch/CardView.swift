@@ -46,17 +46,17 @@ struct CardView: View {
         Rectangle().fill(Theme.hairline).frame(height: 1)
         TokenPanel(stats: stats, s: s)
       }
-      if !chats.isEmpty {
+      // Finished chats to read come first, under their own heading.
+      let unread = chats.filter(\.isUnread)
+      let rest = chats.filter { !$0.isUnread }.prefix(max(2, 5 - unread.count))
+      if !unread.isEmpty {
         Rectangle().fill(Theme.hairline).frame(height: 1)
-        VStack(alignment: .leading, spacing: 9 * s) {
-          Text("RECENT CHATS")
-            .font(.notch(10.5 * s, .semibold))
-            .kerning(0.6)
-            .foregroundStyle(Theme.textSecondary)
-          ForEach(chats.prefix(5)) { chat in
-            ChatRow(chat: chat, now: now, s: s) { client.openChat(chat) }
-          }
-        }
+        chatSection(
+          "TO READ · \(unread.count)", color: Theme.unread, chats: Array(unread.prefix(5)))
+      }
+      if !rest.isEmpty {
+        Rectangle().fill(Theme.hairline).frame(height: 1)
+        chatSection("RECENT CHATS", color: Theme.textSecondary, chats: Array(rest))
       }
     }
     .padding(16 * s)
@@ -69,6 +69,18 @@ struct CardView: View {
     }
     .overlay {
       CardTail(edge: edge, offset: tailOffset, half: 10 * s, length: 11 * s).fill(Theme.card)
+    }
+  }
+
+  private func chatSection(_ heading: String, color: Color, chats: [ChatSummary]) -> some View {
+    VStack(alignment: .leading, spacing: 9 * s) {
+      Text(heading)
+        .font(.notch(10.5 * s, .semibold))
+        .kerning(0.6)
+        .foregroundStyle(color)
+      ForEach(chats) { chat in
+        ChatRow(chat: chat, now: now, s: s) { client.openChat(chat) }
+      }
     }
   }
 
@@ -237,20 +249,22 @@ struct ChatRow: View {
     VStack(alignment: .leading, spacing: 2 * s) {
       HStack(alignment: .firstTextBaseline, spacing: 9 * s) {
         Circle()
-          .fill(Theme.stateColor(chat.state))
+          .fill(chat.isUnread ? Theme.unread : Theme.stateColor(chat.state))
           .frame(width: 7 * s, height: 7 * s)
           .breathing(chat.state != .idle)
           .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 * s }
         Text(chat.title)
-          .font(.notch(12.5 * s))
+          .font(.notch(12.5 * s, chat.isUnread ? .semibold : .regular))
           .foregroundStyle(Theme.text)
           .lineLimit(1)
         Spacer(minLength: 8 * s)
         Text(when)
           .font(.notch(11 * s, tabular: true))
           .foregroundStyle(
-            chat.state == .waitingYou
-              ? Theme.waiting : chat.state == .busy ? Theme.text : Theme.textSecondary)
+            chat.isUnread
+              ? Theme.unread
+              : chat.state == .waitingYou
+                ? Theme.waiting : chat.state == .busy ? Theme.text : Theme.textSecondary)
       }
       Text(Format.chatDetail(chat))
         .font(.notch(11 * s, tabular: true))
@@ -271,7 +285,9 @@ struct ChatRow: View {
     switch chat.state {
     case .busy: "working"
     case .waitingYou: "needs you"
-    case .idle: Format.ago(chat.updatedAt, now: now)
+    case .idle:
+      chat.isUnread
+        ? "finished " + Format.ago(chat.updatedAt, now: now) : Format.ago(chat.updatedAt, now: now)
     }
   }
 }

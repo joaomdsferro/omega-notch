@@ -26,6 +26,10 @@ Item {
     readonly property real pad: 16 * scale_
     readonly property real tailLength: 11 * scale_
     readonly property int maxChats: 5
+    // Finished chats to read come first, under their own heading.
+    readonly property var unreadChats: chats.filter(c => c.unread).slice(0, maxChats)
+    readonly property var otherChats: chats.filter(c => !c.unread)
+                                           .slice(0, Math.max(2, maxChats - unreadChats.length))
     readonly property string status: reading ? (reading.status || "ok") : "offline"
     readonly property bool stale: status === "stale"
 
@@ -208,6 +212,39 @@ Item {
             width: parent.width
             height: 1
             color: Theme.hairline
+            visible: unreadList.visible
+        }
+
+        Column {
+            id: unreadList
+            width: parent.width
+            spacing: 9 * root.scale_
+            visible: root.unreadChats.length > 0
+
+            Text {
+                text: "TO READ · " + root.unreadChats.length
+                color: Theme.unread
+                font.pixelSize: 10.5 * root.scale_
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.6
+            }
+
+            Repeater {
+                model: root.unreadChats
+                delegate: ChatRow {
+                    required property var modelData
+                    width: unreadList.width
+                    chat: modelData
+                    now: root.now
+                    scale_: root.scale_
+                }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: 1
+            color: Theme.hairline
             visible: chatList.visible
         }
 
@@ -215,7 +252,7 @@ Item {
             id: chatList
             width: parent.width
             spacing: 9 * root.scale_
-            visible: root.chats.length > 0
+            visible: root.otherChats.length > 0
 
             Text {
                 text: "RECENT CHATS"
@@ -226,7 +263,7 @@ Item {
             }
 
             Repeater {
-                model: root.chats.slice(0, root.maxChats)
+                model: root.otherChats
                 delegate: ChatRow {
                     required property var modelData
                     width: chatList.width

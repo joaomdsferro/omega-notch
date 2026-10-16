@@ -12,6 +12,11 @@ can open.
 
 Protocol version: **6**
 
+New messages and new fields are optional, and clients ignore what they do
+not know, so adding them leaves the version as it is. It goes up only when a
+message or field is removed or changes meaning. The `(vN)` tags below mark
+when something arrived before this rule.
+
 The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 
 ## Client → Engine
@@ -26,6 +31,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `set_config` | `config` | replace config (persisted) |
 | `open_chat` | `provider`, `id`, `cwd?`, `title?`, `surface?` | raise the chat's window, or resume it in a new one |
 | `get_dashboard` | `days?` (7–90, default 30) | persisted history + cost estimates |
+| `window_focused` | `pid`, `title?` | the window now in front (macOS); a finished chat it shows is read |
 | `ping` | — | liveness |
 
 ## Engine → Client
@@ -81,6 +87,18 @@ session and are there to be announced; they do not replace that state.
 Optional per provider: `tokens`, `context_tokens`, `context_pct`,
 `lines_added`, `lines_removed`. Chats arrive newest first, at most 8 per
 provider.
+
+`unread` (v6) is true for a chat that stopped with a reply newer than both
+your latest prompt in it and the last time you looked at it. Looking means
+`open_chat` on it that succeeds, or (macOS) `window_focused` naming the app that runs it:
+the engine picks the live session under `pid` whose chat title, name or
+folder the window's `title` carries best, or the only one when there is no
+title. Sessions the title fits equally well (VS Code captions a chat's tab
+with the folder alone) go to the only one of them that is unread. Anything
+less clear marks nothing. Only Claude Code says when it last replied,
+so other tools' chats are never unread. The marks are kept in `seen.json`
+(mode 600) next to `history.db`; on the first run every chat already on disk
+counts as read. Older clients ignore the field.
 
 ```json
 {

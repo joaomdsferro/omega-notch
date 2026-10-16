@@ -172,6 +172,21 @@ Window {
         }
         return out
     }
+    function unreadFor(provider) {
+        let count = 0
+        const list = Engine.chats
+        for (let i = 0; i < list.length; ++i) {
+            if (list[i].provider === provider && list[i].unread)
+                count += 1
+        }
+        return count
+    }
+    readonly property int unreadCount: {
+        let count = 0
+        for (let i = 0; i < activeReadings.length; ++i)
+            count += unreadFor(activeReadings[i].provider)
+        return count
+    }
     function tokensFor(provider) {
         const list = Engine.tokens
         for (let i = 0; i < list.length; ++i) {
@@ -349,6 +364,17 @@ Window {
             opacity: root.revealed ? 0 : 1
             visible: opacity > 0
             Behavior on opacity { NumberAnimation { duration: 240 } }
+
+            // Finished chats to read: a green dot on the nub.
+            Rectangle {
+                visible: root.unreadCount > 0
+                width: root.nubDepth * 0.7
+                height: width
+                radius: width / 2
+                color: Theme.unread
+                x: (nub.width - width) / 2
+                y: (nub.height - height) / 2
+            }
         }
 
         // ---- The notch ----
@@ -410,6 +436,7 @@ Window {
                     surface: root.notchColor
                     reading: modelData
                     sessionKind: session ? session.kind : "idle"
+                    unread: root.unreadFor(provider)
 
                     onClicked: Engine.refresh(provider)
                     onHoveredChanged_: (hovered) => {

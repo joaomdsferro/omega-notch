@@ -50,7 +50,8 @@
       "context_tokens": 151320,
       "context_pct": 75.7,
       "lines_added": 120,
-      "lines_removed": 8
+      "lines_removed": 8,
+      "unread": true
     }
   ],
   "tokens": [

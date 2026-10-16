@@ -232,6 +232,9 @@ Window {
                 shades[modelRows[i].model] = Theme.shades[i % Theme.shades.length]
         return shades
     }
+    readonly property int unreadCount: shownChats.filter(c => c.unread).length
+    // Chats to read first, so the ones counted are never past "Show all".
+    readonly property var listedChats: shownChats.filter(c => c.unread).concat(shownChats.filter(c => !c.unread))
     readonly property bool chatsHaveContext: shownChats.some(
         c => c.context_pct !== undefined && c.context_pct !== null)
 
@@ -438,6 +441,7 @@ Window {
                                 const parts = []
                                 if (root.workingCount > 0) parts.push(root.workingCount + " working")
                                 if (root.waitingCount > 0) parts.push(root.waitingCount + " waiting on you")
+                                if (root.unreadCount > 0) parts.push(root.unreadCount + " to read")
                                 if (parts.length === 0) parts.push("All quiet")
                                 return parts.join(" · ") + " · updated " + Qt.formatTime(new Date(root.now), "HH:mm")
                             }
@@ -774,7 +778,8 @@ Window {
                     id: chatsCard
                     width: parent.width
                     heading: "Recent chats"
-                    caption: root.shownChats.length + (root.shownChats.length === 1 ? " chat" : " chats") + " · click one to jump to it"
+                    caption: root.shownChats.length + (root.shownChats.length === 1 ? " chat" : " chats")
+                             + (root.unreadCount > 0 ? " · " + root.unreadCount + " to read" : "") + " · click one to jump to it"
                     trailing: TextButton {
                         visible: root.shownChats.length > 8
                         label: root.showAllChats ? "Show fewer" : "Show all " + root.shownChats.length
@@ -806,7 +811,7 @@ Window {
                         }
 
                         Repeater {
-                            model: root.showAllChats ? root.shownChats : root.shownChats.slice(0, 8)
+                            model: root.showAllChats ? root.listedChats : root.listedChats.slice(0, 8)
                             delegate: DashChatRow {
                                 required property var modelData
                                 required property int index
