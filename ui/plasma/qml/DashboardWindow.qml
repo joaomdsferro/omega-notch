@@ -233,6 +233,8 @@ Window {
         return shades
     }
     readonly property int unreadCount: shownChats.filter(c => c.unread).length
+    // Chats to read first, so the ones counted are never past "Show all".
+    readonly property var listedChats: shownChats.filter(c => c.unread).concat(shownChats.filter(c => !c.unread))
     readonly property bool chatsHaveContext: shownChats.some(
         c => c.context_pct !== undefined && c.context_pct !== null)
 
@@ -809,7 +811,7 @@ Window {
                         }
 
                         Repeater {
-                            model: root.showAllChats ? root.shownChats : root.shownChats.slice(0, 8)
+                            model: root.showAllChats ? root.listedChats : root.listedChats.slice(0, 8)
                             delegate: DashChatRow {
                                 required property var modelData
                                 required property int index

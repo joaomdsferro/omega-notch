@@ -362,7 +362,8 @@ struct DashboardView: View {
   }
 
   private var chats: some View {
-    let all = shownChats
+    // Chats to read first, so the ones counted are never past "Show all".
+    let all = shownChats.filter(\.isUnread) + shownChats.filter { !$0.isUnread }
     let shown = showAllChats ? all : Array(all.prefix(8))
     let showContext = all.contains { $0.contextPct != nil }
     let unreadCount = all.filter(\.isUnread).count
