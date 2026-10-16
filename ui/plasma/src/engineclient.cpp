@@ -1,6 +1,7 @@
 #include "engineclient.h"
 
 #include <QRegularExpression>
+#include <QUuid>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -131,6 +132,13 @@ void EngineClient::onDisconnected()
         m_connected = false;
         emit connectedChanged();
     }
+    // The answer would come on this connection; it will not now.
+    if (m_analysis.value(QStringLiteral("state")) == QLatin1String("running")) {
+        m_analysis.insert(QStringLiteral("state"), QStringLiteral("failed"));
+        m_analysis.insert(QStringLiteral("text"), QStringLiteral("Lost the engine before Claude answered. Ask again."));
+        m_analysisRequest.clear();
+        emit analysisChanged();
+    }
 }
 
 void EngineClient::onError(QLocalSocket::LocalSocketError)
@@ -203,7 +211,15 @@ void EngineClient::handleServerMessage(const QJsonObject &obj)
     } else if (type == QLatin1String("dashboard")) {
         applyDashboard(obj);
     } else if (type == QLatin1String("usage_analysis")) {
+        // Only an answer to what this shell asked, for the numbers in view.
+        if (m_analysisRequest.isEmpty()
+            || obj.value(QStringLiteral("request")).toString() != m_analysisRequest) {
+            return;
+        }
         m_analysis = obj.toVariantMap();
+        if (m_analysis.value(QStringLiteral("state")) != QLatin1String("running")) {
+            m_analysisRequest.clear();
+        }
         emit analysisChanged();
     } else if (type == QLatin1String("config_updated")) {
         applyConfig(obj.value(QStringLiteral("config")).toObject());
@@ -378,7 +394,11 @@ void EngineClient::refresh(const QString &provider)
 
 void EngineClient::requestDashboard(int days)
 {
-    m_dashboardDays = qBound(7, days, 90);
+    const int bounded = qBound(7, days, 90);
+    if (bounded != m_dashboardDays) {
+        clearAnalysis();
+    }
+    m_dashboardDays = bounded;
     QJsonObject obj{
         {QStringLiteral("type"), QStringLiteral("get_dashboard")},
         {QStringLiteral("days"), m_dashboardDays},
@@ -395,12 +415,31 @@ void EngineClient::requestDashboard(int days)
     sendJson(obj);
 }
 
+void EngineClient::clearAnalysis()
+{
+    // Advice belongs to the numbers it was asked about; they changed.
+    m_analysisRequest.clear();
+    if (!m_analysis.isEmpty()) {
+        m_analysis.clear();
+        emit analysisChanged();
+    }
+}
+
 void EngineClient::analyzeUsage(const QString &model)
 {
+    if (!m_connected) {
+        m_analysis = QVariantMap{{QStringLiteral("state"), QStringLiteral("failed")},
+                                 {QStringLiteral("model"), model},
+                                 {QStringLiteral("text"), QStringLiteral("The engine is not running.")}};
+        emit analysisChanged();
+        return;
+    }
+    m_analysisRequest = QUuid::createUuid().toString(QUuid::Id128).left(8);
     QJsonObject obj{
         {QStringLiteral("type"), QStringLiteral("analyze_usage")},
         {QStringLiteral("days"), m_dashboardDays},
         {QStringLiteral("model"), model},
+        {QStringLiteral("request"), m_analysisRequest},
     };
     const QList<QPair<QString, QString>> scope = {
         {QStringLiteral("search"), m_dashboardSearch},
@@ -423,6 +462,7 @@ void EngineClient::setDashboardSession(const QString &session)
     if (session == m_dashboardSession) {
         return;
     }
+    clearAnalysis();
     m_dashboardSession = session;
     requestDashboard(m_dashboardDays);
 }
@@ -432,6 +472,7 @@ void EngineClient::setDashboardProject(const QString &project)
     if (project == m_dashboardProject) {
         return;
     }
+    clearAnalysis();
     m_dashboardProject = project;
     requestDashboard(m_dashboardDays);
 }
@@ -445,6 +486,7 @@ void EngineClient::searchDashboard(const QString &search)
     if (normal == m_dashboardSearch) {
         return;
     }
+    clearAnalysis();
     m_dashboardSearch = normal;
     requestDashboard(m_dashboardDays);
 }

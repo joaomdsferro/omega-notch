@@ -252,6 +252,10 @@ private:
     QVariantList m_dashboardProjects;
     QVariantList m_dashboardSuggestions;
     QVariantMap m_analysis;
+    // The analysis this shell waits for; answers to anything else, or to a
+    // scope since left, are dropped.
+    QString m_analysisRequest;
+    void clearAnalysis();
     double m_dashboardTotalUsd = 0.0;
     QString m_peekProvider;
     QString m_peekKind;

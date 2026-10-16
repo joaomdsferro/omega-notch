@@ -500,6 +500,9 @@ pub enum ClientMessage {
         session: String,
         /// `sonnet` or `opus`.
         model: String,
+        /// The shell's own id for this request, sent back with the answer.
+        #[serde(default)]
+        request: String,
     },
     Ping,
 }
@@ -592,6 +595,9 @@ pub enum ServerMessage {
         model: String,
         #[serde(default)]
         text: String,
+        /// The `request` it answers.
+        #[serde(default)]
+        request: String,
     },
     CopilotLogin {
         login: CopilotLogin,

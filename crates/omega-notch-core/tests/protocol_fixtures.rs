@@ -252,6 +252,7 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
             ServerMessage::UsageAnalysis {
                 state: "done".into(),
                 model: "sonnet".into(),
+                request: "r7".into(),
                 text:
                     "- **Use Sonnet for small jobs.** 46 sessions wrote under 20k tokens on Opus."
                         .into(),

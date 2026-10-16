@@ -341,19 +341,7 @@ impl UsageStore {
         session: String,
     ) -> ServerMessage {
         let days = days.clamp(7, history::MAX_HISTORY_DAYS);
-        let scope = history::Scope {
-            search: history::search_words(&search).join(" "),
-            project: project
-                .trim()
-                .chars()
-                .take(history::MAX_SEARCH_CHARS)
-                .collect(),
-            session: session
-                .trim()
-                .chars()
-                .take(history::MAX_SEARCH_CHARS)
-                .collect(),
-        };
+        let scope = history::Scope::normalized(&search, &project, &session);
         let points: Vec<HistoryPoint> =
             tokio::task::spawn_blocking(move || history::query_history(days))
                 .await
@@ -444,12 +432,16 @@ impl UsageStore {
     /// Asks Claude for advice on the sessions this scope covers, in the
     /// background; every shell hears `running`, then the answer. A second
     /// request while one runs is turned away.
-    pub fn analyze_usage(&self, days: u32, scope: history::Scope, model: String) {
+    /// `request` is the asking shell's own id for it, sent back with every
+    /// answer so each shell keeps only answers to what it asked.
+    pub fn analyze_usage(&self, days: u32, scope: history::Scope, model: String, request: String) {
+        let request: String = request.chars().take(64).collect();
         let send = |state: &str, text: String| {
             let _ = self.inner.events.send(ServerMessage::UsageAnalysis {
                 state: state.into(),
                 model: model.clone(),
                 text,
+                request: request.clone(),
             });
         };
         if !crate::analysis::MODELS.contains(&model.as_str()) {
@@ -503,6 +495,7 @@ impl UsageStore {
                 state: state.into(),
                 model,
                 text,
+                request,
             });
         });
     }

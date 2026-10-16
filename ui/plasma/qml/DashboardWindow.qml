@@ -872,14 +872,20 @@ Window {
             // What to change, from the engine's local rules over the sessions
             // in view. Each can narrow the page to its chat, or open it.
             DashCard {
+                id: suggestionsCard
                 width: parent.width
                 heading: "Suggestions"
                 caption: {
-                    const saving = Engine.dashboardSuggestions.reduce((a, s) => a + (s.saving_usd || 0), 0)
+                    const saving = Engine.dashboardSuggestions.filter(s => root.matches(s.provider)).reduce((a, s) => a + (s.saving_usd || 0), 0)
                     return (saving > 0 ? "Up to " + Theme.usd(saving) + " less in the last " + root.days + " days · " : "")
                            + "from local rules over these sessions, nothing leaves your computer"
                 }
+                // The rules and Claude read Claude Code's sessions: with
+                // another tool picked, there is nothing of its own to say.
+                readonly property bool canAsk: root.matches("claude_code")
+                readonly property var shownSuggestions: Engine.dashboardSuggestions.filter(s => root.matches(s.provider))
                 trailing: Row {
+                    visible: suggestionsCard.canAsk
                     spacing: 8
                     DashSegmented {
                         options: [{ value: "sonnet", label: "Sonnet" }, { value: "opus", label: "Opus" }]
@@ -896,17 +902,19 @@ Window {
                     width: parent.width
 
                     Text {
-                        visible: Engine.dashboardSuggestions.length === 0
+                        visible: suggestionsCard.shownSuggestions.length === 0
                         width: parent.width
                         topPadding: 8
                         bottomPadding: 8
-                        text: "Nothing stands out in these sessions. Ask Claude for a closer look."
+                        wrapMode: Text.WordWrap
+                        text: suggestionsCard.canAsk ? "Nothing stands out in these sessions. Ask Claude for a closer look."
+                                                     : "Suggestions read Claude Code's sessions. Pick All tools or Claude Code to see them."
                         color: Theme.textTertiary
                         font.pixelSize: 13
                     }
 
                     Repeater {
-                        model: Engine.dashboardSuggestions
+                        model: suggestionsCard.shownSuggestions
                         delegate: Item {
                             id: tip
                             required property var modelData
@@ -987,7 +995,7 @@ Window {
                     // Claude's answer: a line while it thinks, then its
                     // Markdown, or why not.
                     Column {
-                        visible: Engine.analysis.state !== undefined
+                        visible: suggestionsCard.canAsk && Engine.analysis.state !== undefined
                         width: parent.width
                         topPadding: 12
                         bottomPadding: 12
@@ -1018,6 +1026,7 @@ Window {
                     }
 
                     Text {
+                        visible: suggestionsCard.canAsk
                         width: parent.width
                         topPadding: 10
                         wrapMode: Text.WordWrap

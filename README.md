@@ -174,7 +174,8 @@ packaging/                  installer, desktop entry, icons
 
 - Everything except the usage endpoints is read from local files, read-only.
 - The only network requests go to each tool's own usage endpoint, with the sign-in that tool already
-  saved. Nothing goes to a server of ours, because there is none.
+  saved, and, only when you press "Ask Claude" in the dashboard, to Anthropic through your own
+  `claude` command (see below). Nothing goes to a server of ours, because there is none.
 - On macOS, the downloaded app also checks GitHub once a day for a newer release (you can switch
   that off in Settings → General). It asks before installing anything, and installs only updates
   signed with the project's key. The check sends nothing about you or your usage.

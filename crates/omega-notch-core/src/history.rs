@@ -395,6 +395,18 @@ pub struct Scope {
 }
 
 impl Scope {
+    /// As the engine reads a request: the search's words, and the project
+    /// and session trimmed and bounded, so every reader of one scope sees
+    /// the same sessions.
+    pub fn normalized(search: &str, project: &str, session: &str) -> Self {
+        let bounded = |s: &str| s.trim().chars().take(MAX_SEARCH_CHARS).collect();
+        Self {
+            search: search_words(search).join(" "),
+            project: bounded(project),
+            session: bounded(session),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         search_words(&self.search).is_empty()
             && self.project.trim().is_empty()
@@ -924,6 +936,19 @@ mod tests {
         assert_eq!(scoped.sessions.len(), 2);
         let days: Vec<u64> = scoped.points.iter().map(|p| p.output).collect();
         assert_eq!(days, vec![9_000]);
+    }
+
+    #[test]
+    fn a_scope_is_read_the_same_way_everywhere() {
+        let scope = Scope::normalized(
+            "  Foo  BAR ",
+            " omega-notch ",
+            &format!(" {} ", "x".repeat(300)),
+        );
+        assert_eq!(scope.search, "foo bar");
+        assert_eq!(scope.project, "omega-notch");
+        assert_eq!(scope.session.len(), MAX_SEARCH_CHARS);
+        assert!(Scope::normalized("  ", " ", "").is_empty());
     }
 
     #[test]

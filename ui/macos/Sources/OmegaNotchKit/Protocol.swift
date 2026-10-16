@@ -157,11 +157,14 @@ public struct UsageAnalysis: Decodable, Equatable, Sendable {
   public var model: String
   /// The answer in Markdown, or why it failed.
   public var text: String
+  /// The asking shell's id for the request it answers.
+  public var request: String?
 
-  public init(state: String, model: String, text: String) {
+  public init(state: String, model: String, text: String, request: String? = nil) {
     self.state = state
     self.model = model
     self.text = text
+    self.request = request
   }
 }
 
