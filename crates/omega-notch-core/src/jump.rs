@@ -328,7 +328,15 @@ pub fn session_in_window(
             Some((id, hints))
         })
         .collect();
-    pick_session(&candidates, title)
+    let found = pick_session(&candidates, title);
+    // Counts only: the caption may name a private file or page.
+    info!(
+        sessions = candidates.len(),
+        titled = title.is_some_and(|t| !t.trim().is_empty()),
+        matched = found.is_some(),
+        "window in front"
+    );
+    found
 }
 
 /// How well a window caption fits a session's hints: an earlier hint counts

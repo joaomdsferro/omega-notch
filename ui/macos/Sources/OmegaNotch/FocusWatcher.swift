@@ -43,6 +43,9 @@ final class FocusWatcher {
     // already looked at.
     if let last = lastSent, last.pid == pid, last.title == title, last.unread == unread { return }
     lastSent = (pid, title, unread)
+    if title == nil && !WindowRaiser.trusted {
+      NSLog("Omega Notch: no Accessibility, so the window's title is unknown")
+    }
     client.windowFocused(pid: pid, title: title)
   }
 
