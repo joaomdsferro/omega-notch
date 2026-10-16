@@ -29,9 +29,11 @@ permissions:
   contents: write
 
 # One release at a time: two runs replacing the same disk image and appcast
-# could leave a feed whose signature does not match the download.
+# could leave a feed whose signature does not match the download. Waiting
+# runs queue up instead of replacing each other, so no tag goes unreleased.
 concurrency:
   group: release
+  queue: max
   cancel-in-progress: false
 
 jobs:
