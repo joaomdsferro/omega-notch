@@ -40,6 +40,9 @@ fn connect() -> anyhow::Result<Connection> {
     paths::create_private_dir(&paths::app_data_dir())?;
     let conn = Connection::open(history_db_path())?;
     create_tables(&conn)?;
+    // On every open, not only on writes: with a tool's tracking off nothing
+    // is written, and old session names must still go.
+    prune_sessions(&conn, &cutoff(MAX_HISTORY_DAYS))?;
     Ok(conn)
 }
 
@@ -164,7 +167,7 @@ fn write_days(
 
 /// Rewrites `dates` of one tool's per-session rows, like [`write_days`], and
 /// names the sessions given. Rows for one key are summed: a session and its
-/// subagents arrive apart. Then drops what the history no longer reaches.
+/// subagents arrive apart.
 fn write_session_days(
     tx: &rusqlite::Transaction,
     provider: &str,
@@ -225,17 +228,16 @@ fn write_session_days(
             ],
         )?;
     }
-    prune_sessions(tx, &cutoff(MAX_HISTORY_DAYS))?;
     Ok(())
 }
 
 /// Session rows older than `first_date`, and names no row points at.
-fn prune_sessions(tx: &rusqlite::Transaction, first_date: &str) -> rusqlite::Result<()> {
-    tx.execute(
+fn prune_sessions(conn: &Connection, first_date: &str) -> rusqlite::Result<()> {
+    conn.execute(
         "DELETE FROM session_model_tokens WHERE date < ?1",
         params![first_date],
     )?;
-    tx.execute(
+    conn.execute(
         "DELETE FROM session_meta WHERE NOT EXISTS (
             SELECT 1 FROM session_model_tokens s
             WHERE s.provider = session_meta.provider AND s.session_id = session_meta.session_id)",
@@ -627,6 +629,8 @@ mod tests {
             &[spent("old", &old, "Opus 4.7", 5)],
             &[named("old", "Old", 1)],
         );
+        // What opening the history does each time.
+        prune_sessions(&conn, &cutoff(MAX_HISTORY_DAYS)).unwrap();
         let count = |table: &str| -> i64 {
             conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap()
