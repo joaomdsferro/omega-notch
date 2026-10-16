@@ -40,6 +40,8 @@
     "nub_working": "shiver",
     "nub_waiting": "pulse",
     "notch_color": "#000000",
-    "screen": ""
+    "screen": "",
+    "dashboard_palette": "mono",
+    "dashboard_colors": []
   }
 }

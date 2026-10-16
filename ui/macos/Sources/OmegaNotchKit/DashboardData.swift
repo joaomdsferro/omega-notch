@@ -37,7 +37,7 @@ public enum DashboardData {
   }
 
   public static let otherKey = "__other"
-  public static let shadeCount = 6
+  public static let shadeCount = DashboardPalette.series
 
   /// `yyyy-MM-dd` in the local time zone.
   public static func isoDay(_ date: Date, calendar: Calendar = .current) -> String {

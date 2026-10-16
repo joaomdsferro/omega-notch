@@ -4,6 +4,7 @@
 #include <QLocalSocket>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QStringList>
 #include <QTimer>
 #include <QVariantList>
 #include <QWindow>
@@ -33,6 +34,10 @@ class EngineClient : public QObject
     Q_PROPERTY(QString nubWaiting READ nubWaiting NOTIFY configChanged)
     Q_PROPERTY(QString idleColor READ idleColor NOTIFY configChanged)
     Q_PROPERTY(QString notchColor READ notchColor NOTIFY configChanged)
+    // The dashboard's palette by name, and colours set over it per series
+    // (an empty one keeps the palette's).
+    Q_PROPERTY(QString dashboardPalette READ dashboardPalette NOTIFY configChanged)
+    Q_PROPERTY(QStringList dashboardColors READ dashboardColors NOTIFY configChanged)
     Q_PROPERTY(QString screenName READ screenName NOTIFY configChanged)
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
@@ -85,6 +90,8 @@ public:
     QString nubWaiting() const { return m_nubWaiting; }
     QString idleColor() const { return m_idleColor; }
     QString notchColor() const { return m_notchColor; }
+    QString dashboardPalette() const { return m_dashboardPalette; }
+    QStringList dashboardColors() const { return m_dashboardColors; }
     QString screenName() const { return m_screenName; }
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
@@ -126,6 +133,9 @@ public:
     Q_INVOKABLE void setNubWaiting(const QString &motion);
     Q_INVOKABLE void setIdleColor(const QString &color);
     Q_INVOKABLE void setNotchColor(const QString &color);
+    Q_INVOKABLE void setDashboardPalette(const QString &name);
+    // An empty colour gives the series the palette's back.
+    Q_INVOKABLE void setDashboardColor(int index, const QString &color);
     Q_INVOKABLE void setScreenName(const QString &name);
     // Moves the layer surface onto the chosen output (the primary one when
     // that output is unplugged or none is chosen).
@@ -220,6 +230,8 @@ private:
     QString m_nubWaiting = QStringLiteral("pulse");
     QString m_idleColor = QStringLiteral("#000000");
     QString m_notchColor = QStringLiteral("#000000");
+    QString m_dashboardPalette = QStringLiteral("mono");
+    QStringList m_dashboardColors;
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;

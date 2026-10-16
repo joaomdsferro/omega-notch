@@ -28,8 +28,30 @@ QtObject {
     readonly property color unread: "#3DDC97"
     readonly property color busy: "#FFFFFF"
 
-    // Dashboard series, brightest first: the biggest share gets the most ink.
-    readonly property var shades: ["#F2F2F5", "#B4B4BE", "#808089", "#5C5C66", "#44444D", "#33333B"]
+    // Dashboard palettes, first series first, as in the engine's config
+    // (`dashboard_palette`). Mono is brightest first: the biggest share gets
+    // the most ink; colour-blind safe is Okabe–Ito.
+    readonly property var palettes: ({
+        mono: ["#F2F2F5", "#B4B4BE", "#808089", "#5C5C66", "#44444D", "#33333B"],
+        vivid: ["#5B9BFF", "#FF8A3D", "#43D9AD", "#E86BD0", "#F2D04B", "#9C8CFF"],
+        colorblind: ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#CC79A7", "#0072B2"]
+    })
+    readonly property var paletteNames: [
+        { value: "mono", label: "Monochrome" },
+        { value: "vivid", label: "Vivid" },
+        { value: "colorblind", label: "Colour-blind safe" }
+    ]
+    // The default series colours; the dashboard draws with seriesShades().
+    readonly property var shades: palettes.mono
+    // Swatches for a series colour, light enough for the dark panel.
+    readonly property var seriesSwatches: ["#F2F2F5", "#5B9BFF", "#43D9AD", "#F2D04B",
+                                           "#FF8A3D", "#E86BD0", "#9C8CFF"]
+
+    // A palette's colours with each one set in Settings in its place.
+    function seriesShades(palette, overrides) {
+        const base = palettes[palette] || palettes.mono
+        return base.map((c, i) => (overrides && overrides[i]) ? overrides[i] : c)
+    }
     readonly property color controlFill: "#14FFFFFF"
     readonly property color controlChosen: "#2EFFFFFF"
     readonly property color controlHover: "#12FFFFFF"

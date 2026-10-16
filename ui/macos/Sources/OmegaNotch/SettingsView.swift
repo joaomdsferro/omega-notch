@@ -15,6 +15,8 @@ struct SettingsView: View {
   @State private var loginError = ""
   /// The sound whose list is open, if any: only one at a time.
   @State private var openSound: AlertSound.Kind?
+  /// The dashboard series being recoloured.
+  @State private var series = 0
   @State private var windowsAllowed = WindowRaiser.trusted
   @AppStorage(WindowRaiser.pickTabKey) private var pickTab = false
   private let updater = Updater.shared
@@ -237,6 +239,8 @@ struct SettingsView: View {
       }
     }
 
+    dashboardColours
+
     // On a camera housing there is no nub to move.
     if !pinnedByHousing {
       let usable = config.autoHide
@@ -254,6 +258,35 @@ struct SettingsView: View {
             ? "Waiting for your answer takes over from working. Hover a motion for what it does."
             : "Used only while Hide when idle is on.")
       }
+    }
+  }
+
+  /// The palette the dashboard's charts and tables draw with, and any
+  /// series given a colour of its own.
+  private var dashboardColours: some View {
+    let shades = DashboardPalette.shades(config)
+    let custom = (0..<DashboardPalette.series).map {
+      $0 < config.dashboardColors.count && !config.dashboardColors[$0].isEmpty
+    }
+    return SettingsSection(heading: "Dashboard colours") {
+      FieldLabel(text: "Palette")
+      Segmented(
+        options: DashboardPalette.names.map { ($0, DashboardPalette.label($0)) },
+        value: config.dashboardPalette
+      ) { name in update { $0.dashboardPalette = name } }
+
+      FieldLabel(text: "Series")
+      SeriesStrip(shades: shades, custom: custom, chosen: series) { series = $0 }
+      SwatchPicker(swatches: SwatchPicker.seriesSwatches, value: shades[series]) { color in
+        update { $0.setDashboardColor(series, color) }
+      }
+      if custom[series] {
+        SettingsButton(title: "Use the palette's colour") { update { $0.setDashboardColor(series, nil) } }
+      }
+      Hint(
+        text:
+          "Series 1 is the biggest share: the model, tool or kind that spent the most."
+      )
     }
   }
 

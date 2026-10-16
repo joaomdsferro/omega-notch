@@ -305,6 +305,12 @@ void EngineClient::applyConfig(const QJsonObject &config)
     m_nubWaiting = config.value(QStringLiteral("nub_waiting")).toString(QStringLiteral("pulse"));
     m_notchColor = config.value(QStringLiteral("notch_color")).toString(QStringLiteral("#000000"));
     m_screenName = config.value(QStringLiteral("screen")).toString();
+    m_dashboardPalette = config.value(QStringLiteral("dashboard_palette")).toString(QStringLiteral("mono"));
+    m_dashboardColors.clear();
+    for (const QJsonValue &color : config.value(QStringLiteral("dashboard_colors")).toArray()) {
+        const QString hex = color.toString();
+        m_dashboardColors.append(isHexColor(hex) ? hex.toUpper() : QString());
+    }
 
     const QJsonObject providers = config.value(QStringLiteral("providers")).toObject();
     m_providerCursor = providers.value(QStringLiteral("cursor")).toBool(true);
@@ -400,6 +406,8 @@ void EngineClient::pushConfig()
             {QStringLiteral("nub_waiting"), m_nubWaiting},
             {QStringLiteral("notch_color"), m_notchColor},
             {QStringLiteral("screen"), m_screenName},
+            {QStringLiteral("dashboard_palette"), m_dashboardPalette},
+            {QStringLiteral("dashboard_colors"), QJsonArray::fromStringList(m_dashboardColors)},
             {QStringLiteral("providers"),
              QJsonObject{
                  {QStringLiteral("cursor"), m_providerCursor},
@@ -443,6 +451,8 @@ void EngineClient::pushConfig()
         m_rawConfig.insert(QStringLiteral("nub_waiting"), m_nubWaiting);
         m_rawConfig.insert(QStringLiteral("notch_color"), m_notchColor);
         m_rawConfig.insert(QStringLiteral("screen"), m_screenName);
+        m_rawConfig.insert(QStringLiteral("dashboard_palette"), m_dashboardPalette);
+        m_rawConfig.insert(QStringLiteral("dashboard_colors"), QJsonArray::fromStringList(m_dashboardColors));
         QJsonObject providers = m_rawConfig.value(QStringLiteral("providers")).toObject();
         providers.insert(QStringLiteral("cursor"), m_providerCursor);
         providers.insert(QStringLiteral("claude_code"), m_providerClaudeCode);
@@ -550,6 +560,35 @@ void EngineClient::setNotchColor(const QString &color)
         return;
     }
     m_notchColor = color.toUpper();
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setDashboardPalette(const QString &name)
+{
+    static const QStringList known = {QStringLiteral("mono"), QStringLiteral("vivid"),
+                                      QStringLiteral("colorblind")};
+    if (!known.contains(name)) {
+        return;
+    }
+    m_dashboardPalette = name;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setDashboardColor(int index, const QString &color)
+{
+    // As many series as the engine keeps (`DASHBOARD_SERIES`).
+    if (index < 0 || index >= 6 || (!color.isEmpty() && !isHexColor(color))) {
+        return;
+    }
+    while (m_dashboardColors.size() <= index) {
+        m_dashboardColors.append(QString());
+    }
+    m_dashboardColors[index] = color.toUpper();
+    while (!m_dashboardColors.isEmpty() && m_dashboardColors.last().isEmpty()) {
+        m_dashboardColors.removeLast();
+    }
     emit configChanged();
     pushConfig();
 }

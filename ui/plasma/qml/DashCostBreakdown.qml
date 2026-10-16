@@ -22,7 +22,7 @@ Column {
         const out = costs.slice().sort((a, b) => (b.cost_usd || 0) - (a.cost_usd || 0))
         return out.slice(0, 6)
     }
-    readonly property var shades: Theme.shades
+    property var shades: Theme.shades
 
     spacing: 16
 

@@ -42,6 +42,14 @@ pub struct AppConfig {
     /// the primary screen.
     #[serde(default)]
     pub screen: String,
+    /// The dashboard's series colours, by name (see `DASHBOARD_PALETTES`);
+    /// an unknown name falls back to the default.
+    #[serde(default = "default_dashboard_palette")]
+    pub dashboard_palette: String,
+    /// Colours over the palette's, first series first, as `#RRGGBB`; an empty
+    /// one keeps the palette's. At most `DASHBOARD_SERIES`.
+    #[serde(default)]
+    pub dashboard_colors: Vec<String>,
 }
 
 pub const MAX_PROVIDERS_LIMIT: u32 = 5;
@@ -50,6 +58,15 @@ pub const IDLE_SIZE_MAX: f64 = 3.0;
 pub const NUB_MOTIONS: [&str; 7] = [
     "none", "shiver", "breathe", "wave", "pulse", "bounce", "stretch",
 ];
+
+/// The dashboard palettes; the shells hold their colours.
+pub const DASHBOARD_PALETTES: [&str; 3] = ["mono", "vivid", "colorblind"];
+/// Series the dashboard tells apart by colour; later ones reuse the last.
+pub const DASHBOARD_SERIES: usize = 6;
+
+fn default_dashboard_palette() -> String {
+    "mono".to_string()
+}
 
 fn default_idle_size() -> f64 {
     1.0
@@ -216,6 +233,8 @@ impl Default for AppConfig {
             notch_color: default_notch_color(),
             color_notch: None,
             screen: String::new(),
+            dashboard_palette: default_dashboard_palette(),
+            dashboard_colors: Vec::new(),
         }
     }
 }
@@ -283,6 +302,20 @@ impl AppConfig {
         }
         self.color_notch = None;
         self.screen = self.screen.trim().to_string();
+        if !DASHBOARD_PALETTES.contains(&self.dashboard_palette.as_str()) {
+            self.dashboard_palette = default_dashboard_palette();
+        }
+        self.dashboard_colors.truncate(DASHBOARD_SERIES);
+        for color in &mut self.dashboard_colors {
+            *color = if is_hex_color(color) {
+                color.to_ascii_uppercase()
+            } else {
+                String::new()
+            };
+        }
+        while self.dashboard_colors.last().is_some_and(String::is_empty) {
+            self.dashboard_colors.pop();
+        }
         self
     }
 
@@ -306,6 +339,8 @@ mod tests {
         let map = value.as_object_mut().unwrap();
         map.remove("notch_color");
         map.remove("screen");
+        map.remove("dashboard_palette");
+        map.remove("dashboard_colors");
         let extra: serde_json::Value = serde_json::from_str(extra).unwrap();
         for (k, v) in extra.as_object().unwrap() {
             map.insert(k.clone(), v.clone());
@@ -381,5 +416,24 @@ mod tests {
         let c = parse(r#"{"nub_working":"wave","nub_waiting":"none"}"#);
         assert_eq!(c.nub_working, "wave");
         assert_eq!(c.nub_waiting, "none");
+    }
+
+    #[test]
+    fn dashboard_colours_keep_known_palettes_and_valid_overrides() {
+        let c =
+            parse(r##"{"dashboard_palette":"vivid","dashboard_colors":["#4c8dff","red","",""]}"##);
+        assert_eq!(c.dashboard_palette, "vivid");
+        assert_eq!(c.dashboard_colors, vec!["#4C8DFF".to_string()]);
+
+        let c = parse(
+            r##"{"dashboard_palette":"rainbow","dashboard_colors":["#000001","#000002","#000003","#000004","#000005","#000006","#000007"]}"##,
+        );
+        assert_eq!(c.dashboard_palette, "mono");
+        assert_eq!(c.dashboard_colors.len(), DASHBOARD_SERIES);
+
+        // Older configs have neither.
+        let c = parse("{}");
+        assert_eq!(c.dashboard_palette, "mono");
+        assert!(c.dashboard_colors.is_empty());
     }
 }

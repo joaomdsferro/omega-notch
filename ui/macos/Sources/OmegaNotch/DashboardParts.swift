@@ -327,12 +327,14 @@ struct Legend: View {
   var series: [DashboardData.Series]
   var money = false
 
+  @Environment(\.seriesShades) private var shades
+
   var body: some View {
     let sum = series.reduce(0) { $0 + $1.total }
     FlowLayout {
       ForEach(series, id: \.key) { item in
         HStack(spacing: 6) {
-          RoundedRectangle(cornerRadius: 2).fill(Theme.shades[item.shade]).frame(width: 8, height: 8)
+          RoundedRectangle(cornerRadius: 2).fill(shades[item.shade]).frame(width: 8, height: 8)
           Text(item.label).font(.notch(12)).foregroundStyle(Theme.textSecondary)
           Text(
             (money ? Format.usd(item.total) : Format.tokens(item.total))
@@ -355,6 +357,7 @@ struct UsageChart: View {
   var emptyText = "No history yet — it fills in as you work."
 
   @State private var hovered: Int?
+  @Environment(\.seriesShades) private var shades
 
   private let axisWidth: CGFloat = 44
   private let xAxisHeight: CGFloat = 24
@@ -413,7 +416,7 @@ struct UsageChart: View {
               ForEach(stack.series.reversed(), id: \.key) { series in
                 let value = day.values[series.key] ?? 0
                 if value > 0 && axisMax > 0 {
-                  Rectangle().fill(Theme.shades[series.shade])
+                  Rectangle().fill(shades[series.shade])
                     .frame(height: (plotHeight * value / axisMax).rounded())
                 }
               }
@@ -484,7 +487,7 @@ struct UsageChart: View {
       }
       ForEach(stack.series, id: \.key) { series in
         HStack(spacing: 8) {
-          RoundedRectangle(cornerRadius: 2).fill(Theme.shades[series.shade]).frame(width: 8, height: 8)
+          RoundedRectangle(cornerRadius: 2).fill(shades[series.shade]).frame(width: 8, height: 8)
           Text(series.label).font(.notch(11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
           Spacer()
           Text(format(day.values[series.key] ?? 0)).font(.notch(11, tabular: true)).foregroundStyle(Theme.text)

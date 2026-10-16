@@ -129,13 +129,13 @@ Window {
         }
         const series = keys.map((k, i) => ({
             key: k, label: labelOf(k), total: totals[k],
-            color: Theme.shades[i % Theme.shades.length]
+            color: root.shades[i % root.shades.length]
         }))
         if (folded.length > 0) {
             series.push({
                 key: "__other", label: "Other (" + folded.length + ")",
                 total: folded.reduce((a, k) => a + totals[k], 0),
-                color: Theme.shades[Theme.shades.length - 1]
+                color: root.shades[root.shades.length - 1]
             })
         }
         const days = root.rangeDates.map(date => Object.assign({ date: date, total: 0 }, byDate[date] || {}))
@@ -222,6 +222,9 @@ Window {
     readonly property var shownCosts: Engine.dashboardCosts.filter(c => root.matches(c.provider))
     readonly property real costToday: shownCosts.reduce((a, c) => a + (c.cost_usd || 0), 0)
 
+    // The series colours chosen in Settings.
+    readonly property var shades: Theme.seriesShades(Engine.dashboardPalette, Engine.dashboardColors)
+
     readonly property var shownChats: Engine.chats.filter(c => root.matches(c.provider))
     readonly property var shownSessions: Engine.dashboardSessions.filter(s => root.matches(s.provider))
     // A model keeps the colour it has in the Models table, so the two read together.
@@ -229,7 +232,7 @@ Window {
         const shades = {}
         for (let i = 0; i < modelRows.length; ++i)
             if (shades[modelRows[i].model] === undefined)
-                shades[modelRows[i].model] = Theme.shades[i % Theme.shades.length]
+                shades[modelRows[i].model] = root.shades[i % root.shades.length]
         return shades
     }
     readonly property int unreadCount: shownChats.filter(c => c.unread).length
@@ -682,6 +685,7 @@ Window {
                         width: parent.width
                         models: root.modelRows
                         totalCost: root.rangeCost
+                        shades: root.shades
                     }
                 }
 
@@ -696,6 +700,7 @@ Window {
                         width: parent.width
                         costs: root.shownCosts
                         total: root.costToday
+                        shades: root.shades
                         today: root.todayTotals
                     }
                 }
@@ -753,6 +758,7 @@ Window {
                             first: index === 0
                             rangeCost: root.rangeCost
                             shades: root.modelShades
+                            otherShade: root.shades[root.shades.length - 1]
                             expanded: root.openSession === modelData.id
                             onToggled: root.openSession = expanded ? "" : modelData.id
                             onOpenRequested: Engine.openChat(modelData)

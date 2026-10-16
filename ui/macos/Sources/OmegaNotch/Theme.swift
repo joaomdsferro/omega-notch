@@ -29,10 +29,9 @@ enum Theme {
   /// A finished chat you have not read yet: the green of "Finished".
   static let unread = Color(hex: "#3DDC97")
 
-  /// Dashboard series, brightest first: the biggest share gets the most ink.
-  static let shades = ["#F2F2F5", "#B4B4BE", "#808089", "#5C5C66", "#44444D", "#33333B"].map {
-    Color(hex: $0)
-  }
+  /// Dashboard series in the default palette; the dashboard draws with
+  /// `\.seriesShades`, the palette chosen in Settings.
+  static let shades = DashboardPalette.colors("mono").map { Color(hex: $0) }
   static let controlFill = Color.white.opacity(0x14 / 255)
   static let controlChosen = Color.white.opacity(0x2E / 255)
   static let controlHover = Color.white.opacity(0x12 / 255)
@@ -145,4 +144,9 @@ struct Spinning: ViewModifier {
 extension View {
   func breathing(_ active: Bool) -> some View { modifier(Breathing(active: active)) }
   func spinning(_ active: Bool) -> some View { modifier(Spinning(active: active)) }
+}
+
+extension EnvironmentValues {
+  /// The dashboard's series colours, first series first.
+  @Entry var seriesShades: [Color] = Theme.shades
 }
