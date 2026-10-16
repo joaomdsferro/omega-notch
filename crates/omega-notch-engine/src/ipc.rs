@@ -196,7 +196,11 @@ async fn handle_message(
             model,
             request,
         } => {
-            let scope = omega_notch_core::history::Scope::normalized(&search, &project, &session);
+            let scope = omega_notch_core::history::Scope {
+                search,
+                project,
+                session,
+            };
             store.analyze_usage(days, scope, model, request);
         }
         ClientMessage::Ping => {

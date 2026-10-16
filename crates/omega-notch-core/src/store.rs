@@ -436,6 +436,9 @@ impl UsageStore {
     /// answer so each shell keeps only answers to what it asked.
     pub fn analyze_usage(&self, days: u32, scope: history::Scope, model: String, request: String) {
         let request: String = request.chars().take(64).collect();
+        // Read as the dashboard reads it, whoever calls, so both see the
+        // same sessions.
+        let scope = history::Scope::normalized(&scope.search, &scope.project, &scope.session);
         let send = |state: &str, text: String| {
             let _ = self.inner.events.send(ServerMessage::UsageAnalysis {
                 state: state.into(),
