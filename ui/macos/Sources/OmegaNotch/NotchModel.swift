@@ -207,7 +207,9 @@ final class NotchModel {
     .map(\.0)
   }
 
-  var previewProvider: String { ProcessInfo.processInfo.environment["OMEGA_NOTCH_PREVIEW"] ?? "" }
+  /// Read once: it is asked for on every redraw, and copying the process's
+  /// environment each time adds up.
+  let previewProvider = ProcessInfo.processInfo.environment["OMEGA_NOTCH_PREVIEW"] ?? ""
 
   private func isActive(_ provider: String) -> Bool {
     activeReadings.contains { $0.provider == provider }
@@ -299,8 +301,12 @@ final class NotchModel {
       pointerInside = inside
       updateWanted()
     }
-    notchHovered = notchRect.insetBy(dx: vertical ? 0 : -curl, dy: vertical ? -curl : 0)
-      .contains(point) && revealed
+    // Set only when it changes: an observed property notifies on every
+    // write, and this runs on every pointer move, so the whole notch and its
+    // card were redrawn as the pointer crossed them.
+    let overNotch =
+      notchRect.insetBy(dx: vertical ? 0 : -curl, dy: vertical ? -curl : 0).contains(point) && revealed
+    if overNotch != notchHovered { notchHovered = overNotch }
 
     // The ring under the pointer, or the card it opened.
     let ring = revealed ? shownReadings.indices.first { cellRect($0).contains(point) } : nil
