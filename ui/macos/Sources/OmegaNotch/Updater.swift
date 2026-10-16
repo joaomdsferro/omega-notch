@@ -27,6 +27,8 @@ final class Updater: NSObject, SPUStandardUserDriverDelegate {
     super.init()
   }
 
+  /// Starts Sparkle at launch, which then checks on its own schedule. Does
+  /// nothing in a build without a feed, or when already started.
   func start() {
     guard available, controller == nil else { return }
     let controller = SPUStandardUpdaterController(
@@ -39,10 +41,12 @@ final class Updater: NSObject, SPUStandardUserDriverDelegate {
     }
   }
 
+  /// Checks for an update now and shows the result, for Settings' "Check now".
   func checkNow() {
     controller?.checkForUpdates(nil)
   }
 
+  /// The daily check, kept by Sparkle in the app's defaults.
   var checksAutomatically: Bool {
     get {
       access(keyPath: \.checksAutomatically)
