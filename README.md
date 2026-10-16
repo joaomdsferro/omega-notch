@@ -55,6 +55,8 @@ warnings.
   **Always Allow**.
 - Jumping to a chat's window needs Accessibility, which Settings asks for when you switch it on.
 - **Open at login** is in Settings.
+- It updates itself: once a day it checks for a new version and asks before installing it. Settings
+  → General has **Check now**.
 
 To remove it, run `brew uninstall --cask omega-notch` (add `--zap` to delete its settings too), or
 quit it and move it to the Trash.
@@ -160,6 +162,9 @@ packaging/                  installer, desktop entry, icons
 - Everything except the usage endpoints is read from local files, read-only.
 - The only network requests go to each tool's own usage endpoint, with the sign-in that tool already
   saved. Nothing goes to a server of ours, because there is none.
+- On macOS, the downloaded app also checks GitHub once a day for a newer release (you can switch
+  that off in Settings → General). It asks before installing anything, and installs only updates
+  signed with the project's key. The check sends nothing about you or your usage.
 - The Copilot sign-in made through the notch is kept in `~/.local/share/omega-notch/copilot.json`
   (mode 600). Settings live in `~/.config/omega-notch/config.json`. On macOS both are in
   `~/Library/Application Support/omega-notch`.

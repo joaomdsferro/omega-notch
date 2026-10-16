@@ -10,13 +10,18 @@
 #
 # RELEASE=1 builds the download instead, in target/macos-release: universal
 # (Apple silicon and Intel), signed with a Developer ID and a secure
-# timestamp, as notarisation needs.
-# scripts/macos-release.sh does that, then notarises and packs the disk image.
+# timestamp, as notarisation needs, and with Sparkle's feed and public key
+# so it updates itself. scripts/macos-release.sh does that, then notarises and
+# packs the disk image.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)"
 BUNDLE_ID="app.wisething.omeganotch"
+# Sparkle reads the latest release's appcast, and installs only what is signed
+# with the private half of this key (kept in the `release` environment).
+SPARKLE_FEED="https://github.com/joaomdsferro/omega-notch/releases/latest/download/appcast.xml"
+SPARKLE_PUBLIC_KEY="fhC4LvVcbYHI+SJ4AW+aDjAXeDNd3minNXv5g+/GGKk="
 IDENTITY="${CODESIGN_IDENTITY:--}"
 RELEASE="${RELEASE:-0}"
 # A release goes to its own folder. Replacing the files of an app that is
@@ -63,11 +68,23 @@ fi
 
 echo "Building app…"
 (cd "$ROOT/ui/macos" && swift build -c release ${SWIFT_ARCHS[@]+"${SWIFT_ARCHS[@]}"} --product OmegaNotch)
-SHELL_BIN="$(cd "$ROOT/ui/macos" && swift build -c release ${SWIFT_ARCHS[@]+"${SWIFT_ARCHS[@]}"} --show-bin-path)/OmegaNotch"
+BIN_DIR="$(cd "$ROOT/ui/macos" && swift build -c release ${SWIFT_ARCHS[@]+"${SWIFT_ARCHS[@]}"} --show-bin-path)"
+SHELL_BIN="$BIN_DIR/OmegaNotch"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 install -m 755 "$SHELL_BIN" "$APP/Contents/MacOS/OmegaNotch"
+# Sparkle, where an app keeps its frameworks. Its XPC services are only for
+# sandboxed apps, which this is not. The build folder's own paths go from the
+# binary, so it neither looks there nor gives them away (a universal binary
+# lists each once per architecture).
+ditto "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+rm -rf "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices" \
+  "$APP/Contents/Frameworks/Sparkle.framework/XPCServices"
+for rpath in $(otool -l "$APP/Contents/MacOS/OmegaNotch" | awk '$1 == "path" && $2 ~ /^\// && $2 !~ /^\/usr\// {print $2}' | sort -u); do
+  install_name_tool -delete_rpath "$rpath" "$APP/Contents/MacOS/OmegaNotch"
+done
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/OmegaNotch"
 install -m 755 "$ENGINE" "$APP/Contents/Helpers/omega-notch-engine"
 install -m 755 "$ROOT/scripts/claude-hook.sh" "$APP/Contents/Resources/claude-hook.sh"
 
@@ -103,6 +120,16 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+if [ "$RELEASE" = 1 ]; then
+  if [ -z "$SPARKLE_PUBLIC_KEY" ]; then
+    echo "SPARKLE_PUBLIC_KEY is empty: a release would not update itself." >&2
+    exit 1
+  fi
+  # Checks once a day without asking first; installing still asks.
+  plutil -insert SUFeedURL -string "$SPARKLE_FEED" "$APP/Contents/Info.plist"
+  plutil -insert SUPublicEDKey -string "$SPARKLE_PUBLIC_KEY" "$APP/Contents/Info.plist"
+  plutil -insert SUEnableAutomaticChecks -bool true "$APP/Contents/Info.plist"
+fi
 
 # The one entitlement: sending Apple Events, to pick a Terminal or iTerm2 tab
 # (only when that is switched on in Settings, and after macOS asks).
@@ -117,11 +144,15 @@ cat > "$ENTITLEMENTS" <<EOF
 </plist>
 EOF
 
-# Inside out: the helper first, then the app around it. The identifiers are
+# Inside out: Sparkle and the helper first, then the app around them. The identifiers are
 # fixed so that, with a real identity, what macOS remembers stays the same from
 # one build to the next. A local build has no timestamp, so it does not need
 # Apple's timestamp server; a release needs one to be notarised.
 echo "Signing with ${CODESIGN_IDENTITY:-an ad hoc signature}…"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+for part in "$SPARKLE/Versions/B/Autoupdate" "$SPARKLE/Versions/B/Updater.app" "$SPARKLE"; do
+  codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$part"
+done
 codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" \
   --identifier "$BUNDLE_ID.engine" "$APP/Contents/Helpers/omega-notch-engine"
 codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" \

@@ -10,8 +10,9 @@
 # The macOS job signs with secrets kept in the "release" environment, which
 # should require a reviewer: MACOS_CERTIFICATE_P12 (the Developer ID
 # Application certificate and key, as base64), MACOS_CERTIFICATE_PASSWORD,
-# MACOS_NOTARY_KEY_P8 (an App Store Connect API key), MACOS_NOTARY_KEY_ID and
-# MACOS_NOTARY_ISSUER.
+# MACOS_NOTARY_KEY_P8 (an App Store Connect API key), MACOS_NOTARY_KEY_ID,
+# MACOS_NOTARY_ISSUER and SPARKLE_PRIVATE_KEY (the EdDSA key that signs
+# updates, as `generate_keys -x` writes it).
 name: Release
 
 on:
@@ -26,6 +27,14 @@ on:
 
 permissions:
   contents: write
+
+# One release at a time: two runs replacing the same disk image and appcast
+# could leave a feed whose signature does not match the download. Waiting
+# runs queue up instead of replacing each other, so no tag goes unreleased.
+concurrency:
+  group: release
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   linux:
@@ -44,9 +53,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
+      # The appcast points at v<Cargo.toml version>, so a tag that names any
+      # other version would publish a feed whose download does not exist.
       - name: Version
         id: version
-        run: echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml's version $version." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - run: cargo fmt --all --check
 
@@ -76,7 +93,8 @@ jobs:
             See the README for how to install and how to report a problem.
 
   macos:
-    # After the Linux job, which creates the draft release this one adds to.
+    # After the Linux job, which creates the draft release this one adds to
+    # and checks the tag against the version.
     needs: linux
     runs-on: macos-15
     environment: release
@@ -122,6 +140,7 @@ jobs:
           NOTARY_KEY: ${{ runner.temp }}/notary.p8
           NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: ./scripts/macos-release.sh
 
       - name: Attach to the draft release
@@ -134,7 +153,7 @@ jobs:
           else
             tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           fi
-          gh release upload "$tag" target/dist/*.dmg target/dist/*.dmg.sha256 --clobber
+          gh release upload "$tag" target/dist/*.dmg target/dist/*.dmg.sha256 target/dist/appcast.xml --clobber
 
       - name: Clean up
         if: always()

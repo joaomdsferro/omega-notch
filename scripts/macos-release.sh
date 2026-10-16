@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the macOS download: the app, universal, signed with a Developer ID,
 # notarised and stapled, inside a disk image that is itself signed, notarised
-# and stapled, plus its checksum, in target/dist.
+# and stapled, plus its checksum and Sparkle's appcast, in target/dist.
 #
 # Needs CODESIGN_IDENTITY set to a "Developer ID Application: …" identity in
 # your Keychain, and Apple's notary service credentials, either:
@@ -95,3 +95,6 @@ spctl --assess --type open --context context:primary-signature "$DMG"
 
 (cd "$OUT" && shasum -a 256 "$NAME.dmg" > "$NAME.dmg.sha256")
 echo "$DMG"
+
+# The feed the app's updater reads, for exactly this disk image.
+"$ROOT/scripts/macos-appcast.sh"

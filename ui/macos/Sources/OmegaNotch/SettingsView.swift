@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Placement, the notch's look, providers, alerts and login: the same tabs as
 /// the Plasma shell's Settings window, plus a General tab for what only macOS
-/// has (opening chats, starting at login).
+/// has (opening chats, starting at login, updates).
 struct SettingsView: View {
   var client: EngineClient
 
@@ -17,6 +17,7 @@ struct SettingsView: View {
   @State private var openSound: AlertSound.Kind?
   @State private var windowsAllowed = WindowRaiser.trusted
   @AppStorage(WindowRaiser.pickTabKey) private var pickTab = false
+  private let updater = Updater.shared
 
   enum Tab: String, CaseIterable, Identifiable {
     case placement = "Placement"
@@ -59,6 +60,7 @@ struct SettingsView: View {
           case .general:
             windows
             startup
+            updates
           }
         }
         .padding(.horizontal, 22)
@@ -403,6 +405,35 @@ struct SettingsView: View {
         subtitleIsError: !loginError.isEmpty,
         isOn: openAtLogin
       ) { on in setOpenAtLogin(on) }
+    }
+  }
+
+  /// The downloaded app updates itself; a local build says so instead.
+  private var updates: some View {
+    SettingsSection(heading: "Updates") {
+      HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Check for updates").font(.notch(14)).foregroundStyle(Theme.text)
+          Text(
+            updater.available
+              ? "Asks before installing anything"
+              : "This build was not downloaded, so it does not update itself"
+          )
+          .font(.notch(12))
+          .foregroundStyle(Theme.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 12)
+        SettingsButton(title: "Check now", enabled: updater.available && updater.canCheck) {
+          updater.checkNow()
+        }
+      }
+      .frame(minHeight: 44)
+      SettingsSwitch(
+        title: "Check automatically",
+        subtitle: "Once a day, on GitHub",
+        isOn: updater.checksAutomatically, enabled: updater.available
+      ) { on in updater.checksAutomatically = on }
     }
   }
 
