@@ -31,16 +31,39 @@ const QUIET_FOR: Duration = Duration::from_secs(900);
 const RATE_LIMITED: &str = "Claude usage rate-limited — try again shortly";
 
 struct Throttle {
-    last_ok: Option<(Instant, UsageReading)>,
+    /// Also kept on disk, so an engine restart neither asks again at once
+    /// nor has nothing to show when that first request is refused.
+    last_ok: Option<UsageReading>,
+    loaded: bool,
     blocked_until: Option<Instant>,
     backoff: Option<Duration>,
 }
 
 static THROTTLE: Mutex<Throttle> = Mutex::new(Throttle {
     last_ok: None,
+    loaded: false,
     blocked_until: None,
     backoff: None,
 });
+
+fn saved_path() -> std::path::PathBuf {
+    paths::app_data_dir().join("claude-usage.json")
+}
+
+fn load_saved() -> Option<UsageReading> {
+    let raw = std::fs::read_to_string(saved_path()).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Written to a temporary file, then moved over the old one.
+fn save(reading: &UsageReading) -> anyhow::Result<()> {
+    paths::create_private_dir(&paths::app_data_dir())?;
+    let path = saved_path();
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec(reading)?)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
 
 enum Failure {
     RateLimited(Option<Duration>),
@@ -50,14 +73,15 @@ enum Failure {
 impl Throttle {
     /// The last reading, if it is recent enough to answer in place of a request.
     fn reusable(&self, max_age: Duration) -> Option<UsageReading> {
-        let (at, reading) = self.last_ok.as_ref()?;
+        let reading = self.last_ok.as_ref()?;
         let now = Utc::now();
         // A window that has rolled over since makes the numbers wrong.
         let rolled_over = reading
             .windows
             .iter()
             .any(|w| w.resets_at.is_some_and(|t| t <= now));
-        (at.elapsed() < max_age && !rolled_over).then(|| reading.clone())
+        let age = (now - reading.fetched_at).to_std().unwrap_or(Duration::ZERO);
+        (age < max_age && !rolled_over).then(|| reading.clone())
     }
 
     fn rate_limited(&self) -> Result<UsageReading, ProviderError> {
@@ -69,7 +93,11 @@ impl Throttle {
 impl ClaudeCodeProvider {
     pub async fn fetch(&self) -> Result<UsageReading, ProviderError> {
         {
-            let throttle = THROTTLE.lock().unwrap();
+            let mut throttle = THROTTLE.lock().unwrap();
+            if !throttle.loaded {
+                throttle.loaded = true;
+                throttle.last_ok = load_saved();
+            }
             if let Some(reading) = throttle.reusable(MIN_INTERVAL) {
                 return Ok(reading);
             }
@@ -83,7 +111,10 @@ impl ClaudeCodeProvider {
         let mut throttle = THROTTLE.lock().unwrap();
         match result {
             Ok(reading) => {
-                throttle.last_ok = Some((Instant::now(), reading.clone()));
+                if let Err(err) = save(&reading) {
+                    tracing::warn!(error = %err, "could not save the Claude usage reading");
+                }
+                throttle.last_ok = Some(reading.clone());
                 throttle.blocked_until = None;
                 throttle.backoff = None;
                 Ok(reading)
