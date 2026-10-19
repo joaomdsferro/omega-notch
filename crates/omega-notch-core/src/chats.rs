@@ -3,10 +3,14 @@
 //!
 //! - Claude Code: `~/.claude/projects/**/*.jsonl` transcripts for titles and
 //!   token usage, `~/.claude/sessions/*.json` for which chats are live.
-//! - Cursor: the `composerHeaders` table of the editor's global state database.
+//! - Cursor: the `composerHeaders` table of the editor's global state database,
+//!   with `composerData:<id>` for the model in use.
+//! - Codex: `~/.codex/session_index.jsonl` for titles, rollout `session_meta`
+//!   under `~/.codex/sessions` for cwd and surface, and early `turn_context`
+//!   for the model.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -567,6 +571,10 @@ impl ActivityIndex {
             activity.chats.extend(cursor_chats());
         }
 
+        if config.provider_enabled(ProviderId::Codex) {
+            activity.chats.extend(codex_chats());
+        }
+
         activity
     }
 
@@ -817,6 +825,7 @@ fn cursor_chats() -> Vec<ChatSummary> {
             .get("hasBlockingPendingActions")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let model = cursor_composer_model(&conn, &id);
 
         chats.push(ChatSummary {
             provider: ProviderId::Cursor,
@@ -824,7 +833,7 @@ fn cursor_chats() -> Vec<ChatSummary> {
             title,
             project: cwd.as_deref().map(folder_name),
             cwd,
-            model: None,
+            model,
             surface: head
                 .get("unifiedMode")
                 .and_then(Value::as_str)
@@ -855,6 +864,278 @@ fn cursor_chats() -> Vec<ChatSummary> {
         }
     }
     chats
+}
+
+/// Model chosen for a Cursor composer, from `composerData:<id>` in the same DB.
+fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String> {
+    let key = format!("composerData:{composer_id}");
+    // Cursor stores these rows as TEXT; accept BLOB too for older shapes.
+    let raw = conn
+        .query_row(
+            "SELECT value FROM cursorDiskKV WHERE key = ?1",
+            [&key],
+            |row| match row.get_ref(0)? {
+                rusqlite::types::ValueRef::Text(bytes) | rusqlite::types::ValueRef::Blob(bytes) => {
+                    Ok(String::from_utf8_lossy(bytes).into_owned())
+                }
+                other => Err(rusqlite::Error::InvalidColumnType(
+                    0,
+                    "value".into(),
+                    other.data_type(),
+                )),
+            },
+        )
+        .ok()?;
+    let data: Value = serde_json::from_str(&raw).ok()?;
+    let config = data.get("modelConfig")?;
+    let id = config
+        .get("modelName")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            config
+                .pointer("/selectedModels/0/modelId")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })?;
+    // Cursor's Auto picker is stored as the literal id `default`.
+    if id.eq_ignore_ascii_case("default") {
+        Some("Auto".into())
+    } else {
+        Some(pretty_model(id))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Codex chats
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct CodexIndexRow {
+    id: String,
+    thread_name: Option<String>,
+    updated_at: String,
+}
+
+#[derive(Debug, Default)]
+struct CodexRolloutMeta {
+    cwd: Option<String>,
+    surface: Option<String>,
+    model: Option<String>,
+    /// Subagent / guardian threads are not listed as their own chats.
+    skip: bool,
+}
+
+/// Recent Codex threads from the local index and rollout headers.
+fn codex_chats() -> Vec<ChatSummary> {
+    codex_chats_at(&paths::codex_session_index(), &paths::codex_sessions_dir())
+}
+
+#[cfg(test)]
+fn codex_chats_from(home: &Path) -> Vec<ChatSummary> {
+    codex_chats_at(&home.join("session_index.jsonl"), &home.join("sessions"))
+}
+
+fn codex_chats_at(index_path: &Path, sessions_dir: &Path) -> Vec<ChatSummary> {
+    let Ok(raw) = std::fs::read_to_string(index_path) else {
+        return Vec::new();
+    };
+
+    let mut rows: Vec<(CodexIndexRow, DateTime<Utc>)> = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(row) = serde_json::from_str::<CodexIndexRow>(line) else {
+            continue;
+        };
+        let Ok(updated_at) = DateTime::parse_from_rfc3339(&row.updated_at) else {
+            continue;
+        };
+        rows.push((row, updated_at.with_timezone(&Utc)));
+    }
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let rollouts = codex_rollout_index(sessions_dir);
+    let mut chats = Vec::new();
+    for (row, updated_at) in rows {
+        let Some(title) = clean_title(row.thread_name.as_deref()) else {
+            continue;
+        };
+        let meta = rollouts
+            .get(&row.id)
+            .map(|path| read_codex_rollout_meta(path))
+            .unwrap_or_default();
+        if meta.skip {
+            continue;
+        }
+        let cwd = meta.cwd;
+        chats.push(ChatSummary {
+            provider: ProviderId::Codex,
+            id: row.id,
+            title,
+            project: cwd.as_deref().map(folder_name),
+            cwd,
+            model: meta.model.as_deref().map(pretty_model),
+            surface: meta.surface,
+            state: SessionKind::Idle,
+            live: false,
+            updated_at,
+            messages: 0,
+            tokens: None,
+            context_tokens: None,
+            context_pct: None,
+            lines_added: None,
+            lines_removed: None,
+            unread: false,
+            prompted_at: None,
+            replied_at: None,
+        });
+        if chats.len() == MAX_CHATS {
+            break;
+        }
+    }
+    chats
+}
+
+/// Map session id → plain `.jsonl` rollout path (skip `.zst`).
+fn codex_rollout_index(sessions: &Path) -> HashMap<String, PathBuf> {
+    let mut out = HashMap::new();
+    if !sessions.is_dir() {
+        return out;
+    }
+    for entry in WalkDir::new(sessions).into_iter().flatten() {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy();
+        let Some(id) = codex_rollout_id(&name) else {
+            continue;
+        };
+        out.insert(id, entry.path().to_path_buf());
+    }
+    out
+}
+
+/// `rollout-<timestamp>-<uuid>.jsonl` → uuid. Compressed `.zst` files are ignored.
+fn codex_rollout_id(file_name: &str) -> Option<String> {
+    let stem = file_name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
+    if stem.len() < 36 {
+        return None;
+    }
+    let id = &stem[stem.len() - 36..];
+    let bytes = id.as_bytes();
+    if bytes.get(8) == Some(&b'-')
+        && bytes.get(13) == Some(&b'-')
+        && bytes.get(18) == Some(&b'-')
+        && bytes.get(23) == Some(&b'-')
+    {
+        Some(id.to_string())
+    } else {
+        None
+    }
+}
+
+fn read_codex_rollout_meta(path: &Path) -> CodexRolloutMeta {
+    let Ok(file) = std::fs::File::open(path) else {
+        return CodexRolloutMeta::default();
+    };
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    let mut meta = CodexRolloutMeta::default();
+    let mut saw_meta = false;
+    // session_meta is first; the model usually appears a few lines later on
+    // turn_context (provenance on session_meta is only set for some threads).
+    for _ in 0..24 {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        let typ = value.get("type").and_then(Value::as_str);
+        let Some(payload) = value.get("payload") else {
+            continue;
+        };
+
+        if typ == Some("session_meta") {
+            saw_meta = true;
+            meta.skip = payload
+                .get("parent_thread_id")
+                .and_then(Value::as_str)
+                .is_some()
+                || payload
+                    .get("thread_source")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| s != "user")
+                || payload
+                    .get("source")
+                    .and_then(Value::as_object)
+                    .is_some_and(|o| o.contains_key("subagent"));
+            meta.cwd = payload
+                .get("cwd")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            meta.surface = codex_surface(
+                payload.get("originator").and_then(Value::as_str),
+                payload.get("source"),
+            );
+            // Fallback when the rollout never emits turn_context.model.
+            if meta.model.is_none() {
+                if let Some(model) = payload
+                    .pointer("/base_instructions/provenance/model")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    meta.model = Some(model.to_string());
+                }
+            }
+        }
+
+        let from_payload = payload
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(model) = from_payload {
+            meta.model = Some(model);
+            if saw_meta {
+                break;
+            }
+        } else if saw_meta && typ == Some("turn_context") {
+            break;
+        }
+    }
+    if saw_meta {
+        meta
+    } else {
+        CodexRolloutMeta::default()
+    }
+}
+
+fn codex_surface(originator: Option<&str>, source: Option<&Value>) -> Option<String> {
+    if let Some(originator) = originator {
+        let lower = originator.to_ascii_lowercase();
+        if lower.contains("desktop") {
+            return Some("Desktop".into());
+        }
+        if lower.contains("cli") {
+            return Some("CLI".into());
+        }
+    }
+    match source {
+        Some(Value::String(s)) => match s.as_str() {
+            "vscode" => Some("VS Code".into()),
+            "cli" => Some("CLI".into()),
+            other => Some(capitalize(other)),
+        },
+        _ => originator.map(|o| capitalize(o)),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1074,5 +1355,157 @@ mod tests {
         ));
         assert_eq!(t.prompts, 2);
         assert_eq!(t.title().as_deref(), Some("add a filter"));
+    }
+
+    #[test]
+    fn codex_rollout_file_names_end_with_the_session_id() {
+        assert_eq!(
+            codex_rollout_id(
+                "rollout-2026-10-18T14-47-39-01a14f44-a03c-7be1-a830-5a908da660ba.jsonl"
+            )
+            .as_deref(),
+            Some("01a14f44-a03c-7be1-a830-5a908da660ba")
+        );
+        assert_eq!(
+            codex_rollout_id(
+                "rollout-2026-08-31T13-33-42-01a057cf-ab38-75d0-b432-204f8dc88768.jsonl.zst"
+            ),
+            None
+        );
+        assert_eq!(codex_rollout_id("notes.txt"), None);
+    }
+
+    #[test]
+    fn codex_chats_read_the_index_and_skip_subagents() {
+        let root =
+            std::env::temp_dir().join(format!("omega-notch-codex-chats-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("sessions/2026/10/18");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let user_id = "01a14f44-a03c-7be1-a830-5a908da660ba";
+        let agent_id = "01a14f47-09fd-7da2-adb3-bea01e290d4c";
+        std::fs::write(
+            root.join("session_index.jsonl"),
+            format!(
+                r#"{{"id":"{user_id}","thread_name":"Check vault access","updated_at":"2026-10-18T13:47:52Z"}}
+{{"id":"{agent_id}","thread_name":"Guardian review","updated_at":"2026-10-18T13:50:18Z"}}
+"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions.join(format!("rollout-2026-10-18T14-47-39-{user_id}.jsonl")),
+            format!(
+                r#"{{"type":"session_meta","payload":{{"session_id":"{user_id}","cwd":"/home/me/app","originator":"Codex Desktop","source":"vscode","thread_source":"user","base_instructions":{{"provenance":{{"type":"model","model":"gpt-6-luna"}}}}}}}}
+{{"type":"event_msg","payload":{{"type":"token_count","model_context_window":1000}}}}
+{{"type":"turn_context","payload":{{"cwd":"/home/me/app","model":"gpt-6-luna"}}}}
+"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions.join(format!("rollout-2026-10-18T14-50-18-{agent_id}.jsonl")),
+            format!(
+                r#"{{"type":"session_meta","payload":{{"session_id":"{agent_id}","parent_thread_id":"{user_id}","cwd":"/home/me/app","originator":"Codex Desktop","source":{{"subagent":{{"other":"guardian"}}}},"thread_source":"guardian_review"}}}}
+{{"type":"turn_context","payload":{{"model":"codex-auto-review"}}}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let chats = codex_chats_from(&root);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(chats.len(), 1);
+        assert_eq!(chats[0].provider, ProviderId::Codex);
+        assert_eq!(chats[0].id, user_id);
+        assert_eq!(chats[0].title, "Check vault access");
+        assert_eq!(chats[0].project.as_deref(), Some("app"));
+        assert_eq!(chats[0].cwd.as_deref(), Some("/home/me/app"));
+        assert_eq!(chats[0].surface.as_deref(), Some("Desktop"));
+        assert_eq!(chats[0].model.as_deref(), Some("Gpt 6 Luna"));
+        assert!(!chats[0].live);
+    }
+
+    #[test]
+    fn cursor_chats_read_the_model_from_composer_data() {
+        let root =
+            std::env::temp_dir().join(format!("omega-notch-cursor-chats-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let db = root.join("state.vscdb");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE composerHeaders(
+                composerId TEXT PRIMARY KEY,
+                lastUpdatedAt INTEGER,
+                createdAt INTEGER,
+                value TEXT,
+                isSubagent INTEGER,
+                isArchived INTEGER,
+                recency INTEGER
+             );
+             CREATE TABLE cursorDiskKV(key TEXT PRIMARY KEY, value BLOB);",
+        )
+        .unwrap();
+
+        let auto_id = "11111111-1111-1111-1111-111111111111";
+        let named_id = "22222222-2222-2222-2222-222222222222";
+        let now = 1_700_000_000_000i64;
+        conn.execute(
+            "INSERT INTO composerHeaders(composerId, lastUpdatedAt, createdAt, value, isSubagent, isArchived, recency)
+             VALUES (?1, ?2, ?2, ?3, 0, 0, 2)",
+            rusqlite::params![
+                auto_id,
+                now + 2,
+                r#"{"name":"Auto chat","unifiedMode":"agent","workspaceIdentifier":{"uri":{"fsPath":"/home/me/app"}}}"#,
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO composerHeaders(composerId, lastUpdatedAt, createdAt, value, isSubagent, isArchived, recency)
+             VALUES (?1, ?2, ?2, ?3, 0, 0, 1)",
+            rusqlite::params![
+                named_id,
+                now + 1,
+                r#"{"name":"Named chat","unifiedMode":"agent","workspaceIdentifier":{"uri":{"fsPath":"/home/me/app"}}}"#,
+            ],
+        )
+        .unwrap();
+        // Real Cursor DBs store composerData as TEXT.
+        conn.execute(
+            "INSERT INTO cursorDiskKV(key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                format!("composerData:{auto_id}"),
+                r#"{"modelConfig":{"modelName":"default","selectedModels":[{"modelId":"default"}]}}"#,
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO cursorDiskKV(key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                format!("composerData:{named_id}"),
+                r#"{"modelConfig":{"modelName":"claude-opus-5-5","selectedModels":[{"modelId":"claude-opus-5-5"}]}}"#,
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let uri = format!("file:{}?mode=ro", db.display());
+        let conn = Connection::open_with_flags(
+            &uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        assert_eq!(
+            cursor_composer_model(&conn, auto_id).as_deref(),
+            Some("Auto")
+        );
+        assert_eq!(
+            cursor_composer_model(&conn, named_id).as_deref(),
+            Some("Opus 5.5")
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
