@@ -29,7 +29,7 @@ use crate::protocol::{
 };
 
 /// Chats kept per provider in a snapshot.
-const MAX_CHATS: usize = 8;
+pub(crate) const MAX_CHATS: usize = 8;
 /// Days of token history, today included.
 pub const HISTORY_DAYS: i64 = 7;
 const TITLE_CHARS: usize = 90;
@@ -559,7 +559,7 @@ impl ActivityIndex {
     pub fn scan(&mut self, config: &AppConfig) -> Activity {
         let mut activity = Activity::default();
 
-        if config.provider_enabled(ProviderId::ClaudeCode) {
+        if config.provider_enabled(&ProviderId::ClaudeCode) {
             let (chats, tokens) = self.scan_claude();
             activity.chats.extend(chats);
             activity.tokens.push(tokens);
@@ -567,12 +567,18 @@ impl ActivityIndex {
             self.claude.clear();
         }
 
-        if config.provider_enabled(ProviderId::Cursor) {
+        if config.provider_enabled(&ProviderId::Cursor) {
             activity.chats.extend(cursor_chats());
         }
 
-        if config.provider_enabled(ProviderId::Codex) {
+        if config.provider_enabled(&ProviderId::Codex) {
             activity.chats.extend(codex_chats());
+        }
+
+        if config.provider_enabled(&ProviderId::OpenCode) {
+            let (chats, tokens) = crate::opencode::activity();
+            activity.chats.extend(chats);
+            activity.tokens.push(tokens);
         }
 
         activity
@@ -1178,7 +1184,7 @@ fn command_title(text: &str) -> Option<String> {
 
 /// One line, trimmed and bounded. Harness-injected text (`<command-name>`,
 /// `<system-reminder>`…) is not something the user typed, so it is no title.
-fn clean_title(raw: Option<&str>) -> Option<String> {
+pub(crate) fn clean_title(raw: Option<&str>) -> Option<String> {
     let text = raw?.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.is_empty() || text.starts_with('<') {
         return None;

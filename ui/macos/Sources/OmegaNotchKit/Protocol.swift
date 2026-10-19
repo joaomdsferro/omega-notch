@@ -12,6 +12,12 @@ public enum SessionKind: String, Codable, Sendable {
   case waitingYou = "waiting_you"
 }
 
+/// One provider the engine can fetch, for shells to build their lists from.
+public struct ProviderInfo: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var displayName: String
+}
+
 public struct UsageWindow: Codable, Equatable, Sendable {
   public var label: String
   public var usedPct: Double
@@ -275,8 +281,8 @@ public struct RaiseRequest: Codable, Equatable, Sendable {
 public enum ServerMessage: Sendable {
   case hello(protocol: Int)
   case snapshot(
-    readings: [UsageReading], sessions: [SessionState], chats: [ChatSummary],
-    tokens: [TokenStats], config: JSONValue)
+    providers: [ProviderInfo], readings: [UsageReading], sessions: [SessionState],
+    chats: [ChatSummary], tokens: [TokenStats], config: JSONValue)
   case activityUpdated(chats: [ChatSummary], tokens: [TokenStats])
   case usageUpdated(UsageReading)
   case sessionUpdated(SessionState)
@@ -333,6 +339,7 @@ extension ServerMessage {
 
   private struct Envelope: Decodable { var type: String }
   private struct Snapshot: Decodable {
+    var providers: [ProviderInfo]?
     var readings: [UsageReading]
     var sessions: [SessionState]
     var chats: [ChatSummary]
@@ -372,8 +379,8 @@ extension ServerMessage {
     case "snapshot":
       let s = try d.decode(Snapshot.self, from: line)
       return .snapshot(
-        readings: s.readings, sessions: s.sessions, chats: s.chats, tokens: s.tokens,
-        config: s.config)
+        providers: s.providers ?? [], readings: s.readings, sessions: s.sessions,
+        chats: s.chats, tokens: s.tokens, config: s.config)
     case "activity_updated":
       let a = try d.decode(Activity.self, from: line)
       return .activityUpdated(chats: a.chats, tokens: a.tokens)

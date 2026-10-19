@@ -590,14 +590,10 @@ pub fn parse_hook_payload(body: &str) -> anyhow::Result<SessionEvent> {
         label: Option<String>,
     }
     let payload: Payload = serde_json::from_str(body)?;
-    let provider = match payload.provider.as_deref() {
-        Some("cursor") => ProviderId::Cursor,
-        Some("claude_desktop") => ProviderId::ClaudeDesktop,
-        Some("copilot") => ProviderId::Copilot,
-        Some("grok_bot") => ProviderId::GrokBot,
-        Some("codex") => ProviderId::Codex,
-        _ => ProviderId::ClaudeCode,
-    };
+    let provider = payload
+        .provider
+        .map(ProviderId::new)
+        .unwrap_or(ProviderId::ClaudeCode);
     let kind = match payload.kind.as_str() {
         "busy" => SessionKind::Busy,
         "waiting_you" | "waiting" => SessionKind::WaitingYou,

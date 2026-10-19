@@ -306,15 +306,7 @@ pub fn record_backfill(
 }
 
 fn parse_provider(raw: &str) -> ProviderId {
-    match raw {
-        "cursor" => ProviderId::Cursor,
-        "claude_code" => ProviderId::ClaudeCode,
-        "claude_desktop" => ProviderId::ClaudeDesktop,
-        "copilot" => ProviderId::Copilot,
-        "grok_bot" => ProviderId::GrokBot,
-        "codex" => ProviderId::Codex,
-        _ => ProviderId::ClaudeCode,
-    }
+    ProviderId::new(raw)
 }
 
 fn cutoff(days: u32) -> String {
@@ -574,9 +566,9 @@ fn scoped_since(
             continue;
         };
         let project = projects
-            .entry((s.provider, name.clone()))
+            .entry((s.provider.clone(), name.clone()))
             .or_insert_with(|| ProjectCost {
-                provider: s.provider,
+                provider: s.provider.clone(),
                 project: name.clone(),
                 sessions: 0,
                 total: 0,
@@ -608,14 +600,14 @@ fn scoped_since(
         if !session_matches(&session, &words) {
             continue;
         }
-        let provider = session.provider;
+        let provider = session.provider.clone();
         let counted = picked.is_empty() || session.id == picked;
         for (date, model, t) in spent.days.iter().filter(|_| counted) {
             let cost = pricing::estimate_cost_usd(model, t);
             let point = points
-                .entry((provider, date.clone()))
+                .entry((provider.clone(), date.clone()))
                 .or_insert_with(|| HistoryPoint {
-                    provider,
+                    provider: provider.clone(),
                     date: date.clone(),
                     input: 0,
                     output: 0,
@@ -629,9 +621,9 @@ fn scoped_since(
             point.cache_write += t.cache_write;
             point.total += t.total();
             let day = models
-                .entry((provider, date.clone(), model.clone()))
+                .entry((provider.clone(), date.clone(), model.clone()))
                 .or_insert_with(|| ModelDayPoint {
-                    provider,
+                    provider: provider.clone(),
                     date: date.clone(),
                     model: model.clone(),
                     input: 0,
@@ -649,9 +641,9 @@ fn scoped_since(
             day.cost_usd += cost;
             if date == today {
                 let now = spent_today
-                    .entry((provider, model.clone()))
+                    .entry((provider.clone(), model.clone()))
                     .or_insert_with(|| CostEstimate {
-                        provider,
+                        provider: provider.clone(),
                         model: model.clone(),
                         total: 0,
                         cost_usd: 0.0,
@@ -782,6 +774,16 @@ mod tests {
         let tx = conn.transaction().unwrap();
         write_session_days(&tx, "claude_code", &dates, rows, meta).unwrap();
         tx.commit().unwrap();
+    }
+
+    #[test]
+    fn a_provider_id_survives_the_read_as_itself() {
+        // History rows are only ever written by this engine, but a newer
+        // engine may write an id this build does not know; it must not be
+        // folded into another provider's numbers.
+        assert_eq!(parse_provider("claude_code"), ProviderId::ClaudeCode);
+        assert_eq!(parse_provider("opencode").as_str(), "opencode");
+        assert_eq!(parse_provider("future_tool").as_str(), "future_tool");
     }
 
     #[test]

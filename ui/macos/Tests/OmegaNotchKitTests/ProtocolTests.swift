@@ -30,9 +30,12 @@ final class ProtocolTests: XCTestCase {
 
   func testSnapshot() throws {
     guard
-      case .snapshot(let readings, let sessions, let chats, let tokens, let config) =
+      case .snapshot(let providers, let readings, let sessions, let chats, let tokens, let config) =
         try fixture("snapshot")
     else { return XCTFail("not a snapshot") }
+
+    XCTAssertEqual(providers.first?.id, "claude_code")
+    XCTAssertEqual(providers.first?.displayName, "Claude Code")
 
     let reading = try XCTUnwrap(readings.first)
     XCTAssertEqual(reading.provider, "claude_code")

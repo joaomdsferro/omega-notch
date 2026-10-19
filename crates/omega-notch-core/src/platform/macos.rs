@@ -48,9 +48,9 @@ pub fn tty(pid: u32) -> Option<PathBuf> {
         .find(|p| p.metadata().is_ok_and(|m| m.rdev() == u64::from(dev)))
 }
 
-/// The `.app` bundle that `pid` runs from, such as
-/// `/Applications/iTerm.app`, or `None` for a bare command-line program.
-pub fn app_bundle(pid: u32) -> Option<PathBuf> {
+/// The executable `pid` runs from, such as `/usr/bin/opencode`, or `None`
+/// for a process that is already gone.
+fn executable_path(pid: u32) -> Option<PathBuf> {
     let pid = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
     let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     // SAFETY: the buffer is as large as the size passed for it.
@@ -59,10 +59,57 @@ pub fn app_bundle(pid: u32) -> Option<PathBuf> {
         return None;
     }
     buf.truncate(len as usize);
-    let exe = PathBuf::from(String::from_utf8(buf).ok()?);
+    Some(PathBuf::from(String::from_utf8(buf).ok()?))
+}
+
+/// `pid`'s working directory; nothing when it has none (kernel processes).
+fn working_dir(pid: u32) -> Option<PathBuf> {
+    let info: libc::proc_vnodepathinfo = pid_info(pid, libc::PROC_PIDVNODEPATHINFO)?;
+    let path: Vec<u8> = info
+        .pvi_cdir
+        .vip_path
+        .iter()
+        .flatten()
+        .map(|c| *c as u8)
+        .take_while(|b| *b != 0)
+        .collect();
+    let cwd = String::from_utf8(path).ok()?;
+    (!cwd.is_empty()).then(|| PathBuf::from(cwd))
+}
+
+/// Every running process whose executable is named `name`, with its working
+/// directory.
+pub fn processes_named(name: &str) -> Vec<(u32, PathBuf)> {
+    let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if count <= 0 {
+        return Vec::new();
+    }
+    // Processes can spawn between the two calls; leave the list room to grow.
+    let mut pids = vec![0 as libc::c_int; count as usize * 2];
+    let size = (pids.len() * std::mem::size_of::<libc::c_int>()) as libc::c_int;
+    let written = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
+    if written <= 0 {
+        return Vec::new();
+    }
+    pids.truncate(written as usize);
+    pids.into_iter()
+        .filter(|pid| *pid > 0)
+        .filter_map(|pid| {
+            let pid = u32::try_from(pid).ok()?;
+            let exe = executable_path(pid)?;
+            (exe.file_name()?.to_str()? == name).then_some(pid)
+        })
+        .filter_map(|pid| Some((pid, working_dir(pid)?)))
+        .collect()
+}
+
+/// The `.app` bundle that `pid` runs from, such as
+/// `/Applications/iTerm.app`, or `None` for a bare command-line program.
+pub fn app_bundle(pid: u32) -> Option<PathBuf> {
     // The outermost bundle, so a helper inside an app (VS Code's terminal
     // host, for one) resolves to the app itself.
-    exe.ancestors()
+    executable_path(pid)?
+        .ancestors()
         .filter(|p| p.extension().is_some_and(|e| e == "app"))
         .last()
         .map(Path::to_path_buf)

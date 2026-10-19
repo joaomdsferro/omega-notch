@@ -9,6 +9,8 @@
 //!   the extension's `vscode://anthropic.claude-code/open?session=` link opens
 //!   that conversation in it.
 //! - Finished CLI sessions: `claude --resume <id>` in a new terminal window.
+//! - opencode: the TUI's terminal is raised (bell rung) when one runs the
+//!   chat's folder; otherwise `opencode --session <id>` continues it.
 //! - Claude Desktop and Codex Desktop: their window is raised (Codex on the
 //!   chat's folder); neither offers a link to a single chat.
 //! - Cursor: the window for the chat's folder is raised, or the Agents (glass)
@@ -20,7 +22,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -105,12 +107,48 @@ pub struct RaiseRequest {
 /// Opens the chat. On macOS, a live session also comes back as a request for
 /// the shell to raise its window.
 pub fn open_chat(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
-    match target.provider {
-        ProviderId::ClaudeCode => open_claude(target),
-        ProviderId::Cursor => open_cursor(target).map(|_| None),
-        ProviderId::Codex => open_app(&CODEX_DESKTOP, target.cwd).map(|_| None),
-        other => bail!("{other:?} chats cannot be opened"),
+    match target.provider.as_str() {
+        "claude_code" => open_claude(target),
+        "opencode" => open_opencode(target),
+        "cursor" => open_cursor(target).map(|_| None),
+        "codex" => open_app(&CODEX_DESKTOP, target.cwd).map(|_| None),
+        other => bail!("{other} chats cannot be opened"),
     }
+}
+
+/// Brings the opencode TUI forward when it is the one working in the chat's
+/// folder, ringing its terminal's bell so the tab lights up; otherwise
+/// continues the session in a new terminal window.
+fn open_opencode(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
+    if let Some(pid) = target.cwd.and_then(live_opencode) {
+        info!(id = target.id, pid, "opening live opencode session");
+        let hints = window_hints(None, target.title, target.cwd);
+        let pids = ancestors(pid);
+        raise_window(&pids, &hints)?;
+        ring_bell(pid);
+        if cfg!(target_os = "macos") {
+            let tty = platform::tty(pid).map(|t| t.display().to_string());
+            return Ok(Some(RaiseRequest { pids, hints, tty }));
+        }
+        return Ok(None);
+    }
+    info!(id = target.id, live = false, "resuming opencode session");
+    resume_in_terminal("opencode", &["--session", target.id], target.cwd).map(|_| None)
+}
+
+/// The opencode TUI process working in `cwd`, if one runs.
+fn live_opencode(cwd: &str) -> Option<u32> {
+    opencode_process(cwd, &platform::processes_named("opencode"))
+}
+
+/// opencode gives no process its session id; the folder it was started in is
+/// what tells its instances apart.
+fn opencode_process(cwd: &str, processes: &[(u32, PathBuf)]) -> Option<u32> {
+    let wanted = Path::new(cwd).canonicalize().ok();
+    processes
+        .iter()
+        .find(|(_, dir)| dir == Path::new(cwd) || wanted.as_deref() == Some(dir.as_path()))
+        .map(|(pid, _)| *pid)
 }
 
 /// Brings Cursor forward. Spawning `cursor <folder>` alone often does nothing
@@ -169,7 +207,9 @@ fn open_claude(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
         ("claude-desktop" | "claude-desktop-3p", None) => {
             open_app(&CLAUDE_DESKTOP, None).map(|_| None)
         }
-        (_, None) => resume_in_terminal(target.id, cwd.as_deref()).map(|_| None),
+        (_, None) => {
+            resume_in_terminal("claude", &["--resume", target.id], cwd.as_deref()).map(|_| None)
+        }
     }
 }
 
@@ -205,21 +245,23 @@ fn open_in_vscode(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
     spawn(platform::OPENER, [format!("{VSCODE_SESSION_URI}{id}")])
 }
 
-fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
+/// Opens a terminal window running `program` with `args` in `dir`; it is how
+/// `claude --resume <id>` and `opencode --session <id>` continue a chat.
+fn resume_in_terminal(program: &str, extra: &[&str], cwd: Option<&str>) -> anyhow::Result<()> {
     let dir = cwd
         .filter(|c| Path::new(c).is_dir())
         .map(str::to_string)
         .or_else(|| dirs::home_dir().map(|h| h.display().to_string()))
         .unwrap_or_else(|| "/".into());
-    let claude = which("claude").context("claude is not on PATH")?;
-    let claude = claude.as_str();
+    let resolved = which(program).with_context(|| format!("{program} is not on PATH"))?;
+    let resolved = resolved.as_str();
     #[cfg(target_os = "macos")]
     if std::env::var("TERMINAL")
         .ok()
         .and_then(|t| which(&t))
         .is_none()
     {
-        return resume_in_terminal_app(&dir, claude, id);
+        return resume_in_terminal_app(&dir, resolved, extra);
     }
     let terminal = std::env::var("TERMINAL")
         .ok()
@@ -232,53 +274,17 @@ fn resume_in_terminal(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
         .unwrap_or(&terminal)
         .to_string();
 
-    let args: Vec<String> = match name.as_str() {
-        "ghostty" => vec![
-            format!("--working-directory={dir}"),
-            "-e".into(),
-            claude.into(),
-            "--resume".into(),
-            id.into(),
-        ],
-        "konsole" => vec![
-            "--workdir".into(),
-            dir.clone(),
-            "-e".into(),
-            claude.into(),
-            "--resume".into(),
-            id.into(),
-        ],
-        "kitty" => vec![
-            "--directory".into(),
-            dir.clone(),
-            claude.into(),
-            "--resume".into(),
-            id.into(),
-        ],
-        "wezterm" => vec![
-            "start".into(),
-            "--cwd".into(),
-            dir.clone(),
-            "--".into(),
-            claude.into(),
-            "--resume".into(),
-            id.into(),
-        ],
-        "foot" => vec![
-            format!("--working-directory={dir}"),
-            claude.into(),
-            "--resume".into(),
-            id.into(),
-        ],
-        _ => vec![
-            "--working-directory".into(),
-            dir.clone(),
-            "-e".into(),
-            claude.into(),
-            "--resume".into(),
-            id.into(),
-        ],
+    let mut args: Vec<String> = match name.as_str() {
+        "ghostty" => vec![format!("--working-directory={dir}"), "-e".into()],
+        "konsole" => vec!["--workdir".into(), dir.clone(), "-e".into()],
+        "kitty" => vec!["--directory".into(), dir.clone()],
+        "wezterm" => vec!["start".into(), "--cwd".into(), dir.clone(), "--".into()],
+        "foot" => vec![format!("--working-directory={dir}")],
+        _ => vec!["--working-directory".into(), dir.clone(), "-e".into()],
     };
+    args.push(resolved.to_string());
+    args.extend(extra.iter().map(|arg| (*arg).to_string()));
+
     let mut command = Command::new(&terminal);
     command.args(&args).current_dir(&dir);
     detach(command)
@@ -298,20 +304,25 @@ fn default_terminal() -> Option<String> {
     None
 }
 
-/// Opens a Terminal.app window running `claude --resume <id>` in `dir`. The
+/// Opens a Terminal.app window running `program` with `args` in `dir`. The
 /// values reach AppleScript as arguments, and `quoted form of` quotes them
 /// for the shell, so none of them is ever spliced into a script.
 #[cfg(target_os = "macos")]
-fn resume_in_terminal_app(dir: &str, claude: &str, id: &str) -> anyhow::Result<()> {
+fn resume_in_terminal_app(dir: &str, program: &str, extra: &[&str]) -> anyhow::Result<()> {
     const SCRIPT: &str = r#"on run argv
-    set {dir, claude, sessionId} to argv
+    set {dir, program} to {item 1 of argv, item 2 of argv}
+    set commandLine to "cd " & quoted form of dir & " && " & quoted form of program
+    repeat with i from 3 to count of argv
+        set commandLine to commandLine & " " & quoted form of (item i of argv)
+    end repeat
     tell application "Terminal"
         activate
-        do script "cd " & quoted form of dir & " && " & quoted form of claude & " --resume " & quoted form of sessionId
+        do script commandLine
     end tell
 end run"#;
     let mut command = Command::new("/usr/bin/osascript");
-    command.args(["-e", SCRIPT, dir, claude, id]);
+    command.args(["-e", SCRIPT, dir, program]);
+    command.args(extra);
     detach(command)
 }
 
@@ -818,5 +829,15 @@ mod tests {
         let chain = ancestors(me);
         assert_eq!(chain.first(), Some(&me));
         assert!(chain.len() >= 2);
+    }
+
+    #[test]
+    fn an_opencode_instance_is_matched_by_its_folder() {
+        let processes = [
+            (10, PathBuf::from("/home/me/web")),
+            (11, PathBuf::from("/home/me/api")),
+        ];
+        assert_eq!(opencode_process("/home/me/web", &processes), Some(10));
+        assert_eq!(opencode_process("/home/me/other", &processes), None);
     }
 }

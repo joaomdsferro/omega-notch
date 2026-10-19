@@ -12,8 +12,8 @@ use crate::config::AppConfig;
 use crate::copilot_auth;
 use crate::limits::LimitWatch;
 use crate::protocol::{
-    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus,
-    ServerMessage, SessionKind, SessionState, UsageReading,
+    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ProviderInfo,
+    ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
 };
 use crate::providers;
 use crate::seen::Seen;
@@ -87,9 +87,10 @@ impl UsageStore {
         // Moving the notch or muting a sound is no reason to spend a vendor's
         // rate limit; only providers that were switched need a new reading.
         let mut toggled = false;
-        for id in ProviderId::mvp_providers() {
-            if previous.provider_enabled(*id) != config.provider_enabled(*id) {
-                self.refresh_one(*id).await;
+        for provider in providers::PROVIDERS {
+            let id = provider.id();
+            if previous.provider_enabled(id) != config.provider_enabled(id) {
+                self.refresh_one(id.clone()).await;
                 toggled = true;
             }
         }
@@ -102,18 +103,26 @@ impl UsageStore {
     pub async fn snapshot(&self) -> ServerMessage {
         let readings = {
             let guard = self.inner.readings.read().await;
-            ProviderId::mvp_providers()
+            providers::PROVIDERS
                 .iter()
-                .filter_map(|id| guard.get(id).cloned())
+                .filter_map(|provider| guard.get(provider.id()).cloned())
                 .collect()
         };
         let sessions = {
             let guard = self.inner.sessions.read().await;
             guard.values().cloned().collect()
         };
+        let providers = providers::PROVIDERS
+            .iter()
+            .map(|provider| ProviderInfo {
+                id: provider.id().clone(),
+                display_name: provider.display_name().to_string(),
+            })
+            .collect();
         let config = self.config().await;
         let activity = self.inner.activity.read().await.clone();
         ServerMessage::Snapshot {
+            providers,
             readings,
             sessions,
             chats: activity.chats,
@@ -171,8 +180,8 @@ impl UsageStore {
 
     pub async fn refresh_all(&self) {
         let config = self.config().await;
-        for id in ProviderId::mvp_providers() {
-            let reading = providers::fetch_provider(*id, &config).await;
+        for provider in providers::PROVIDERS {
+            let reading = providers::fetch_provider(provider.id().clone(), &config).await;
             self.publish_reading(reading).await;
         }
     }
@@ -194,7 +203,7 @@ impl UsageStore {
                     }
                 }
             }
-            guard.insert(reading.provider, reading.clone());
+            guard.insert(reading.provider.clone(), reading.clone());
         }
         // Followed even while muted, so unmuting does not announce a
         // threshold passed long ago.
@@ -211,7 +220,7 @@ impl UsageStore {
 
         if let Some(limit) = limit {
             let config = self.config().await;
-            if config.alerts.limits && !config.alerts_muted(limit.provider) {
+            if config.alerts.limits && !config.alerts_muted(&limit.provider) {
                 info!(provider = ?limit.provider, threshold = limit.threshold, "usage limit");
                 let _ = self
                     .inner
@@ -227,7 +236,7 @@ impl UsageStore {
             return;
         };
         let config = self.config().await;
-        if config.provider_enabled(ProviderId::ClaudeCode)
+        if config.provider_enabled(&ProviderId::ClaudeCode)
             && !self.inner.backfill_checked.swap(true, Ordering::SeqCst)
         {
             tokio::task::spawn_blocking(backfill_history);
@@ -263,7 +272,7 @@ impl UsageStore {
     /// Marks a chat read now, and tells the shells when that changes it.
     pub async fn mark_seen(&self, provider: ProviderId, id: &str) {
         let changed = match self.inner.seen.lock() {
-            Ok(mut seen) => seen.mark(provider, id, Utc::now()),
+            Ok(mut seen) => seen.mark(&provider, id, Utc::now()),
             Err(_) => false,
         };
         if !changed {
@@ -381,7 +390,7 @@ impl UsageStore {
                     cache_write: (stats.today.cache_write as f64 * share).round() as u64,
                 };
                 costs.push(CostEstimate {
-                    provider: stats.provider,
+                    provider: stats.provider.clone(),
                     model: model.model.clone(),
                     total: model.total,
                     cost_usd: pricing::estimate_cost_usd(&model.model, &bucket),
@@ -523,7 +532,7 @@ impl UsageStore {
         if let (true, Some(previous)) = (unchanged, guard.get(&session.provider)) {
             session.updated_at = previous.updated_at;
         }
-        let previous = guard.insert(session.provider, session.clone());
+        let previous = guard.insert(session.provider.clone(), session.clone());
         drop(guard);
         if !unchanged {
             let _ = self
@@ -537,7 +546,7 @@ impl UsageStore {
     /// Announces one session finishing or stopping to ask, for providers that
     /// report each session on its own.
     pub async fn announce(&self, session: SessionState) {
-        if self.config().await.alerts_muted(session.provider) {
+        if self.config().await.alerts_muted(&session.provider) {
             return;
         }
         let message = match session.kind {
@@ -552,7 +561,7 @@ impl UsageStore {
         let config = self.config().await;
         let previous = self.set_session(session.clone()).await;
 
-        if config.alerts_muted(session.provider) {
+        if config.alerts_muted(&session.provider) {
             return;
         }
 

@@ -1,5 +1,11 @@
 {
   "type": "snapshot",
+  "providers": [
+    {
+      "id": "claude_code",
+      "display_name": "Claude Code"
+    }
+  ],
   "readings": [
     {
       "provider": "claude_code",
@@ -89,12 +95,13 @@
     "size": "medium",
     "accent": "plasma",
     "providers": {
-      "cursor": true,
       "claude_code": true,
       "claude_desktop": true,
+      "codex": true,
       "copilot": true,
+      "cursor": true,
       "grok_bot": true,
-      "codex": true
+      "opencode": true
     },
     "alerts": {
       "enabled": true,
@@ -108,12 +115,7 @@
       "open_notch_waiting": true,
       "open_notch_limits": true,
       "limits": true,
-      "mute_cursor": false,
-      "mute_claude_code": false,
-      "mute_claude_desktop": false,
-      "mute_copilot": false,
-      "mute_grok_bot": false,
-      "mute_codex": false
+      "muted": {}
     },
     "peek_seconds": 5,
     "auto_hide": true,

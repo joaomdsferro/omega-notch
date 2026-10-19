@@ -9,10 +9,6 @@ public struct NotchConfig: Equatable, Sendable {
     self.raw = raw
   }
 
-  public static let providerIds = [
-    "cursor", "claude_code", "claude_desktop", "copilot", "grok_bot", "codex",
-  ]
-
   public var edge: String {
     get { raw["edge"]?.string ?? "top" }
     set { raw["edge"] = .string(newValue) }

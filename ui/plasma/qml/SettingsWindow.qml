@@ -33,14 +33,17 @@ Window {
         { id: "alerts", label: "Alerts", icon: "bell" }
     ]
 
-    readonly property var providers: [
-        { id: "cursor", name: "Cursor", enabled: Engine.providerCursor },
-        { id: "claude_code", name: "Claude Code", enabled: Engine.providerClaudeCode },
-        { id: "claude_desktop", name: "Claude Desktop", enabled: Engine.providerClaudeDesktop },
-        { id: "copilot", name: "GitHub Copilot", enabled: Engine.providerCopilot },
-        { id: "grok_bot", name: "Grok Bot", enabled: Engine.providerGrokBot },
-        { id: "codex", name: "Codex", enabled: Engine.providerCodex }
-    ]
+    // The engine's registry, with each provider's on/off state.
+    readonly property var providers: Engine.providers
+
+    function providerEnabled(id) {
+        const list = Engine.providers
+        for (let i = 0; i < list.length; ++i) {
+            if (list[i].id === id)
+                return list[i].enabled
+        }
+        return true
+    }
 
     // Swatches offered for the notch; any other colour goes in the field.
     readonly property var idleColors: ["#000000", "#FFFFFF", "#3DDC97", "#F5C542",

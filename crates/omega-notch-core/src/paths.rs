@@ -146,14 +146,26 @@ pub fn github_copilot_dir() -> PathBuf {
     config_home().join("github-copilot")
 }
 
+/// opencode's data directory: its credential store, its SQLite database of
+/// sessions and messages, and its logs.
+/// opencode uses `~/.local/share` on macOS too.
+pub fn opencode_dir() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return home().join(".local/share/opencode");
+    }
+    data_home().join("opencode")
+}
+
 /// opencode's credential store; its `github-copilot` entry holds the same
 /// GitHub OAuth token as its `refresh` field.
-/// opencode uses `~/.local/share` on macOS too.
 pub fn opencode_auth() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        return home().join(".local/share/opencode/auth.json");
-    }
-    data_home().join("opencode/auth.json")
+    opencode_dir().join("auth.json")
+}
+
+/// opencode's SQLite store: sessions, messages and their token counts,
+/// kept per provider and model.
+pub fn opencode_db() -> PathBuf {
+    opencode_dir().join("opencode.db")
 }
 
 fn home() -> PathBuf {

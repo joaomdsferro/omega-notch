@@ -3,63 +3,77 @@
 //! Transport: newline-delimited JSON over a Unix domain socket
 //! (`$XDG_RUNTIME_DIR/omega-notch.sock`).
 
+use std::borrow::Cow;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderId {
-    Cursor,
-    ClaudeCode,
-    ClaudeDesktop,
-    Copilot,
-    GrokBot,
-    Codex,
+/// A provider's stable id on the wire. Open-ended on purpose: the engine's
+/// registry decides which ids it can fetch, and a newer registry can add one
+/// without an older shell failing to read it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProviderId(Cow<'static, str>);
+
+#[allow(non_upper_case_globals)]
+impl ProviderId {
+    pub const Cursor: Self = Self(Cow::Borrowed("cursor"));
+    pub const ClaudeCode: Self = Self(Cow::Borrowed("claude_code"));
+    pub const ClaudeDesktop: Self = Self(Cow::Borrowed("claude_desktop"));
+    pub const Copilot: Self = Self(Cow::Borrowed("copilot"));
+    pub const GrokBot: Self = Self(Cow::Borrowed("grok_bot"));
+    pub const Codex: Self = Self(Cow::Borrowed("codex"));
+    /// The opencode TUI; whichever sub-provider it is signed in to shows in
+    /// the chats' model labels.
+    pub const OpenCode: Self = Self(Cow::Borrowed("opencode"));
     /// Reserved for a future browser extension.
-    ClaudeWeb,
-    ChatgptWeb,
-    GeminiWeb,
+    pub const ClaudeWeb: Self = Self(Cow::Borrowed("claude_web"));
+    pub const ChatgptWeb: Self = Self(Cow::Borrowed("chatgpt_web"));
+    pub const GeminiWeb: Self = Self(Cow::Borrowed("gemini_web"));
+
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(Cow::Owned(id.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn display_name(&self) -> &str {
+        match self.as_str() {
+            "cursor" => "Cursor",
+            "claude_code" => "Claude Code",
+            "claude_desktop" => "Claude Desktop",
+            "copilot" => "GitHub Copilot",
+            "grok_bot" => "Grok Bot",
+            "codex" => "Codex",
+            "opencode" => "OpenCode",
+            "claude_web" => "Claude Web",
+            "chatgpt_web" => "ChatGPT",
+            "gemini_web" => "Gemini",
+            other => other,
+        }
+    }
 }
 
-impl ProviderId {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Cursor => "cursor",
-            Self::ClaudeCode => "claude_code",
-            Self::ClaudeDesktop => "claude_desktop",
-            Self::Copilot => "copilot",
-            Self::GrokBot => "grok_bot",
-            Self::Codex => "codex",
-            Self::ClaudeWeb => "claude_web",
-            Self::ChatgptWeb => "chatgpt_web",
-            Self::GeminiWeb => "gemini_web",
-        }
+impl From<&str> for ProviderId {
+    fn from(value: &str) -> Self {
+        Self::new(value)
     }
+}
 
-    pub fn display_name(self) -> &'static str {
-        match self {
-            Self::Cursor => "Cursor",
-            Self::ClaudeCode => "Claude Code",
-            Self::ClaudeDesktop => "Claude Desktop",
-            Self::Copilot => "GitHub Copilot",
-            Self::GrokBot => "Grok Bot",
-            Self::Codex => "Codex",
-            Self::ClaudeWeb => "Claude Web",
-            Self::ChatgptWeb => "ChatGPT",
-            Self::GeminiWeb => "Gemini",
-        }
+impl From<String> for ProviderId {
+    fn from(value: String) -> Self {
+        Self::new(value)
     }
+}
 
-    pub fn mvp_providers() -> &'static [ProviderId] {
-        &[
-            Self::Cursor,
-            Self::ClaudeCode,
-            Self::ClaudeDesktop,
-            Self::Copilot,
-            Self::GrokBot,
-            Self::Codex,
-        ]
-    }
+/// One provider this engine can fetch, for shells to build their lists
+/// from instead of hardcoding ids and names. Additive.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderInfo {
+    pub id: ProviderId,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,8 +122,8 @@ impl UsageReading {
 
     pub fn needs_auth(provider: ProviderId, message: impl Into<String>) -> Self {
         Self {
-            provider,
             display_name: provider.display_name().to_string(),
+            provider,
             fidelity: Fidelity::Official,
             status: ReadingStatus::NeedsAuth,
             windows: vec![],
@@ -120,8 +134,8 @@ impl UsageReading {
 
     pub fn error(provider: ProviderId, message: impl Into<String>) -> Self {
         Self {
-            provider,
             display_name: provider.display_name().to_string(),
+            provider,
             fidelity: Fidelity::Official,
             status: ReadingStatus::Error,
             windows: vec![],
@@ -132,8 +146,8 @@ impl UsageReading {
 
     pub fn disabled(provider: ProviderId) -> Self {
         Self {
-            provider,
             display_name: provider.display_name().to_string(),
+            provider,
             fidelity: Fidelity::Official,
             status: ReadingStatus::Disabled,
             windows: vec![],
@@ -531,6 +545,9 @@ pub enum ServerMessage {
         protocol: u32,
     },
     Snapshot {
+        /// Every provider this engine can fetch, in display order.
+        #[serde(default)]
+        providers: Vec<ProviderInfo>,
         readings: Vec<UsageReading>,
         sessions: Vec<SessionState>,
         chats: Vec<ChatSummary>,

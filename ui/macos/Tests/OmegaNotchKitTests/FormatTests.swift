@@ -80,7 +80,7 @@ final class FormatTests: XCTestCase {
   }
 
   func testEveryMarkFitsItsGrid() {
-    for provider in ["claude_code", "claude_desktop", "cursor", "copilot", "codex", "grok_bot", "grok"] {
+    for provider in ["claude_code", "claude_desktop", "cursor", "copilot", "codex", "opencode", "grok_bot", "grok"] {
       let box = SVGPath.parse(ProviderMarks.path(provider)).boundingBoxOfPath
       XCTAssertGreaterThan(box.width, 10, provider)
       XCTAssertGreaterThanOrEqual(box.minX, -0.5, provider)

@@ -7,6 +7,9 @@ import Observation
 @Observable
 public final class EngineClient {
   public private(set) var connected = false
+  /// The engine's provider registry, in display order; empty until the
+  /// first snapshot.
+  public private(set) var providers: [ProviderInfo] = []
   public private(set) var readings: [UsageReading] = []
   public private(set) var sessions: [SessionState] = []
   public private(set) var chats: [ChatSummary] = []
@@ -244,7 +247,8 @@ public final class EngineClient {
   /// Applies one message from the engine. Public for tests.
   public func apply(_ message: ServerMessage) {
     switch message {
-    case .snapshot(let readings, let sessions, let chats, let tokens, let config):
+    case .snapshot(let providers, let readings, let sessions, let chats, let tokens, let config):
+      self.providers = providers
       self.readings = readings
       self.sessions = sessions
       self.chats = chats

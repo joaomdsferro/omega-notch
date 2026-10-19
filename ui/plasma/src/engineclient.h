@@ -62,12 +62,9 @@ class EngineClient : public QObject
     // Sound names as saved; empty means the default for that alert.
     Q_PROPERTY(QString soundFinished READ soundFinished NOTIFY configChanged)
     Q_PROPERTY(QString soundWaiting READ soundWaiting NOTIFY configChanged)
-    Q_PROPERTY(bool providerCursor READ providerCursor NOTIFY configChanged)
-    Q_PROPERTY(bool providerClaudeCode READ providerClaudeCode NOTIFY configChanged)
-    Q_PROPERTY(bool providerClaudeDesktop READ providerClaudeDesktop NOTIFY configChanged)
-    Q_PROPERTY(bool providerCopilot READ providerCopilot NOTIFY configChanged)
-    Q_PROPERTY(bool providerGrokBot READ providerGrokBot NOTIFY configChanged)
-    Q_PROPERTY(bool providerCodex READ providerCodex NOTIFY configChanged)
+    // Every provider the engine can fetch: {id, name, enabled}, in display
+    // order. The engine's registry is the list; nothing here is hardcoded.
+    Q_PROPERTY(QVariantList providers READ providers NOTIFY configChanged)
     // {state: ""|starting|pending|signed_in|failed, user_code, verification_uri, message}
     Q_PROPERTY(QVariantMap copilotLogin READ copilotLogin NOTIFY copilotLoginChanged)
     Q_PROPERTY(bool peekOpen READ peekOpen NOTIFY peekOpenChanged)
@@ -121,12 +118,8 @@ public:
     bool limitAlerts() const { return m_limitAlerts; }
     QString soundFinished() const { return m_soundFinished; }
     QString soundWaiting() const { return m_soundWaiting; }
-    bool providerCursor() const { return m_providerCursor; }
-    bool providerClaudeCode() const { return m_providerClaudeCode; }
-    bool providerClaudeDesktop() const { return m_providerClaudeDesktop; }
-    bool providerCopilot() const { return m_providerCopilot; }
-    bool providerGrokBot() const { return m_providerGrokBot; }
-    bool providerCodex() const { return m_providerCodex; }
+    QVariantList providers() const;
+    Q_INVOKABLE bool providerEnabled(const QString &id) const;
     QVariantMap copilotLogin() const { return m_copilotLogin; }
     bool peekOpen() const { return m_peekOpen; }
     QString peekProvider() const { return m_peekProvider; }
@@ -289,12 +282,9 @@ private:
     bool m_limitAlerts = true;
     QString m_soundFinished;
     QString m_soundWaiting;
-    bool m_providerCursor = true;
-    bool m_providerClaudeCode = true;
-    bool m_providerClaudeDesktop = true;
-    bool m_providerCopilot = true;
-    bool m_providerGrokBot = true;
-    bool m_providerCodex = true;
+    // The engine's provider catalog, and the config's on/off map for it.
+    QVariantList m_providerCatalog;
+    QJsonObject m_providerStates;
     QVariantMap m_copilotLogin;
     QJsonObject m_rawConfig;
 };

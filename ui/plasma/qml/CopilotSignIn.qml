@@ -18,7 +18,16 @@ Column {
         return false
     }
 
-    visible: Engine.providerCopilot
+    function providerEnabled(id) {
+        const list = Engine.providers
+        for (let i = 0; i < list.length; ++i) {
+            if (list[i].id === id)
+                return list[i].enabled
+        }
+        return true
+    }
+
+    visible: providerEnabled("copilot")
              && (needsAuth || state_ === "starting" || state_ === "pending" || state_ === "failed")
     spacing: 8
     topPadding: 2

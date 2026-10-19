@@ -119,6 +119,10 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
         (
             "snapshot",
             ServerMessage::Snapshot {
+                providers: vec![ProviderInfo {
+                    id: ProviderId::ClaudeCode,
+                    display_name: "Claude Code".into(),
+                }],
                 readings: vec![reading()],
                 sessions: vec![session(SessionKind::Busy)],
                 chats: vec![chat()],

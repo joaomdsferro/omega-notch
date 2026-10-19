@@ -36,7 +36,7 @@ How the `paths.rs` locations resolve on macOS:
 | VS Code product dirs | `~/Library/Application Support/Code`, … | ✅ |
 | `~/.claude`, `~/.codex`, `~/.grokbot` | home-relative | ✅ |
 | `github-copilot` | `~/Library/Application Support/github-copilot` | ❌ The editor plugins use `~/.config/github-copilot` on macOS too |
-| opencode `auth.json` | `~/Library/Application Support/opencode` | ❌ opencode uses `~/.local/share/opencode` (to verify) |
+| opencode data (`auth.json`, `opencode.db`) | `~/.local/share/opencode` | ✅ opencode uses `~/.local/share` on macOS too; `opencode_dir()` special-cases it |
 | App config and data | Both under `~/Library/Application Support/omega-notch` | ✅ They share one folder, and the file names don't clash |
 
 ## Target architecture
@@ -111,7 +111,7 @@ All of them live behind `#[cfg(target_os = …)]` in a new `platform` module (`p
    - The `ancestors` test then passes on both systems.
 2. **Paths:**
    - `github_copilot_dir()` is `~/.config/github-copilot` on every OS.
-   - opencode's path is fixed once verified.
+   - opencode's data dir is `~/.local/share/opencode` on both systems (verified).
    - `socket_path()` and the runtime folder follow the rule above.
    - The `xdg_*` names become neutral (`config_home`, `data_home`, `runtime_dir`). This is a rename
      only.

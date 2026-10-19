@@ -41,10 +41,18 @@ struct SettingsView: View {
     }
   }
 
-  private static let providers = [
+  /// Used until the engine's first snapshot arrives; the registry in it wins.
+  private static let fallbackProviders = [
     ("cursor", "Cursor"), ("claude_code", "Claude Code"), ("claude_desktop", "Claude Desktop"),
     ("copilot", "GitHub Copilot"), ("grok_bot", "Grok Bot"), ("codex", "Codex"),
+    ("opencode", "OpenCode"),
   ]
+
+  private var providerList: [(String, String)] {
+    let announced = client.providers
+    if announced.isEmpty { return Self.fallbackProviders }
+    return announced.map { ($0.id, $0.displayName) }
+  }
 
   private var config: NotchConfig { client.config }
 
@@ -307,7 +315,7 @@ struct SettingsView: View {
 
   private var providers: some View {
     SettingsSection(heading: "Providers") {
-      ForEach(Self.providers, id: \.0) { id, name in
+      ForEach(providerList, id: \.0) { id, name in
         let enabled = config.providerEnabled(id)
         SettingsSwitch(
           title: name, subtitle: summary(id, enabled: enabled), provider: id,

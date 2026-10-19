@@ -6,7 +6,7 @@
 
 ### Your AI coding tools' limits and live sessions, in a notch on your Mac or on KDE Plasma.
 
-**Claude Code, Cursor, Claude Desktop, GitHub Copilot, Codex and Grok Bot. Read from your own computer.**
+**Claude Code, Cursor, Claude Desktop, GitHub Copilot, Codex, OpenCode and Grok Bot. Read from your own computer.**
 
 [![Release](https://img.shields.io/github/v/release/joaomdsferro/omega-notch?include_prereleases&style=flat-square&label=release&color=e59a1c)](https://github.com/joaomdsferro/omega-notch/releases)
 [![Release build](https://img.shields.io/github/actions/workflow/status/joaomdsferro/omega-notch/release.yml?style=flat-square&label=build)](https://github.com/joaomdsferro/omega-notch/actions/workflows/release.yml)
@@ -131,6 +131,7 @@ To remove it, run `./uninstall.sh` from the same folder.
 | **Claude Desktop** | `~/.config/Claude/plan-usage-history.json` (no reset times) | — | — | — |
 | **GitHub Copilot** | `copilot_internal/user` endpoint (premium requests, or chat/completions on Free) | VS Code Copilot Chat transcripts (best effort) | — | — |
 | **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |
+| **OpenCode** | the sub-provider's own limits when known (Anthropic, GitHub Copilot); its local data otherwise | — | `~/.local/share/opencode/opencode.db` (model per session) | the same database, last 7 days |
 | **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | — | — |
 
 On macOS, the folders under `~/.config` in this table are under `~/Library/Application Support`
@@ -146,6 +147,12 @@ client already saved is picked up as well: `~/.config/github-copilot/apps.json` 
 
 Codex's ring uses the ChatGPT sign-in Codex already saved in `~/.codex/auth.json` (or `$CODEX_HOME`),
 read-only. Codex refreshes that token itself; if it has expired, opening Codex once brings the ring back.
+
+OpenCode's data lives in `~/.local/share/opencode/opencode.db`, read-only: its sessions, the model each
+turn ran on, and token counts. The ring follows the sub-provider of your latest session — Anthropic and
+GitHub Copilot limits come from their own endpoints using the sign-ins OpenCode saved in `auth.json`,
+while every other sub-provider (opencode zen, OpenRouter, …) falls back to the local usage of the last
+7 days, labelled with the model and who it bills.
 
 ## How it works
 

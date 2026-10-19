@@ -40,7 +40,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | type | fields |
 |---|---|
 | `hello` | `server`, `version`, `protocol` |
-| `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
+| `snapshot` | `providers`, `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
 | `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `session?`, `projects`, `suggestions` |
@@ -68,6 +68,17 @@ threshold is sent once, and again only after usage falls 10 points below it
 (a new window); the engine's first reading of a provider sets the starting
 point without one. Muted providers, and `alerts.limits` off, send none. Older
 clients ignore it.
+
+`snapshot` carries `providers`: every provider the engine can fetch, in
+display order, each `{ "id": "claude_code", "display_name": "Claude Code" }`.
+Shells build their provider lists from it instead of hardcoding ids, and a
+newer engine can add one without an older shell failing to read it.
+
+Provider ids are open strings (`provider_id`); the engine's registry decides
+which ones it can fetch, and an unknown id reads as disabled rather than an
+error. `config.providers` is the same open map (`{ "<id>": true }`), a
+missing id meaning on; `config.alerts.muted` is the same map for muted limit
+alerts, a missing id meaning not muted.
 
 `session_updated` carries a provider's overall state (waiting outranks busy,
 busy outranks idle). `session_finished` and `session_waiting` are about one
@@ -203,7 +214,10 @@ per-model price table (cache-aware) — never a bill.
 
 ## Provider ids
 
-`cursor` · `claude_code` · `claude_desktop` · `copilot` · `grok_bot` · `codex` · (reserved) `claude_web` · `chatgpt_web` · `gemini_web`
+Ids are strings; the engine's registry currently fetches `cursor` ·
+`claude_code` · `claude_desktop` · `copilot` · `grok_bot` · `codex` ·
+`opencode`, with `claude_web` · `chatgpt_web` · `gemini_web` reserved for
+future shells. A shell reads the live list from a snapshot's `providers`.
 
 ## Hook HTTP (localhost)
 
