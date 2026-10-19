@@ -9,8 +9,10 @@
 //!   the extension's `vscode://anthropic.claude-code/open?session=` link opens
 //!   that conversation in it.
 //! - Finished CLI sessions: `claude --resume <id>` in a new terminal window.
-//! - Claude Desktop and Cursor: their window is raised (Cursor on the chat's
-//!   folder); neither offers a link to a single chat.
+//! - Claude Desktop and Codex Desktop: their window is raised (Codex on the
+//!   chat's folder); neither offers a link to a single chat.
+//! - Cursor: the window for the chat's folder is raised, or the Agents (glass)
+//!   window when that is what is running; otherwise `cursor` opens the folder.
 //!
 //! On macOS, apps are opened by bundle id through `open`, since their command
 //! line tools are often not installed. A live CLI session brings its terminal
@@ -61,6 +63,12 @@ const CLAUDE_DESKTOP: App = App {
     command: "claude-desktop",
     bundle_id: "com.anthropic.claudefordesktop",
 };
+/// ChatGPT / Codex Desktop (`chatgpt` on Linux is the Codex launcher).
+const CODEX_DESKTOP: App = App {
+    command: "chatgpt",
+    // `com.openai.chat` is ChatGPT Classic, which has no Codex.
+    bundle_id: "com.openai.codex",
+};
 
 /// Opens `app`, on `folder` if given.
 fn open_app(app: &App, folder: Option<&str>) -> anyhow::Result<()> {
@@ -99,9 +107,32 @@ pub struct RaiseRequest {
 pub fn open_chat(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
     match target.provider {
         ProviderId::ClaudeCode => open_claude(target),
-        ProviderId::Cursor => open_app(&CURSOR, target.cwd).map(|_| None),
+        ProviderId::Cursor => open_cursor(target).map(|_| None),
+        ProviderId::Codex => open_app(&CODEX_DESKTOP, target.cwd).map(|_| None),
         other => bail!("{other:?} chats cannot be opened"),
     }
+}
+
+/// Brings Cursor forward. Spawning `cursor <folder>` alone often does nothing
+/// when the Agents (glass) window is already up — its caption is just
+/// "Cursor Agents", with no folder — so raise that window first.
+fn open_cursor(target: &ChatTarget) -> anyhow::Result<()> {
+    let folder = target.cwd.map(chats::folder_name);
+    let cwd = target.cwd.filter(|c| Path::new(c).is_dir());
+    info!(
+        id = target.id,
+        folder = folder.as_deref().unwrap_or(""),
+        "opening Cursor chat"
+    );
+    if raise_cursor_window(folder.as_deref()) {
+        return Ok(());
+    }
+    open_app(&CURSOR, cwd)?;
+    // A second instance hands off to the running app; give it a beat, then
+    // raise whatever Cursor window appeared (classic or Agents).
+    std::thread::sleep(Duration::from_millis(400));
+    let _ = raise_cursor_window(folder.as_deref());
+    Ok(())
 }
 
 fn open_claude(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
@@ -485,6 +516,38 @@ if (target) {{
 /// window runner, which also tells us whether there is one.
 #[cfg(not(target_os = "macos"))]
 fn raise_vscode_window(folder: &str) -> bool {
+    raise_runner_window(folder, |caption| {
+        caption.ends_with("Visual Studio Code")
+            && caption.split(" - ").map(str::trim).any(|p| p == folder)
+    })
+}
+
+/// Raises a Cursor window: the classic one for `folder` when that exists, else
+/// the Agents (glass) window. Any plain Cursor window only when there is no
+/// folder: one for another project would stop `cursor` opening this one.
+#[cfg(not(target_os = "macos"))]
+fn raise_cursor_window(folder: Option<&str>) -> bool {
+    if let Some(folder) = folder {
+        if raise_runner_window(folder, |caption| {
+            is_cursor_window(caption)
+                && caption != "Cursor Agents"
+                && caption.split(" - ").map(str::trim).any(|p| p == folder)
+        }) {
+            return true;
+        }
+    }
+    raise_runner_window("Cursor Agents", |caption| caption == "Cursor Agents")
+        || (folder.is_none() && raise_runner_window("Cursor", is_cursor_window))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_cursor_window(caption: &str) -> bool {
+    caption == "Cursor Agents" || caption == "Cursor" || caption.ends_with(" - Cursor")
+}
+
+/// Picks a KWin WindowsRunner match whose caption passes `ok`, and raises it.
+#[cfg(not(target_os = "macos"))]
+fn raise_runner_window(query: &str, ok: impl Fn(&str) -> bool) -> bool {
     let Ok(reply) = gdbus(&[
         "--dest",
         "org.kde.KWin",
@@ -492,7 +555,7 @@ fn raise_vscode_window(folder: &str) -> bool {
         "/WindowsRunner",
         "--method",
         "org.kde.krunner1.Match",
-        folder,
+        query,
     ]) else {
         return false;
     };
@@ -500,9 +563,7 @@ fn raise_vscode_window(folder: &str) -> bool {
     let found = reply.split("('").skip(1).find_map(|entry| {
         let (id, rest) = entry.split_once("', '")?;
         let caption = rest.split_once('\'')?.0;
-        let mut parts = caption.split(" - ").map(str::trim);
-        let is_vscode = caption.ends_with("Visual Studio Code");
-        (is_vscode && parts.any(|p| p == folder)).then(|| id.to_string())
+        ok(caption).then(|| id.to_string())
     });
     let Some(id) = found else { return false };
     gdbus(&[
@@ -516,6 +577,12 @@ fn raise_vscode_window(folder: &str) -> bool {
         "",
     ])
     .is_ok()
+}
+
+/// macOS: the shell activates the app; there is no window picker here.
+#[cfg(target_os = "macos")]
+fn raise_cursor_window(_folder: Option<&str>) -> bool {
+    false
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -645,6 +712,16 @@ fn detach(mut command: Command) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn cursor_window_captions_match_classic_and_agents() {
+        assert!(is_cursor_window("Cursor Agents"));
+        assert!(is_cursor_window("Cursor"));
+        assert!(is_cursor_window("omega-notch - Cursor"));
+        assert!(!is_cursor_window("Installed GitHub App - Cursor - Brave"));
+        assert!(!is_cursor_window("omega-notch - Visual Studio Code"));
+    }
 
     #[test]
     fn a_tie_goes_to_the_only_chat_to_read() {

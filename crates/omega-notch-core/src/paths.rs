@@ -126,6 +126,16 @@ pub fn codex_auth() -> PathBuf {
     codex_home().join("auth.json")
 }
 
+/// Codex's recent-thread index (`id`, `thread_name`, `updated_at`).
+pub fn codex_session_index() -> PathBuf {
+    codex_home().join("session_index.jsonl")
+}
+
+/// Codex rollout transcripts, under `YYYY/MM/DD/rollout-*.jsonl`.
+pub fn codex_sessions_dir() -> PathBuf {
+    codex_home().join("sessions")
+}
+
 /// Where the Copilot editor plugins (Neovim, JetBrains, Xcode…) keep their
 /// GitHub OAuth token, as `apps.json` or the older `hosts.json`.
 /// They use `~/.config` on macOS too, not `~/Library/Application Support`.

@@ -127,10 +127,10 @@ To remove it, run `./uninstall.sh` from the same folder.
 | | Limits | Live sessions | Chats | Tokens |
 |---|---|---|---|---|
 | **Claude Code** | OAuth usage endpoint (sign-in from the login Keychain on macOS) | `~/.claude/sessions/*.json` | `~/.claude/projects/**/*.jsonl` | the same transcripts |
-| **Cursor** | usage summary endpoint | recent agent files (best effort) | `composerHeaders` in `state.vscdb` | context % and lines changed only |
+| **Cursor** | usage summary endpoint | recent agent files (best effort) | `composerHeaders` + `composerData` model in `state.vscdb` | context % and lines changed only |
 | **Claude Desktop** | `~/.config/Claude/plan-usage-history.json` (no reset times) | — | — | — |
 | **GitHub Copilot** | `copilot_internal/user` endpoint (premium requests, or chat/completions on Free) | VS Code Copilot Chat transcripts (best effort) | — | — |
-| **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | — | — |
+| **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |
 | **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | — | — |
 
 On macOS, the folders under `~/.config` in this table are under `~/Library/Application Support`

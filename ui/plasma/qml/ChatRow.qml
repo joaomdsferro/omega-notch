@@ -17,7 +17,7 @@ Item {
         const parts = []
         if (chat.project) parts.push(chat.project)
         if (chat.model) parts.push(chat.model)
-        else if (chat.surface) parts.push(chat.surface)
+        if (chat.surface) parts.push(chat.surface)
         if (chat.tokens) {
             const total = Theme.totalTokens(chat.tokens)
             if (total > 0) parts.push(Theme.tokens(total) + " tok")
