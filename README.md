@@ -70,7 +70,7 @@ Omega Notch needs **KDE Plasma 6 on Wayland**.
 [latest release](https://github.com/joaomdsferro/omega-notch/releases), then:
 
 ```sh
-sudo pacman -S --needed qt6-base qt6-declarative qt6-wayland layer-shell-qt libnotify python
+sudo pacman -S --needed qt6-base qt6-declarative qt6-wayland layer-shell-qt kidletime libnotify python
 tar xzf omega-notch-*-linux-x86_64.tar.gz
 cd omega-notch-*-linux-x86_64
 ./install.sh
@@ -201,15 +201,15 @@ packaging/                  installer, desktop entry, icons
 
 On macOS, see [Contributing](CONTRIBUTING.md#on-macos): `make macos` builds the app.
 
-On Linux, the requirements are: Rust (stable), CMake, Ninja, Qt 6.5+ (Base, Declarative, Wayland) and LayerShellQt.
+On Linux, the requirements are: Rust (stable), CMake, Ninja, Qt 6.5+ (Base, Declarative, Wayland), LayerShellQt and KIdleTime.
 
 ```sh
 # Arch / CachyOS
-sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-wayland layer-shell-qt
+sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-wayland layer-shell-qt kidletime
 
 # Fedora
 sudo dnf install rust cargo cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel \
-  qt6-qtwayland-devel layer-shell-qt-devel
+  qt6-qtwayland-devel layer-shell-qt-devel kf6-kidletime-devel
 
 make run       # build and run from the repository
 make install   # build and install to ~/.local/bin, with Plasma autostart

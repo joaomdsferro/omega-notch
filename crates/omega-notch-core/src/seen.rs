@@ -2,7 +2,8 @@
 //!
 //! A chat is unread when it has stopped and its latest reply came after both
 //! your latest prompt in it and the last time you looked at it: opening it
-//! from Omega Notch, or (on macOS) its window coming to the front. Kept in
+//! from Omega Notch, or its window coming to the front (macOS, and KWin on
+//! Plasma). Kept in
 //! `seen.json` next to the history, owner-only. On the first run every chat
 //! already on disk counts as read, so installing does not flood the notch.
 
