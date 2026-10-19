@@ -581,6 +581,10 @@ impl ActivityIndex {
             activity.tokens.push(tokens);
         }
 
+        if config.provider_enabled(&ProviderId::GrokBot) {
+            activity.chats.extend(crate::grok_bot::bots());
+        }
+
         activity
     }
 
@@ -734,6 +738,9 @@ impl ActivityIndex {
                 cwd,
                 model: transcript.model.as_deref().map(pretty_model),
                 surface: entrypoint.and_then(claude_surface).map(str::to_string),
+                preview: None,
+                avatar_shape: None,
+                avatar_color: None,
                 state: session.map_or(SessionKind::Idle, |s| s.state),
                 live: session.is_some(),
                 updated_at: transcript
@@ -844,6 +851,9 @@ fn cursor_chats() -> Vec<ChatSummary> {
                 .get("unifiedMode")
                 .and_then(Value::as_str)
                 .map(capitalize),
+            preview: None,
+            avatar_shape: None,
+            avatar_color: None,
             state: if waiting {
                 SessionKind::WaitingYou
             } else {
@@ -987,6 +997,9 @@ fn codex_chats_at(index_path: &Path, sessions_dir: &Path) -> Vec<ChatSummary> {
             cwd,
             model: meta.model.as_deref().map(pretty_model),
             surface: meta.surface,
+            preview: None,
+            avatar_shape: None,
+            avatar_color: None,
             state: SessionKind::Idle,
             live: false,
             updated_at,

@@ -132,7 +132,7 @@ To remove it, run `./uninstall.sh` from the same folder.
 | **GitHub Copilot** | `copilot_internal/user` endpoint (premium requests, or chat/completions on Free) | VS Code Copilot Chat transcripts (best effort) | — | — |
 | **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |
 | **OpenCode** | the sub-provider's own limits when known (Anthropic, GitHub Copilot); its local data otherwise | — | `~/.local/share/opencode/opencode.db` (model per session) | the same database, last 7 days |
-| **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | — | — |
+| **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | the sand store's bot roster (`~/.config/Grok Bot/sand-client-persistence`), name and last message per bot | — |
 
 On macOS, the folders under `~/.config` in this table are under `~/Library/Application Support`
 instead, such as `~/Library/Application Support/Claude` and `~/Library/Application Support/Cursor`.

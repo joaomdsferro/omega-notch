@@ -424,12 +424,22 @@ impl UsageStore {
             .cloned()
             .collect();
         let suggestions = crate::advice::suggest(&advised, &chats);
+        // Grok Bot's bots are ranked by their own transcripts; a narrowed
+        // dashboard is about sessions, so they answer the unscoped one only.
+        let bots = if scope.is_empty() {
+            tokio::task::spawn_blocking(move || crate::grok_bot::activity(days))
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         ServerMessage::Dashboard {
             points,
             costs,
             total_usd,
             models,
             sessions: scoped.sessions,
+            bots,
             search: scope.search,
             project: scope.project,
             session: scope.session,

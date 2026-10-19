@@ -6,6 +6,7 @@ pub mod chats;
 pub mod config;
 pub mod copilot_auth;
 pub mod doctor;
+pub mod grok_bot;
 pub mod history;
 pub mod jump;
 pub mod limits;

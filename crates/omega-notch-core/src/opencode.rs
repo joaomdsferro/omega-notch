@@ -403,6 +403,9 @@ fn activity_from(conn: &Connection) -> (Vec<ChatSummary>, TokenStats) {
                 .as_ref()
                 .map(|m| model_label(&m.id, m.provider.as_deref().unwrap_or_default())),
             surface: None,
+            preview: None,
+            avatar_shape: None,
+            avatar_color: None,
             state: SessionKind::Idle,
             live: false,
             updated_at: session.updated_at,

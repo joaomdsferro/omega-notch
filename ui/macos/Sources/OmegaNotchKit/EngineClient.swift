@@ -176,6 +176,10 @@ public final class EngineClient {
       surface: session.surface)
   }
 
+  public func openChat(_ bot: BotUsage) {
+    openChat(provider: "grok_bot", id: bot.id, cwd: nil, title: bot.name, surface: nil)
+  }
+
   private func openChat(provider: String, id: String, cwd: String?, title: String?, surface: String?) {
     var message: [String: JSONValue] = [
       "type": .string("open_chat"), "provider": .string(provider), "id": .string(id),

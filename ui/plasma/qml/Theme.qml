@@ -27,6 +27,8 @@ QtObject {
     // A finished chat you have not read yet: the green of "Finished".
     readonly property color unread: "#3DDC97"
     readonly property color busy: "#FFFFFF"
+    // A bot avatar's eye slots, as good as the black card behind them.
+    readonly property color botEye: "#0B0B0D"
 
     // Dashboard palettes, first series first, as in the engine's config
     // (`dashboard_palette`). Mono is brightest first: the biggest share gets
@@ -81,6 +83,25 @@ QtObject {
 
     function stateColor(kind) {
         return kind === "waiting_you" ? waiting : kind === "busy" ? busy : textTertiary
+    }
+
+    // A bot avatar's ink, by the colour name Grok Bot's roster uses. Chosen
+    // to sit legibly on the black cards; black and gray stay distinguishable.
+    function botColor(name) {
+        switch (name) {
+        case "orange": return "#E8914B"
+        case "yellow": return "#DFC04C"
+        case "green": return "#55C57D"
+        case "cyan": return "#46C2D6"
+        case "blue": return "#5C90E8"
+        case "violet": return "#9C82EA"
+        case "magenta": return "#D96CBB"
+        case "red": return "#DE655C"
+        case "brown": return "#B18257"
+        case "black": return "#62666E"
+        case "gray": return "#8A8F98"
+        default: return textTertiary
+        }
     }
 
     // 412 -> "412", 282472 -> "282K", 35144356 -> "35.1M"

@@ -235,6 +235,17 @@ pub struct ChatSummary {
     /// Where it runs: "CLI", "VS Code", "Desktop", "Agent"…
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface: Option<String>,
+    /// The opening words of its latest message, when the provider keeps a
+    /// local log (v6, additive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// The bot avatar's shape and colour, as Grok Bot's roster names them:
+    /// `blob`, `cloud`, `teardrop`… in `orange`, `blue`, `violet`…
+    /// (v6, additive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_shape: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_color: Option<String>,
     pub state: SessionKind,
     /// A process still owns this chat.
     pub live: bool,
@@ -405,6 +416,29 @@ pub struct SessionCost {
     pub cost_usd: f64,
     /// Dearest first.
     pub models: Vec<SessionModelCost>,
+}
+
+/// One Grok Bot bot's activity over the dashboard range, busiest first
+/// (v6, additive). Grok Bot records no per-bot counters, so both numbers
+/// are read from the bot's local transcript and `tokens` estimates a
+/// quarter of the text's characters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BotUsage {
+    pub id: String,
+    pub name: String,
+    /// Entries exchanged in the range, either side.
+    pub messages: u32,
+    /// Estimated from text volume, never measured.
+    pub tokens: u64,
+    /// The bot's automations, as last changed; names, sorted.
+    #[serde(default)]
+    pub routines: Vec<String>,
+    /// The same avatar a chat of this bot carries; none for groups and bots
+    /// the roster has not styled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_shape: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_color: Option<String>,
 }
 
 /// Estimated spend for one model bucket today (see `pricing.rs`).
@@ -587,6 +621,9 @@ pub enum ServerMessage {
         /// The range's dearest sessions, with their models (v6, additive).
         #[serde(default)]
         sessions: Vec<SessionCost>,
+        /// Grok Bot's bots by estimated usage over the range (v6, additive).
+        #[serde(default)]
+        bots: Vec<BotUsage>,
         /// The search `sessions` answers, as the engine read it; empty when
         /// there was none.
         #[serde(default, skip_serializing_if = "String::is_empty")]

@@ -117,6 +117,13 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(dashboard.suggestions.first?.kind, "model_choice")
     XCTAssertEqual(dashboard.suggestions.first?.savingUsd, 3.4)
     XCTAssertEqual(dashboard.projects.first?.costUsd, 38.6)
+    let bot = try XCTUnwrap(dashboard.bots.first)
+    XCTAssertEqual(bot.name, "Ops Bot - General usage")
+    XCTAssertEqual(bot.messages, 214)
+    XCTAssertEqual(bot.tokens, 38_400)
+    XCTAssertEqual(bot.routines, ["Weekly digest"])
+    XCTAssertEqual(bot.avatarShape, "cloud")
+    XCTAssertEqual(bot.avatarColor, "orange")
 
     guard case .copilotLogin(let login) = try fixture("copilot_login") else {
       return XCTFail("not a login")

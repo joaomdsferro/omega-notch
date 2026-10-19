@@ -14,3 +14,4 @@ CMakeLists.txt.user
 .env.*
 /ui/macos/.build/
 /ui/macos/.swiftpm/
+.playwright-cli

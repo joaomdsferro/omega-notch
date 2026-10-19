@@ -36,6 +36,7 @@ qt_add_qml_module(omega-notch-plasma
         qml/NubMotion.qml
         qml/ProviderRing.qml
         qml/ProviderGlyph.qml
+        qml/BotAvatar.qml
         qml/DetailCard.qml
         qml/UsageRow.qml
         qml/TokenPanel.qml

@@ -26,6 +26,8 @@ enum Theme {
   static let critical = Color(hex: "#FF5A36")
   static let waiting = Color(hex: "#FFB020")
   static let busy = Color.white
+  /// A bot avatar's eye slots, as good as the black card behind them.
+  static let botEye = Color(hex: "#0B0B0D")
   /// A finished chat you have not read yet: the green of "Finished".
   static let unread = Color(hex: "#3DDC97")
 
@@ -54,6 +56,25 @@ enum Theme {
     case .waitingYou: waiting
     case .busy: busy
     case .idle: textTertiary
+    }
+  }
+
+  /// A bot avatar's ink, by the colour name Grok Bot's roster uses. Chosen
+  /// to sit legibly on the black cards; black and gray stay distinguishable.
+  static func botColor(_ name: String) -> Color {
+    switch name {
+    case "orange": Color(hex: "#E8914B")
+    case "yellow": Color(hex: "#DFC04C")
+    case "green": Color(hex: "#55C57D")
+    case "cyan": Color(hex: "#46C2D6")
+    case "blue": Color(hex: "#5C90E8")
+    case "violet": Color(hex: "#9C82EA")
+    case "magenta": Color(hex: "#D96CBB")
+    case "red": Color(hex: "#DE655C")
+    case "brown": Color(hex: "#B18257")
+    case "black": Color(hex: "#62666E")
+    case "gray": Color(hex: "#8A8F98")
+    default: textTertiary
     }
   }
 

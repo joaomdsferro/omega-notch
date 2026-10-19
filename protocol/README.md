@@ -98,8 +98,15 @@ session and are there to be announced; they do not replace that state.
 ```
 
 Optional per provider: `tokens`, `context_tokens`, `context_pct`,
-`lines_added`, `lines_removed`. Chats arrive newest first, at most 8 per
+`lines_added`, `lines_removed`, and `preview` (v6, additive): the opening
+words of the chat's latest message, one line, when the provider keeps a
+local log (Grok Bot's bots). Chats arrive newest first, at most 8 per
 provider.
+
+`avatar_shape` and `avatar_color` (v6, additive) carry the bot avatar Grok
+Bot's roster names: `blob`, `cloud`, `teardrop`… in `orange`, `blue`,
+`violet`… The shell draws the shape in the colour; bots and groups the
+roster has not styled carry neither. Older clients ignore the fields.
 
 `unread` (v6) is true for a chat that stopped with a reply newer than both
 your latest prompt in it and the last time you looked at it. Looking means
@@ -169,6 +176,14 @@ in the range with tokens. `title`, `project`, `cwd` and `surface` come from
 `session_meta`; a session whose transcript is gone is named by its id. Session
 rows hold chat titles, so the engine drops them once they are older than the
 history (90 days). Older clients ignore the field.
+
+`bots` (v6) is Grok Bot's own ranking, for the unscoped dashboard only: one
+entry per bot with a local transcript, busiest first. Grok Bot records no
+per-bot counters, so an entry's `messages` counts the transcript's entries
+over the range and `tokens` estimates a quarter of their text's characters;
+`routines` lists the bot's automations as last changed, and an entry carries
+the same `avatar_shape`/`avatar_color` its chats do. Older clients ignore
+the field.
 
 `get_dashboard` can narrow the whole dashboard. With a `search`, only the
 sessions that carry every word of it (case aside) in their title, project,

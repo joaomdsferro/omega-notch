@@ -81,6 +81,14 @@ public struct ChatSummary: Codable, Equatable, Sendable, Identifiable {
   public var cwd: String?
   public var model: String?
   public var surface: String?
+  /// The opening words of its latest message, when the provider keeps a
+  /// local log (v6, additive).
+  public var preview: String?
+  /// The bot avatar's shape and colour, as Grok Bot's roster names them:
+  /// `blob`, `cloud`, `teardrop`… in `orange`, `blue`, `violet`…
+  /// (v6, additive).
+  public var avatarShape: String?
+  public var avatarColor: String?
   public var state: SessionKind
   public var live: Bool
   public var updatedAt: Date?
@@ -221,6 +229,35 @@ public struct SessionCost: Codable, Equatable, Sendable, Identifiable {
   public var models: [SessionModelCost]
 }
 
+/// One Grok Bot bot's activity over the dashboard range, busiest first
+/// (v6). Grok Bot keeps no per-bot counters, so both numbers come from the
+/// bot's local transcript and `tokens` estimates a quarter of the text's
+/// characters; `routines` are the automations it carries now.
+public struct BotUsage: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var name: String
+  public var messages: Int
+  public var tokens: Double
+  public var routines: [String]
+  /// The same avatar a chat of this bot carries; nil for groups and bots
+  /// the roster has not styled.
+  public var avatarShape: String?
+  public var avatarColor: String?
+
+  public init(
+    id: String, name: String, messages: Int, tokens: Double, routines: [String] = [],
+    avatarShape: String? = nil, avatarColor: String? = nil
+  ) {
+    self.id = id
+    self.name = name
+    self.messages = messages
+    self.tokens = tokens
+    self.routines = routines
+    self.avatarShape = avatarShape
+    self.avatarColor = avatarColor
+  }
+}
+
 public struct Dashboard: Equatable, Sendable {
   public var points: [HistoryPoint] = []
   public var costs: [CostEstimate] = []
@@ -228,6 +265,8 @@ public struct Dashboard: Equatable, Sendable {
   /// The range's dearest sessions, dearest first (v6); with a search, the
   /// range's sessions that match it.
   public var sessions: [SessionCost] = []
+  /// Grok Bot's bots by estimated usage, busiest first (v6); unscoped only.
+  public var bots: [BotUsage] = []
   /// The search everything answers, as the engine read it; empty for none.
   public var search = ""
   /// The project everything answers; empty for none.
@@ -362,6 +401,7 @@ extension ServerMessage {
     var costs: [CostEstimate]
     var models: [ModelDayPoint]?
     var sessions: [SessionCost]?
+    var bots: [BotUsage]?
     var search: String?
     var project: String?
     var session: String?
@@ -403,6 +443,7 @@ extension ServerMessage {
       dashboard.costs = body.costs
       dashboard.models = body.models ?? []
       dashboard.sessions = body.sessions ?? []
+      dashboard.bots = body.bots ?? []
       dashboard.search = body.search ?? ""
       dashboard.project = body.project ?? ""
       dashboard.session = body.session ?? ""

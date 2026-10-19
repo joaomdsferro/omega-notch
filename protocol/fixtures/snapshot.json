@@ -43,6 +43,7 @@
       "cwd": "/home/me/omega-zap",
       "model": "Opus 5.5",
       "surface": "VS Code",
+      "preview": "Resize the sidebar on drag end",
       "state": "busy",
       "live": true,
       "updated_at": "2026-10-01T14:42:00Z",

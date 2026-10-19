@@ -61,6 +61,19 @@
       ]
     }
   ],
+  "bots": [
+    {
+      "id": "5f1c2d3e-0000-4000-8000-000000000009",
+      "name": "Ops Bot - General usage",
+      "messages": 214,
+      "tokens": 38400,
+      "routines": [
+        "Weekly digest"
+      ],
+      "avatar_shape": "cloud",
+      "avatar_color": "orange"
+    }
+  ],
   "search": "sidebar",
   "project": "omega-zap",
   "projects": [

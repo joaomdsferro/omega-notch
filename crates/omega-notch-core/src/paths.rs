@@ -111,6 +111,21 @@ pub fn grok_bot_dir() -> PathBuf {
         .join(".grokbot")
 }
 
+/// Grok Bot's local sand store, where its bots' roster and transcripts live
+/// as one blob per base32-encoded key.
+pub fn grok_bot_sand_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library/Application Support/Grok Bot/sand-client-persistence")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        config_home().join("Grok Bot/sand-client-persistence")
+    }
+}
+
 /// Codex's home (CLI, IDE extension and desktop app share it).
 pub fn codex_home() -> PathBuf {
     if let Some(home) = std::env::var_os("CODEX_HOME").filter(|p| !p.is_empty()) {

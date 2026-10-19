@@ -29,6 +29,8 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList dashboardProjects READ dashboardProjects NOTIFY dashboardChanged)
     // What to change, from the engine's local rules; likeliest saving first.
     Q_PROPERTY(QVariantList dashboardSuggestions READ dashboardSuggestions NOTIFY dashboardChanged)
+    // Grok Bot's bots by estimated usage, busiest first.
+    Q_PROPERTY(QVariantList dashboardBots READ dashboardBots NOTIFY dashboardChanged)
     // Claude's latest advice on usage: { state, model, text }, empty until asked.
     Q_PROPERTY(QVariantMap analysis READ analysis NOTIFY analysisChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
@@ -90,6 +92,7 @@ public:
     QString dashboardSession() const { return m_dashboardSessionAnswered; }
     QVariantList dashboardProjects() const { return m_dashboardProjects; }
     QVariantList dashboardSuggestions() const { return m_dashboardSuggestions; }
+    QVariantList dashboardBots() const { return m_dashboardBots; }
     QVariantMap analysis() const { return m_analysis; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
@@ -248,6 +251,7 @@ private:
     QString m_dashboardSessionAnswered;
     QVariantList m_dashboardProjects;
     QVariantList m_dashboardSuggestions;
+    QVariantList m_dashboardBots;
     QVariantMap m_analysis;
     // The analysis this shell waits for; answers to anything else, or to a
     // scope since left, are dropped.

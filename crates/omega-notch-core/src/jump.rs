@@ -11,8 +11,9 @@
 //! - Finished CLI sessions: `claude --resume <id>` in a new terminal window.
 //! - opencode: the TUI's terminal is raised (bell rung) when one runs the
 //!   chat's folder; otherwise `opencode --session <id>` continues it.
-//! - Claude Desktop and Codex Desktop: their window is raised (Codex on the
-//!   chat's folder); neither offers a link to a single chat.
+//! - Claude Desktop, Codex Desktop and Grok Bot: their window is raised
+//!   (Codex on the chat's folder); none offers a link to a single chat, and
+//!   Grok Bot runs all its bots in one window.
 //! - Cursor: the window for the chat's folder is raised, or the Agents (glass)
 //!   window when that is what is running; otherwise `cursor` opens the folder.
 //!
@@ -71,6 +72,11 @@ const CODEX_DESKTOP: App = App {
     // `com.openai.chat` is ChatGPT Classic, which has no Codex.
     bundle_id: "com.openai.codex",
 };
+/// Grok Bot, an Anysphere (Cursor) app; on Linux it runs as an AppImage.
+const GROK_BOT: App = App {
+    command: "grok-bot",
+    bundle_id: "com.anysphere.sand",
+};
 
 /// Opens `app`, on `folder` if given.
 fn open_app(app: &App, folder: Option<&str>) -> anyhow::Result<()> {
@@ -112,6 +118,7 @@ pub fn open_chat(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
         "opencode" => open_opencode(target),
         "cursor" => open_cursor(target).map(|_| None),
         "codex" => open_app(&CODEX_DESKTOP, target.cwd).map(|_| None),
+        "grok_bot" => open_grok_bot(target).map(|_| None),
         other => bail!("{other} chats cannot be opened"),
     }
 }
@@ -134,6 +141,43 @@ fn open_opencode(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
     }
     info!(id = target.id, live = false, "resuming opencode session");
     resume_in_terminal("opencode", &["--session", target.id], target.cwd).map(|_| None)
+}
+
+/// Brings Grok Bot forward. The app runs all bots in one window and offers
+/// no per-bot link, so that is as close to the clicked bot as it gets.
+fn open_grok_bot(_target: &ChatTarget) -> anyhow::Result<()> {
+    if raise_grok_bot_window() {
+        return Ok(());
+    }
+    if cfg!(target_os = "macos") {
+        return open_app(&GROK_BOT, None);
+    }
+    bail!("Grok Bot is not running")
+}
+
+/// The AppImage names its window class after the app; a class (or caption)
+/// match is enough to raise it.
+#[cfg(not(target_os = "macos"))]
+fn raise_grok_bot_window() -> bool {
+    let script = r#"
+let target = null;
+for (const w of workspace.stackingOrder) {
+    if (!w.normalWindow) continue;
+    const cls = (w.resourceClass || "").toLowerCase();
+    const caption = (w.caption || "").toLowerCase();
+    if (cls === "grok-bot" || caption.includes("grok bot")) target = w;
+}
+if (target) {
+    if (target.minimized) target.minimized = false;
+    workspace.activeWindow = target;
+}
+"#;
+    run_kwin_script(script).is_ok()
+}
+
+#[cfg(target_os = "macos")]
+fn raise_grok_bot_window() -> bool {
+    false
 }
 
 /// The opencode TUI process working in `cwd`, if one runs.
