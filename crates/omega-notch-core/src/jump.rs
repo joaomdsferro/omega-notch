@@ -66,7 +66,8 @@ const CLAUDE_DESKTOP: App = App {
 /// ChatGPT / Codex Desktop (`chatgpt` on Linux is the Codex launcher).
 const CODEX_DESKTOP: App = App {
     command: "chatgpt",
-    bundle_id: "com.openai.chat",
+    // `com.openai.chat` is ChatGPT Classic, which has no Codex.
+    bundle_id: "com.openai.codex",
 };
 
 /// Opens `app`, on `folder` if given.
@@ -522,7 +523,8 @@ fn raise_vscode_window(folder: &str) -> bool {
 }
 
 /// Raises a Cursor window: the classic one for `folder` when that exists, else
-/// the Agents (glass) window, else any plain Cursor window.
+/// the Agents (glass) window. Any plain Cursor window only when there is no
+/// folder: one for another project would stop `cursor` opening this one.
 #[cfg(not(target_os = "macos"))]
 fn raise_cursor_window(folder: Option<&str>) -> bool {
     if let Some(folder) = folder {
@@ -535,7 +537,7 @@ fn raise_cursor_window(folder: Option<&str>) -> bool {
         }
     }
     raise_runner_window("Cursor Agents", |caption| caption == "Cursor Agents")
-        || raise_runner_window("Cursor", is_cursor_window)
+        || (folder.is_none() && raise_runner_window("Cursor", is_cursor_window))
 }
 
 #[cfg(not(target_os = "macos"))]

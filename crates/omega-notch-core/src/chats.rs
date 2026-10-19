@@ -941,7 +941,8 @@ fn codex_chats_at(index_path: &Path, sessions_dir: &Path) -> Vec<ChatSummary> {
         return Vec::new();
     };
 
-    let mut rows: Vec<(CodexIndexRow, DateTime<Utc>)> = Vec::new();
+    // A rename appends a row with the same id; the latest one wins.
+    let mut latest: HashMap<String, (CodexIndexRow, DateTime<Utc>)> = HashMap::new();
     for line in raw.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -953,8 +954,9 @@ fn codex_chats_at(index_path: &Path, sessions_dir: &Path) -> Vec<ChatSummary> {
         let Ok(updated_at) = DateTime::parse_from_rfc3339(&row.updated_at) else {
             continue;
         };
-        rows.push((row, updated_at.with_timezone(&Utc)));
+        latest.insert(row.id.clone(), (row, updated_at.with_timezone(&Utc)));
     }
+    let mut rows: Vec<_> = latest.into_values().collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1));
 
     let rollouts = codex_rollout_index(sessions_dir);
@@ -1390,6 +1392,7 @@ mod tests {
             format!(
                 r#"{{"id":"{user_id}","thread_name":"Check vault access","updated_at":"2026-10-18T13:47:52Z"}}
 {{"id":"{agent_id}","thread_name":"Guardian review","updated_at":"2026-10-18T13:50:18Z"}}
+{{"id":"{user_id}","thread_name":"Check vault access again","updated_at":"2026-10-18T13:55:00Z"}}
 "#
             ),
         )
@@ -1420,7 +1423,7 @@ mod tests {
         assert_eq!(chats.len(), 1);
         assert_eq!(chats[0].provider, ProviderId::Codex);
         assert_eq!(chats[0].id, user_id);
-        assert_eq!(chats[0].title, "Check vault access");
+        assert_eq!(chats[0].title, "Check vault access again");
         assert_eq!(chats[0].project.as_deref(), Some("app"));
         assert_eq!(chats[0].cwd.as_deref(), Some("/home/me/app"));
         assert_eq!(chats[0].surface.as_deref(), Some("Desktop"));
