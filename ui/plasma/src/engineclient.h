@@ -188,6 +188,10 @@ public:
     Q_INVOKABLE void openDashboard();
     // Raises the window running this chat, or resumes it in a new one.
     Q_INVOKABLE void openChat(const QVariantMap &chat);
+    // Ids of the live chats that finished while you were away.
+    QStringList unreadLiveChats() const;
+    // The window in front: a finished chat it shows counts as read.
+    void windowFocused(qint64 pid, const QString &title);
     Q_INVOKABLE void setInputRegion(QWindow *window, const QVariantList &rects);
 
 signals:

@@ -1,4 +1,5 @@
 #include "engineclient.h"
+#include "focuswatcher.h"
 #include "notifications.h"
 
 #include <QGuiApplication>
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
 
     EngineClient engineClient;
     Notifications notifications;
+    FocusWatcher focusWatcher(&engineClient);
 
     // The notch shows each alert on its own; this adds the sound and, when
     // asked for, a system notification, which is then silent.

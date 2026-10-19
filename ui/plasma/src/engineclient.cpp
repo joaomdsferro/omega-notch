@@ -503,6 +503,28 @@ void EngineClient::openChat(const QVariantMap &chat)
     sendJson(obj);
 }
 
+QStringList EngineClient::unreadLiveChats() const
+{
+    QStringList ids;
+    for (const QVariant &value : m_chats) {
+        const QVariantMap chat = value.toMap();
+        if (chat.value(QStringLiteral("unread")).toBool() && chat.value(QStringLiteral("live")).toBool()) {
+            ids.append(chat.value(QStringLiteral("id")).toString());
+        }
+    }
+    return ids;
+}
+
+void EngineClient::windowFocused(qint64 pid, const QString &title)
+{
+    QJsonObject obj{{QStringLiteral("type"), QStringLiteral("window_focused")},
+                    {QStringLiteral("pid"), pid}};
+    if (!title.isEmpty()) {
+        obj.insert(QStringLiteral("title"), title);
+    }
+    sendJson(obj);
+}
+
 void EngineClient::pushConfig()
 {
     if (m_rawConfig.isEmpty()) {

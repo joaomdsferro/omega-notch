@@ -46,7 +46,7 @@ jobs:
       - name: System libraries
         run: |
           pacman -Syu --noconfirm --needed git rust cmake ninja \
-            qt6-base qt6-declarative qt6-wayland layer-shell-qt
+            qt6-base qt6-declarative qt6-wayland layer-shell-qt kidletime
 
       # Third-party actions are pinned to a commit; the comment names its tag.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

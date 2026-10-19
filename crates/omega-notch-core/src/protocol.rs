@@ -459,8 +459,8 @@ pub enum ClientMessage {
         #[serde(default)]
         surface: Option<String>,
     },
-    /// The window now in front (v6, macOS): the pid of the app that owns it
-    /// and, with Accessibility, its title. A finished chat it shows counts
+    /// The window now in front (v6): the pid of the app that owns it and its
+    /// title (with Accessibility on macOS; from KWin on Plasma). A finished chat it shows counts
     /// as read.
     WindowFocused {
         pid: u32,

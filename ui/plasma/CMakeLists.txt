@@ -6,8 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Qml Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Qml Network DBus)
 find_package(LayerShellQt REQUIRED)
+find_package(KF6IdleTime REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0001 NEW)
@@ -17,6 +18,8 @@ qt_add_executable(omega-notch-plasma
     src/main.cpp
     src/engineclient.cpp
     src/engineclient.h
+    src/focuswatcher.cpp
+    src/focuswatcher.h
     src/notifications.cpp
     src/notifications.h
 )
@@ -66,7 +69,9 @@ target_link_libraries(omega-notch-plasma PRIVATE
     Qt6::Quick
     Qt6::Qml
     Qt6::Network
+    Qt6::DBus
     LayerShellQt::Interface
+    KF6::IdleTime
 )
 
 install(TARGETS omega-notch-plasma RUNTIME DESTINATION bin)

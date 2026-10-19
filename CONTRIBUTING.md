@@ -17,7 +17,7 @@ Security problems go privately, as [SECURITY.md](SECURITY.md) explains.
 
 ## Setting up
 
-Requirements: Rust (stable), CMake, Ninja, Qt 6.5+ (Base, Declarative, Wayland) and LayerShellQt, on
+Requirements: Rust (stable), CMake, Ninja, Qt 6.5+ (Base, Declarative, Wayland), LayerShellQt and KIdleTime, on
 KDE Plasma 6 / Wayland.
 
 ```sh
