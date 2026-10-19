@@ -27,9 +27,9 @@ QString scriptSource(const QString &service)
 const service = "%1";
 let current = null;
 function send() {
-    if (!current) return;
+    // No active window clears the last one, so it is not taken as in front.
     callDBus(service, "%2", "org.omeganotch.FocusWatcher", "windowFocused",
-             String(current.pid), current.caption || "");
+             current ? String(current.pid) : "0", current ? current.caption || "" : "");
 }
 function watch(window) {
     if (current) {
@@ -74,6 +74,14 @@ FocusWatcher::FocusWatcher(EngineClient *client, QObject *parent)
     });
     connect(idle, &KIdleTime::resumingFromIdle, this, [this] {
         m_present = true;
+        check();
+    });
+
+    // A report made while the engine was away was dropped: send it again.
+    connect(m_client, &EngineClient::connectedChanged, this, [this] {
+        m_sentPid = 0;
+        m_sentCaption.clear();
+        m_sentUnread.clear();
         check();
     });
 
@@ -139,7 +147,7 @@ void FocusWatcher::windowFocused(const QString &pid, const QString &caption)
 void FocusWatcher::check()
 {
     const QStringList unread = m_client->unreadLiveChats();
-    if (unread.isEmpty() || !m_present || m_pid <= 0
+    if (!m_client->connected() || unread.isEmpty() || !m_present || m_pid <= 0
         || m_pid == QCoreApplication::applicationPid()) {
         return;
     }

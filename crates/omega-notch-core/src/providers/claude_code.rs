@@ -80,7 +80,8 @@ impl Throttle {
             .windows
             .iter()
             .any(|w| w.resets_at.is_some_and(|t| t <= now));
-        let age = (now - reading.fetched_at).to_std().unwrap_or(Duration::ZERO);
+        // A reading from the future (the clock went back) is not trusted.
+        let age = (now - reading.fetched_at).to_std().ok()?;
         (age < max_age && !rolled_over).then(|| reading.clone())
     }
 
