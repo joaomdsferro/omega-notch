@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 use crate::chats::{self, LiveSession};
 use crate::paths;
 use crate::protocol::{ProviderId, SessionKind, SessionState};
+use crate::providers::profiles;
 use crate::store::UsageStore;
 
 #[derive(Debug, Clone)]
@@ -26,7 +27,9 @@ pub struct SessionEvent {
 const ACTIVITY_INTERVAL: Duration = Duration::from_secs(2);
 
 pub fn claude_registry_available() -> bool {
-    paths::claude_sessions().is_dir()
+    profiles::claude_profiles()
+        .iter()
+        .any(|profile| profile.dir.join("sessions").is_dir())
 }
 
 pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
@@ -54,17 +57,23 @@ pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
         Config::default(),
     )?;
 
-    let projects = paths::claude_projects();
-    if projects.exists() {
-        watcher.watch(&projects, RecursiveMode::Recursive)?;
-        info!(path = %projects.display(), "watching Claude project transcripts");
-    } else {
-        info!("Claude projects dir missing — session watch idle until created");
+    for profile in profiles::claude_profiles() {
+        let projects = profile.dir.join("projects");
+        if projects.exists() {
+            watcher.watch(&projects, RecursiveMode::Recursive)?;
+            info!(path = %projects.display(), "watching Claude project transcripts");
+        }
+        let registry = profile.dir.join("sessions");
+        if registry.exists() {
+            watcher.watch(&registry, RecursiveMode::NonRecursive)?;
+            info!(path = %registry.display(), "watching Claude session registry");
+        }
     }
-    let registry = paths::claude_sessions();
-    if registry.exists() {
-        watcher.watch(&registry, RecursiveMode::NonRecursive)?;
-        info!(path = %registry.display(), "watching Claude session registry");
+    if !profiles::claude_profiles()
+        .iter()
+        .any(|profile| profile.dir.join("projects").exists())
+    {
+        info!("Claude projects dir missing — session watch idle until created");
     }
 
     // Also poll periodically in case inotify misses or Cursor/Copilot state changes.
@@ -112,36 +121,56 @@ struct ClaudeTracker {
 
 impl ClaudeTracker {
     async fn publish(&mut self, store: &UsageStore) {
-        let Some(live) = chats::read_claude_sessions() else {
-            store.apply_session(detect_claude_session()).await;
-            return;
-        };
+        let mut announced: Vec<(ProviderId, SessionState)> = Vec::new();
+        let mut known = HashMap::new();
+        for profile in profiles::claude_profiles() {
+            let live = match chats::read_claude_sessions(&profile.dir.join("sessions")) {
+                Some(live) => live,
+                None => {
+                    let state = detect_claude_session(&profile.dir, &profile.id);
+                    store.apply_session(state).await;
+                    continue;
+                }
+            };
 
-        if self.primed {
-            for session in &live {
-                let before = self.known.get(&session.pid).copied();
-                let announce = match (before, session.state) {
-                    (Some(SessionKind::Busy), SessionKind::Idle) => true,
-                    (Some(prev), SessionKind::WaitingYou) => prev != SessionKind::WaitingYou,
-                    (None, SessionKind::WaitingYou) => true,
-                    _ => false,
-                };
-                if announce {
-                    store
-                        .announce(SessionState {
-                            provider: ProviderId::ClaudeCode,
-                            kind: session.state,
-                            label: Some(session_label(session)),
-                            updated_at: session.updated_at,
-                        })
-                        .await;
+            if self.primed {
+                for session in &live {
+                    let before = self.known.get(&session.pid).copied();
+                    let announce = match (before, session.state) {
+                        (Some(SessionKind::Busy), SessionKind::Idle) => true,
+                        (Some(prev), SessionKind::WaitingYou) => prev != SessionKind::WaitingYou,
+                        (None, SessionKind::WaitingYou) => true,
+                        _ => false,
+                    };
+                    if announce {
+                        announced.push((
+                            profile.id.clone(),
+                            SessionState {
+                                provider: profile.id.clone(),
+                                kind: session.state,
+                                label: Some(session_label(session)),
+                                updated_at: session.updated_at,
+                            },
+                        ));
+                    }
                 }
             }
+
+            let mut live = live;
+            live.sort_by_key(|s| s.pid);
+            for session in &live {
+                known.insert(session.pid, session.state);
+            }
+            store
+                .set_session(summarize_claude(&live, &profile.id))
+                .await;
         }
-        self.known = live.iter().map(|s| (s.pid, s.state)).collect();
+        self.known = known;
         self.primed = true;
 
-        store.set_session(summarize_claude(&live)).await;
+        for (_, state) in announced {
+            store.announce(state).await;
+        }
     }
 }
 
@@ -154,7 +183,7 @@ fn session_label(session: &LiveSession) -> String {
 
 /// One state for the ring: a session waiting on you outranks a busy one,
 /// which outranks idle. Ties go to whichever changed last.
-fn summarize_claude(live: &[LiveSession]) -> SessionState {
+fn summarize_claude(live: &[LiveSession], provider: &ProviderId) -> SessionState {
     let rank = |kind: SessionKind| match kind {
         SessionKind::WaitingYou => 2,
         SessionKind::Busy => 1,
@@ -164,13 +193,13 @@ fn summarize_claude(live: &[LiveSession]) -> SessionState {
 
     match lead {
         Some(session) if session.state != SessionKind::Idle => SessionState {
-            provider: ProviderId::ClaudeCode,
+            provider: provider.clone(),
             kind: session.state,
             label: Some(session_label(session)),
             updated_at: session.updated_at,
         },
         _ => SessionState {
-            provider: ProviderId::ClaudeCode,
+            provider: provider.clone(),
             kind: SessionKind::Idle,
             label: None,
             updated_at: Utc::now(),
@@ -190,8 +219,8 @@ async fn publish_copilot_best_effort(store: &UsageStore) {
 
 /// Fallback for Claude Code builds without a session registry: guess from
 /// which transcripts were written to recently.
-fn detect_claude_session() -> crate::protocol::SessionState {
-    let projects = paths::claude_projects();
+fn detect_claude_session(dir: &Path, provider: &ProviderId) -> crate::protocol::SessionState {
+    let projects = dir.join("projects");
     let now = SystemTime::now();
     let mut best: Option<(SystemTime, SessionKind, String)> = None;
 
@@ -237,7 +266,7 @@ fn detect_claude_session() -> crate::protocol::SessionState {
     // Also honour hook state file if present.
     if let Some(hook) = read_hook_state() {
         return crate::protocol::SessionState {
-            provider: ProviderId::ClaudeCode,
+            provider: provider.clone(),
             kind: hook.kind,
             label: hook.label.or_else(|| best.map(|(_, _, l)| l)),
             updated_at: Utc::now(),
@@ -246,13 +275,13 @@ fn detect_claude_session() -> crate::protocol::SessionState {
 
     match best {
         Some((_, kind, label)) => crate::protocol::SessionState {
-            provider: ProviderId::ClaudeCode,
+            provider: provider.clone(),
             kind,
             label: Some(label),
             updated_at: Utc::now(),
         },
         None => crate::protocol::SessionState {
-            provider: ProviderId::ClaudeCode,
+            provider: provider.clone(),
             kind: SessionKind::Idle,
             label: None,
             updated_at: Utc::now(),
@@ -610,11 +639,13 @@ pub fn parse_hook_payload(body: &str) -> anyhow::Result<SessionEvent> {
 /// Convenience for tests / doctor.
 pub fn summarize_sessions() -> HashMap<ProviderId, SessionKind> {
     let mut map = HashMap::new();
-    let claude = match chats::read_claude_sessions() {
-        Some(live) => summarize_claude(&live),
-        None => detect_claude_session(),
-    };
-    map.insert(ProviderId::ClaudeCode, claude.kind);
+    for profile in profiles::claude_profiles() {
+        let claude = match chats::read_claude_sessions(&profile.dir.join("sessions")) {
+            Some(live) => summarize_claude(&live, &profile.id),
+            None => detect_claude_session(&profile.dir, &profile.id),
+        };
+        map.insert(profile.id, claude.kind);
+    }
     map.insert(ProviderId::Cursor, detect_cursor_session().kind);
     map.insert(ProviderId::Copilot, detect_copilot_session().kind);
     map

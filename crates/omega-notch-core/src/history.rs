@@ -270,13 +270,18 @@ pub fn record_tokens(all: &[TokenStats]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Whether the one-off Claude Code backfill has already run.
-pub fn backfill_done() -> anyhow::Result<bool> {
+fn backfill_key(provider: &ProviderId) -> String {
+    format!("{BACKFILL_KEY}:{}", provider.as_str())
+}
+
+/// Whether the one-off backfill for this account has already run. Accounts
+/// are backfilled separately: a profile added later still gets its history.
+pub fn backfill_done(provider: &ProviderId) -> anyhow::Result<bool> {
     let conn = connect()?;
     let found: Option<String> = conn
         .query_row(
             "SELECT value FROM meta WHERE key = ?1",
-            params![BACKFILL_KEY],
+            params![backfill_key(provider)],
             |r| r.get(0),
         )
         .optional()?;
@@ -297,9 +302,10 @@ pub fn record_backfill(
     let tx = conn.transaction()?;
     write_days(&tx, provider.as_str(), &dates, rows)?;
     write_session_days(&tx, provider.as_str(), &dates, sessions, meta)?;
+    let key = backfill_key(&provider);
     tx.execute(
         "INSERT OR REPLACE INTO meta(key, value) VALUES(?1, ?2)",
-        params![BACKFILL_KEY, chrono::Utc::now().to_rfc3339()],
+        params![key, chrono::Utc::now().to_rfc3339()],
     )?;
     tx.commit()?;
     Ok(())

@@ -6,8 +6,15 @@ public enum ProviderMarks {
   /// Grok Bot's eyes are holes, so it fills even-odd.
   public static func evenOdd(_ provider: String) -> Bool { provider == "grok_bot" }
 
+  /// A profile (`claude_code-work`) wears its base provider's mark.
+  static func base(_ provider: String) -> String {
+    if provider.hasPrefix("claude_code-") { return "claude_code" }
+    if provider.hasPrefix("codex-") { return "codex" }
+    return provider
+  }
+
   public static func path(_ provider: String) -> String {
-    switch provider {
+    switch base(provider) {
     case "claude_code":
       return "M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z"
     case "claude_desktop":

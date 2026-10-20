@@ -236,6 +236,12 @@ Ids are strings; the engine's registry currently fetches `cursor` ·
 reserved for future shells. A shell reads the live list from a snapshot's
 `providers`.
 
+A Claude Code or Codex account kept in `~/.claude-<slug>` or `~/.codex-<slug>`
+is listed after its base provider with the id `<base>-<slug>` (`claude_code-work`,
+`codex-client`) and a display name such as `Claude Code (work)`. Its usage,
+chats, sessions and token history carry that id; switching the base id off
+disables the accounts too.
+
 ## Hook HTTP (localhost)
 
 `POST http://127.0.0.1:17337/hooks/session`

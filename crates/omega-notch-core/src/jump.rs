@@ -35,6 +35,7 @@ use crate::chats::{self, LiveSession};
 use crate::paths;
 use crate::platform;
 use crate::protocol::ProviderId;
+use crate::providers::profiles;
 
 const VSCODE_SESSION_URI: &str = "vscode://anthropic.claude-code/open?session=";
 /// Terminals tried, in order, for resuming a chat whose process is gone.
@@ -113,11 +114,16 @@ pub struct RaiseRequest {
 /// Opens the chat. On macOS, a live session also comes back as a request for
 /// the shell to raise its window.
 pub fn open_chat(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
-    match target.provider.as_str() {
-        "claude_code" => open_claude(target),
+    let provider = target.provider.as_str();
+    if provider == "claude_code" || provider.starts_with("claude_code-") {
+        return open_claude(target);
+    }
+    if provider == "codex" || provider.starts_with("codex-") {
+        return open_app(&CODEX_DESKTOP, target.cwd).map(|_| None);
+    }
+    match provider {
         "opencode" => open_opencode(target),
         "cursor" => open_cursor(target).map(|_| None),
-        "codex" => open_app(&CODEX_DESKTOP, target.cwd).map(|_| None),
         "grok_bot" => open_grok_bot(target).map(|_| None),
         other => bail!("{other} chats cannot be opened"),
     }
@@ -221,7 +227,13 @@ fn open_claude(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
     if !valid_session_id(target.id) {
         bail!("not a Claude Code session id: {}", target.id);
     }
-    let live = chats::read_claude_sessions()
+    let profile = profiles::from_id(&target.provider).unwrap_or_else(|| profiles::Profile {
+        id: ProviderId::ClaudeCode,
+        base: ProviderId::ClaudeCode.as_str(),
+        slug: None,
+        dir: paths::claude_home(),
+    });
+    let live = chats::read_claude_sessions(&profile.dir.join("sessions"))
         .unwrap_or_default()
         .into_iter()
         .find(|s| s.session_id.as_deref() == Some(target.id));
@@ -250,6 +262,14 @@ fn open_claude(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
         }
         ("claude-desktop" | "claude-desktop-3p", None) => {
             open_app(&CLAUDE_DESKTOP, None).map(|_| None)
+        }
+        (_, None) if profile.slug.is_some() => {
+            let command = format!(
+                "CLAUDE_CONFIG_DIR={} exec claude --resume {}",
+                shell_quote(&profile.dir.display().to_string()),
+                shell_quote(target.id)
+            );
+            resume_in_terminal("sh", &["-c", &command], cwd.as_deref()).map(|_| None)
         }
         (_, None) => {
             resume_in_terminal("claude", &["--resume", target.id], cwd.as_deref()).map(|_| None)
@@ -291,6 +311,11 @@ fn open_in_vscode(id: &str, cwd: Option<&str>) -> anyhow::Result<()> {
 
 /// Opens a terminal window running `program` with `args` in `dir`; it is how
 /// `claude --resume <id>` and `opencode --session <id>` continue a chat.
+/// A word for `sh -c`, wrapped so a path with spaces or an apostrophe stays one.
+fn shell_quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\"'\"'"))
+}
+
 fn resume_in_terminal(program: &str, extra: &[&str], cwd: Option<&str>) -> anyhow::Result<()> {
     let dir = cwd
         .filter(|c| Path::new(c).is_dir())
@@ -406,8 +431,11 @@ pub fn session_in_window(
     titles: &HashMap<String, String>,
     unread: &HashSet<String>,
 ) -> Option<String> {
-    let candidates: Vec<(String, Vec<String>)> = chats::read_claude_sessions()?
+    let candidates: Vec<(String, Vec<String>)> = profiles::claude_profiles()
         .into_iter()
+        .flat_map(|profile| {
+            chats::read_claude_sessions(&profile.dir.join("sessions")).unwrap_or_default()
+        })
         .filter(|s| ancestors(s.pid).contains(&pid))
         .filter_map(|s| {
             let id = s.session_id.clone()?;

@@ -87,10 +87,19 @@ impl UsageStore {
         // Moving the notch or muting a sound is no reason to spend a vendor's
         // rate limit; only providers that were switched need a new reading.
         let mut toggled = false;
-        for provider in providers::PROVIDERS {
+        let catalog = providers::catalog();
+        for provider in &catalog {
             let id = provider.id();
             if previous.provider_enabled(id) != config.provider_enabled(id) {
                 self.refresh_one(id.clone()).await;
+                // A base switch carries its accounts: switching Claude Code
+                // off must blank `claude_code-work` too.
+                for account in catalog.iter().filter(|other| {
+                    providers::profiles::from_id(other.id())
+                        .is_some_and(|profile| profile.base == id.as_str())
+                }) {
+                    self.refresh_one(account.id().clone()).await;
+                }
                 toggled = true;
             }
         }
@@ -101,9 +110,10 @@ impl UsageStore {
     }
 
     pub async fn snapshot(&self) -> ServerMessage {
+        let catalog = providers::catalog();
         let readings = {
             let guard = self.inner.readings.read().await;
-            providers::PROVIDERS
+            catalog
                 .iter()
                 .filter_map(|provider| guard.get(provider.id()).cloned())
                 .collect()
@@ -112,7 +122,7 @@ impl UsageStore {
             let guard = self.inner.sessions.read().await;
             guard.values().cloned().collect()
         };
-        let providers = providers::PROVIDERS
+        let providers = catalog
             .iter()
             .map(|provider| ProviderInfo {
                 id: provider.id().clone(),
@@ -180,7 +190,7 @@ impl UsageStore {
 
     pub async fn refresh_all(&self) {
         let config = self.config().await;
-        for provider in providers::PROVIDERS {
+        for provider in providers::catalog() {
             let reading = providers::fetch_provider(provider.id().clone(), &config).await;
             self.publish_reading(reading).await;
         }
@@ -315,7 +325,7 @@ impl UsageStore {
                 guard
                     .chats
                     .iter()
-                    .filter(|c| c.provider == ProviderId::ClaudeCode)
+                    .filter(|c| providers::profiles::is_claude(&c.provider))
             };
             let unread: std::collections::HashSet<String> = claude()
                 .filter(|c| c.unread && c.live)
@@ -335,7 +345,17 @@ impl UsageStore {
         .ok()
         .flatten();
         if let Some(id) = found {
-            self.mark_seen(ProviderId::ClaudeCode, &id).await;
+            // The chat says which account it belongs to; a profile's unread
+            // mark must not be filed under the default account's id.
+            let provider = {
+                let guard = self.inner.activity.read().await;
+                guard
+                    .chats
+                    .iter()
+                    .find(|c| c.id == id)
+                    .map_or(ProviderId::ClaudeCode, |c| c.provider.clone())
+            };
+            self.mark_seen(provider, &id).await;
         }
     }
 
@@ -496,10 +516,10 @@ impl UsageStore {
                     // not Anthropic's to see.
                     scoped
                         .matched
-                        .retain(|s| s.provider == ProviderId::ClaudeCode);
+                        .retain(|s| providers::profiles::is_claude(&s.provider));
                     scoped
                         .models
-                        .retain(|m| m.provider == ProviderId::ClaudeCode);
+                        .retain(|m| providers::profiles::is_claude(&m.provider));
                     if !scope.session.trim().is_empty() {
                         scoped.matched.retain(|s| s.id == scope.session.trim());
                     }
@@ -676,31 +696,34 @@ impl UsageStore {
 /// on disk, up to the days the live scan already covers. Runs in the
 /// background; a failure only means a shorter history.
 fn backfill_history() {
-    match history::backfill_done() {
-        Ok(true) => return,
-        Ok(false) => {}
-        Err(err) => {
-            warn!(error = %err, "could not read token history");
-            return;
-        }
-    }
     let today = chrono::Local::now().date_naive();
     let first_day = today - chrono::Duration::days(history::MAX_HISTORY_DAYS as i64 - 1);
     let live_from = today - chrono::Duration::days(chats::HISTORY_DAYS - 1);
-    let started = std::time::Instant::now();
-    let found = chats::backfill_claude(first_day, live_from);
-    match history::record_backfill(
-        ProviderId::ClaudeCode,
-        &found.days,
-        &found.sessions,
-        &found.meta,
-    ) {
-        Ok(()) => info!(
-            rows = found.days.len(),
-            sessions = found.meta.len(),
-            took = ?started.elapsed(),
-            "token history backfilled"
-        ),
-        Err(err) => warn!(error = %err, "could not backfill token history"),
+    for profile in providers::profiles::claude_profiles() {
+        match history::backfill_done(&profile.id) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(err) => {
+                warn!(error = %err, "could not read token history");
+                return;
+            }
+        }
+        let started = std::time::Instant::now();
+        let found = chats::backfill_claude(&profile.dir, first_day, live_from);
+        match history::record_backfill(
+            profile.id.clone(),
+            &found.days,
+            &found.sessions,
+            &found.meta,
+        ) {
+            Ok(()) => info!(
+                provider = profile.id.as_str(),
+                rows = found.days.len(),
+                sessions = found.meta.len(),
+                took = ?started.elapsed(),
+                "token history backfilled"
+            ),
+            Err(err) => warn!(error = %err, "could not backfill token history"),
+        }
     }
 }

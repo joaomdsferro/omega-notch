@@ -22,7 +22,7 @@ pub async fn run_doctor() -> String {
     );
     let _ = writeln!(out);
 
-    for provider in providers::PROVIDERS {
+    for provider in providers::catalog() {
         let id = provider.id();
         let enabled = config.provider_enabled(id);
         let _ = writeln!(out, "[{}] enabled={enabled}", provider.display_name());

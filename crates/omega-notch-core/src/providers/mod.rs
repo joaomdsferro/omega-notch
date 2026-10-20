@@ -14,6 +14,7 @@ mod kilo;
 mod kimi;
 mod kiro;
 mod opencode;
+pub mod profiles;
 mod traits;
 
 pub use amp::AmpProvider;
@@ -34,6 +35,7 @@ pub use kiro::KiroProvider;
 pub use opencode::OpenCodeProvider;
 pub use traits::{Provider, ProviderError};
 
+use std::borrow::Cow;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -45,9 +47,12 @@ pub type FetchFuture =
 
 /// Everything the engine and its shells need to know about one provider.
 /// Adding a provider is a new entry here; no match on the id needs to grow.
+#[derive(Clone)]
 pub struct ProviderDescriptor {
     id: ProviderId,
-    display_name: &'static str,
+    /// A `Cow` because a profile discovered on disk is named `Claude Code
+    /// (work)`: the label only exists at runtime.
+    display_name: Cow<'static, str>,
     fetch: fn() -> FetchFuture,
 }
 
@@ -55,8 +60,16 @@ impl ProviderDescriptor {
     const fn new(id: ProviderId, display_name: &'static str, fetch: fn() -> FetchFuture) -> Self {
         Self {
             id,
-            display_name,
+            display_name: Cow::Borrowed(display_name),
             fetch,
+        }
+    }
+
+    fn for_profile(id: ProviderId, display_name: String, base: &Self) -> Self {
+        Self {
+            id,
+            display_name: Cow::Owned(display_name),
+            fetch: base.fetch,
         }
     }
 
@@ -64,8 +77,8 @@ impl ProviderDescriptor {
         &self.id
     }
 
-    pub fn display_name(&self) -> &'static str {
-        self.display_name
+    pub fn display_name(&self) -> &str {
+        &self.display_name
     }
 }
 
@@ -109,19 +122,71 @@ pub static PROVIDERS: &[ProviderDescriptor] = &[
     }),
 ];
 
-pub fn descriptor(id: &ProviderId) -> Option<&'static ProviderDescriptor> {
-    PROVIDERS.iter().find(|provider| provider.id == *id)
+pub fn descriptor(id: &ProviderId) -> Option<ProviderDescriptor> {
+    if let Some(provider) = PROVIDERS.iter().find(|provider| provider.id == *id) {
+        return Some(provider.clone());
+    }
+    let profile = profiles::from_id(id)?;
+    let base = PROVIDERS
+        .iter()
+        .find(|provider| provider.id.as_str() == profile.base)?;
+    Some(ProviderDescriptor::for_profile(
+        id.clone(),
+        profile.display_name(),
+        base,
+    ))
+}
+
+/// The static providers plus the Claude Code and Codex accounts found on disk,
+/// each right after its base provider. Every list the shells see comes from
+/// here, so a profile needs no entry of its own.
+pub fn catalog() -> Vec<ProviderDescriptor> {
+    let mut out = Vec::with_capacity(PROVIDERS.len() + 2);
+    for provider in PROVIDERS {
+        out.push(provider.clone());
+        let found = match provider.id.as_str() {
+            "claude_code" => profiles::claude_profiles(),
+            "codex" => profiles::codex_profiles(),
+            _ => continue,
+        };
+        out.extend(
+            found
+                .into_iter()
+                .filter(|profile| profile.slug.is_some())
+                .map(|profile| {
+                    ProviderDescriptor::for_profile(
+                        profile.id.clone(),
+                        profile.display_name(),
+                        provider,
+                    )
+                }),
+        );
+    }
+    out
 }
 
 pub async fn fetch_provider(id: ProviderId, config: &AppConfig) -> UsageReading {
-    if !config.provider_enabled(&id) {
+    let profile = profiles::from_id(&id);
+    // Switching a base provider off takes its accounts with it.
+    let base_on = profile
+        .as_ref()
+        .is_none_or(|profile| config.provider_enabled(&ProviderId::new(profile.base)));
+    if !config.provider_enabled(&id) || !base_on {
         return UsageReading::disabled(id);
     }
-    let Some(provider) = descriptor(&id) else {
-        return UsageReading::disabled(id);
+    let result = if let Some(profile) = profile {
+        match profile.base {
+            base if base == ProviderId::ClaudeCode.as_str() => {
+                ClaudeCodeProvider::fetch_profile(&profile).await
+            }
+            _ => CodexProvider::fetch_profile(&profile).await,
+        }
+    } else {
+        let Some(provider) = descriptor(&id) else {
+            return UsageReading::disabled(id);
+        };
+        (provider.fetch)().await
     };
-
-    let result = (provider.fetch)().await;
 
     match result {
         Ok(reading) => reading,
@@ -143,13 +208,25 @@ mod tests {
         }
         assert_eq!(PROVIDERS.len(), 16);
         assert_eq!(
-            descriptor(&ProviderId::OpenCode).map(ProviderDescriptor::display_name),
-            Some("OpenCode")
+            descriptor(&ProviderId::OpenCode).map(|p| p.display_name().to_string()),
+            Some("OpenCode".to_string())
         );
         assert_eq!(
-            descriptor(&ProviderId::new("claude_code")).map(ProviderDescriptor::display_name),
-            Some("Claude Code")
+            descriptor(&ProviderId::new("claude_code")).map(|p| p.display_name().to_string()),
+            Some("Claude Code".to_string())
         );
         assert!(descriptor(&ProviderId::new("future_tool")).is_none());
+    }
+
+    #[test]
+    fn a_profile_id_resolves_to_its_base_provider() {
+        let profile = descriptor(&ProviderId::new("claude_code-work")).unwrap();
+        assert_eq!(profile.id().as_str(), "claude_code-work");
+        assert_eq!(profile.display_name(), "Claude Code (work)");
+
+        let profile = descriptor(&ProviderId::new("codex-client")).unwrap();
+        assert_eq!(profile.display_name(), "Codex (client)");
+
+        assert!(descriptor(&ProviderId::new("cursor-work")).is_none());
     }
 }

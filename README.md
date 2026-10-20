@@ -143,6 +143,12 @@ To remove it, run `./uninstall.sh` from the same folder.
 | **Command Code** | `/alpha` usage, credits and subscription, with `~/.commandcode/auth.json` | — | — | — |
 | **Devin** | `GetUserStatus`, with Devin Desktop's store or `devin auth login`'s credentials | — | — | — |
 
+Claude Code and Codex accounts kept apart in `~/.claude-<name>` and `~/.codex-<name>` get their own
+ring, their own chats and their own token totals: the id is `claude_code-<name>` or `codex-<name>`,
+and switching the base provider off switches its accounts off too. On macOS a Claude Code profile
+signed in through Keychain storage is not found; sign it in with `CLAUDE_CONFIG_DIR=~/.claude-<name>`
+so Claude Code writes `.credentials.json` there.
+
 On macOS, the folders under `~/.config` in this table are under `~/Library/Application Support`
 instead, such as `~/Library/Application Support/Claude` and `~/Library/Application Support/Cursor`.
 

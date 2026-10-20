@@ -27,6 +27,7 @@ use crate::protocol::{
     Activity, ChatSummary, DayModelTokens, DayTokens, ModelTokens, ProviderId, SessionDayTokens,
     SessionKind, SessionMeta, TokenStats, TokenTotals,
 };
+use crate::providers::profiles;
 
 /// Chats kept per provider in a snapshot.
 pub(crate) const MAX_CHATS: usize = 8;
@@ -54,9 +55,8 @@ pub struct LiveSession {
 
 /// `None` when this Claude Code does not keep a session registry at all, so
 /// callers can fall back to guessing from transcripts.
-pub fn read_claude_sessions() -> Option<Vec<LiveSession>> {
-    let dir = paths::claude_sessions();
-    let entries = std::fs::read_dir(&dir).ok()?;
+pub fn read_claude_sessions(dir: &Path) -> Option<Vec<LiveSession>> {
+    let entries = std::fs::read_dir(dir).ok()?;
     let mut out = Vec::new();
 
     for entry in entries.flatten() {
@@ -482,7 +482,7 @@ pub struct Backfill {
 /// Every Claude Code day still on disk from `first_day` up to, but not
 /// including, `before`, split by model and by session. A one-off pass for the
 /// dashboard history: each transcript is parsed and dropped, nothing is kept.
-pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Backfill {
+pub fn backfill_claude(dir: &Path, first_day: NaiveDate, before: NaiveDate) -> Backfill {
     let start: SystemTime = first_day
         .and_hms_opt(0, 0, 0)
         .and_then(|t| Local.from_local_datetime(&t).earliest())
@@ -491,7 +491,7 @@ pub fn backfill_claude(first_day: NaiveDate, before: NaiveDate) -> Backfill {
 
     let mut totals: HashMap<(NaiveDate, String), TokenTotals> = HashMap::new();
     let mut found = Backfill::default();
-    let root = paths::claude_projects();
+    let root = dir.join("projects");
     if !root.exists() {
         return found;
     }
@@ -560,9 +560,20 @@ impl ActivityIndex {
         let mut activity = Activity::default();
 
         if config.provider_enabled(&ProviderId::ClaudeCode) {
-            let (chats, tokens) = self.scan_claude();
-            activity.chats.extend(chats);
-            activity.tokens.push(tokens);
+            let mut roots = Vec::new();
+            for profile in profiles::claude_profiles() {
+                if !config.provider_enabled(&profile.id) {
+                    continue;
+                }
+                roots.push(profile.dir.join("projects"));
+                let (chats, tokens) = self.scan_claude(&profile.dir, &profile.id);
+                activity.chats.extend(chats);
+                activity.tokens.push(tokens);
+            }
+            // Forget transcripts of a profile that was switched off or whose
+            // directory went away, so its numbers stop counting.
+            self.claude
+                .retain(|path, _| roots.iter().any(|root| path.starts_with(root)));
         } else {
             self.claude.clear();
         }
@@ -572,7 +583,16 @@ impl ActivityIndex {
         }
 
         if config.provider_enabled(&ProviderId::Codex) {
-            activity.chats.extend(codex_chats());
+            for profile in profiles::codex_profiles() {
+                if !config.provider_enabled(&profile.id) {
+                    continue;
+                }
+                activity.chats.extend(codex_chats_at(
+                    &profile.dir.join("session_index.jsonl"),
+                    &profile.dir.join("sessions"),
+                    &profile.id,
+                ));
+            }
         }
 
         if config.provider_enabled(&ProviderId::OpenCode) {
@@ -588,7 +608,7 @@ impl ActivityIndex {
         activity
     }
 
-    fn scan_claude(&mut self) -> (Vec<ChatSummary>, TokenStats) {
+    fn scan_claude(&mut self, dir: &Path, provider: &ProviderId) -> (Vec<ChatSummary>, TokenStats) {
         let today = Local::now().date_naive();
         let first_day = today - Duration::days(HISTORY_DAYS - 1);
         let window_start: SystemTime = first_day
@@ -598,7 +618,7 @@ impl ActivityIndex {
             .unwrap_or(SystemTime::UNIX_EPOCH);
 
         let mut candidates = Vec::new();
-        let root = paths::claude_projects();
+        let root = dir.join("projects");
         if root.exists() {
             for entry in WalkDir::new(&root).max_depth(4).into_iter().flatten() {
                 if !entry.file_type().is_file()
@@ -639,7 +659,9 @@ impl ActivityIndex {
                 keep.insert(candidate.path.clone());
             }
         }
-        self.claude.retain(|path, _| keep.contains(path));
+        // Only this profile's transcripts: the map is shared by every profile.
+        self.claude
+            .retain(|path, _| !path.starts_with(&root) || keep.contains(path));
 
         // Tokens.
         let mut per_day: HashMap<NaiveDate, TokenTotals> = HashMap::new();
@@ -687,7 +709,7 @@ impl ActivityIndex {
         models_today.sort_by(|a, b| b.total.cmp(&a.total).then(a.model.cmp(&b.model)));
 
         let stats = TokenStats {
-            provider: ProviderId::ClaudeCode,
+            provider: provider.clone(),
             today: per_day.get(&today).copied().unwrap_or_default(),
             week,
             daily,
@@ -698,7 +720,7 @@ impl ActivityIndex {
         };
 
         // Chats.
-        let live: HashMap<String, LiveSession> = read_claude_sessions()
+        let live: HashMap<String, LiveSession> = read_claude_sessions(&dir.join("sessions"))
             .unwrap_or_default()
             .into_iter()
             .filter_map(|s| s.session_id.clone().map(|id| (id, s)))
@@ -731,7 +753,7 @@ impl ActivityIndex {
                 .or_else(|| session.and_then(|s| s.entrypoint.as_deref()));
 
             chats.push(ChatSummary {
-                provider: ProviderId::ClaudeCode,
+                provider: provider.clone(),
                 id: id.to_string(),
                 title,
                 project,
@@ -943,16 +965,16 @@ struct CodexRolloutMeta {
 }
 
 /// Recent Codex threads from the local index and rollout headers.
-fn codex_chats() -> Vec<ChatSummary> {
-    codex_chats_at(&paths::codex_session_index(), &paths::codex_sessions_dir())
-}
-
 #[cfg(test)]
 fn codex_chats_from(home: &Path) -> Vec<ChatSummary> {
-    codex_chats_at(&home.join("session_index.jsonl"), &home.join("sessions"))
+    codex_chats_at(
+        &home.join("session_index.jsonl"),
+        &home.join("sessions"),
+        &ProviderId::Codex,
+    )
 }
 
-fn codex_chats_at(index_path: &Path, sessions_dir: &Path) -> Vec<ChatSummary> {
+fn codex_chats_at(index_path: &Path, sessions_dir: &Path, id: &ProviderId) -> Vec<ChatSummary> {
     let Ok(raw) = std::fs::read_to_string(index_path) else {
         return Vec::new();
     };
@@ -990,7 +1012,7 @@ fn codex_chats_at(index_path: &Path, sessions_dir: &Path) -> Vec<ChatSummary> {
         }
         let cwd = meta.cwd;
         chats.push(ChatSummary {
-            provider: ProviderId::Codex,
+            provider: id.clone(),
             id: row.id,
             title,
             project: cwd.as_deref().map(folder_name),

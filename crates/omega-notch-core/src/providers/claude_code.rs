@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -5,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::profiles::Profile;
 use super::traits::{Provider, ProviderError};
 use crate::paths;
 use crate::protocol::{Fidelity, ProviderId, ReadingStatus, UsageReading, UsageWindow};
@@ -30,6 +33,7 @@ const QUIET_FOR: Duration = Duration::from_secs(900);
 
 const RATE_LIMITED: &str = "Claude usage rate-limited — try again shortly";
 
+#[derive(Default)]
 struct Throttle {
     /// Also kept on disk, so an engine restart neither asks again at once
     /// nor has nothing to show when that first request is refused.
@@ -39,26 +43,28 @@ struct Throttle {
     backoff: Option<Duration>,
 }
 
-static THROTTLE: Mutex<Throttle> = Mutex::new(Throttle {
-    last_ok: None,
-    loaded: false,
-    blocked_until: None,
-    backoff: None,
-});
+/// One per account: the last reading, backoff and rate limit of a profile say
+/// nothing about another profile.
+static THROTTLES: Mutex<Option<HashMap<String, Throttle>>> = Mutex::new(None);
 
-fn saved_path() -> std::path::PathBuf {
-    paths::app_data_dir().join("claude-usage.json")
+/// The default account keeps the file it always had; a profile gets its own.
+fn saved_path(profile: &Profile) -> PathBuf {
+    let name = match &profile.slug {
+        Some(slug) => format!("claude-usage-{slug}.json"),
+        None => "claude-usage.json".to_string(),
+    };
+    paths::app_data_dir().join(name)
 }
 
-fn load_saved() -> Option<UsageReading> {
-    let raw = std::fs::read_to_string(saved_path()).ok()?;
+fn load_saved(profile: &Profile) -> Option<UsageReading> {
+    let raw = std::fs::read_to_string(saved_path(profile)).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
 /// Written to a temporary file, then moved over the old one.
-fn save(reading: &UsageReading) -> anyhow::Result<()> {
+fn save(profile: &Profile, reading: &UsageReading) -> anyhow::Result<()> {
     paths::create_private_dir(&paths::app_data_dir())?;
-    let path = saved_path();
+    let path = saved_path(profile);
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec(reading)?)?;
     std::fs::rename(&tmp, &path)?;
@@ -93,11 +99,28 @@ impl Throttle {
 
 impl ClaudeCodeProvider {
     pub async fn fetch(&self) -> Result<UsageReading, ProviderError> {
+        let profile = Profile {
+            id: ProviderId::ClaudeCode,
+            base: ProviderId::ClaudeCode.as_str(),
+            slug: None,
+            dir: paths::claude_home(),
+        };
+        Self::fetch_profile(&profile).await
+    }
+
+    /// One account's reading. The throttle is per profile: a 429 on a work
+    /// account must not hide the personal account's numbers.
+    pub async fn fetch_profile(profile: &Profile) -> Result<UsageReading, ProviderError> {
+        let key = profile.id.as_str().to_string();
         {
-            let mut throttle = THROTTLE.lock().unwrap();
+            let mut throttles = THROTTLES.lock().unwrap();
+            let throttle = throttles
+                .get_or_insert_with(HashMap::new)
+                .entry(key.clone())
+                .or_default();
             if !throttle.loaded {
                 throttle.loaded = true;
-                throttle.last_ok = load_saved();
+                throttle.last_ok = load_saved(profile);
             }
             if let Some(reading) = throttle.reusable(MIN_INTERVAL) {
                 return Ok(reading);
@@ -107,12 +130,16 @@ impl ClaudeCodeProvider {
             }
         }
 
-        let result = self.fetch_remote().await;
+        let result = Self::fetch_remote(profile).await;
 
-        let mut throttle = THROTTLE.lock().unwrap();
+        let mut throttles = THROTTLES.lock().unwrap();
+        let throttle = throttles
+            .get_or_insert_with(HashMap::new)
+            .entry(key)
+            .or_default();
         match result {
             Ok(reading) => {
-                if let Err(err) = save(&reading) {
+                if let Err(err) = save(profile, &reading) {
                     tracing::warn!(error = %err, "could not save the Claude usage reading");
                 }
                 throttle.last_ok = Some(reading.clone());
@@ -133,9 +160,11 @@ impl ClaudeCodeProvider {
         }
     }
 
-    async fn fetch_remote(&self) -> Result<UsageReading, Failure> {
+    async fn fetch_remote(profile: &Profile) -> Result<UsageReading, Failure> {
         // Reading the Keychain can wait on the user answering a prompt.
-        let token = tokio::task::spawn_blocking(read_oauth_token)
+        let dir = profile.dir.clone();
+        let keychain = profile.slug.is_none();
+        let token = tokio::task::spawn_blocking(move || read_oauth_token(&dir, keychain))
             .await
             .map_err(|e| Failure::Other(ProviderError::Other(e.into())))?
             .map_err(Failure::Other)?;
@@ -182,16 +211,26 @@ impl ClaudeCodeProvider {
 
         let body: Value = response.json().await.map_err(other)?;
 
-        Ok(parse_usage(body))
+        Ok(parse_usage(body, &profile.id, &profile.display_name()))
     }
 }
 
-fn read_oauth_token() -> Result<String, ProviderError> {
-    let path = paths::claude_credentials();
+/// Reads `<dir>/.credentials.json`, falling back to the login Keychain for the
+/// default account only. A profile's Keychain entry is named after a hash of
+/// its path, which this build does not compute; profiles signed in through
+/// Claude Code's keychain storage need `claude setup-token` to keep a file.
+fn read_oauth_token(dir: &Path, keychain: bool) -> Result<String, ProviderError> {
+    let path = dir.join(".credentials.json");
     let raw = if path.exists() {
         std::fs::read_to_string(&path).map_err(|e| ProviderError::Other(e.into()))?
-    } else {
+    } else if keychain {
         read_keychain_credentials()?
+    } else {
+        return Err(ProviderError::NeedsAuth(format!(
+            "No {} — sign in with CLAUDE_CONFIG_DIR={} claude",
+            path.display(),
+            dir.display()
+        )));
     };
     parse_oauth_token(&raw)
 }
@@ -306,7 +345,7 @@ fn parse_oauth_token(raw: &str) -> Result<String, ProviderError> {
     Ok(token.to_string())
 }
 
-fn parse_usage(body: Value) -> UsageReading {
+fn parse_usage(body: Value, provider: &ProviderId, display_name: &str) -> UsageReading {
     let mut windows = Vec::new();
 
     if let Some(obj) = body.get("five_hour") {
@@ -357,8 +396,8 @@ fn parse_usage(body: Value) -> UsageReading {
     }
 
     UsageReading {
-        provider: ProviderId::ClaudeCode,
-        display_name: ProviderId::ClaudeCode.display_name().to_string(),
+        provider: provider.clone(),
+        display_name: display_name.to_string(),
         fidelity: Fidelity::Official,
         status: ReadingStatus::Ok,
         windows,
