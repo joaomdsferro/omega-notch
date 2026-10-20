@@ -31,7 +31,6 @@ use anyhow::{bail, Context};
 use tracing::info;
 
 use crate::chats::{self, LiveSession};
-#[cfg(not(target_os = "macos"))]
 use crate::paths;
 use crate::platform;
 use crate::protocol::ProviderId;
@@ -264,9 +263,11 @@ fn open_claude(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
             open_app(&CLAUDE_DESKTOP, None).map(|_| None)
         }
         (_, None) if profile.slug.is_some() => {
+            let claude = which("claude").context("claude is not on PATH")?;
             let command = format!(
-                "CLAUDE_CONFIG_DIR={} exec claude --resume {}",
+                "CLAUDE_CONFIG_DIR={} exec {} --resume {}",
                 shell_quote(&profile.dir.display().to_string()),
+                shell_quote(&claude),
                 shell_quote(target.id)
             );
             resume_in_terminal("sh", &["-c", &command], cwd.as_deref()).map(|_| None)

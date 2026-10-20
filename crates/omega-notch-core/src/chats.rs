@@ -667,7 +667,11 @@ impl ActivityIndex {
         let mut per_day: HashMap<NaiveDate, TokenTotals> = HashMap::new();
         let mut models_today: HashMap<&str, u64> = HashMap::new();
         let mut per_day_model: HashMap<(NaiveDate, &str), TokenTotals> = HashMap::new();
-        for transcript in self.claude.values() {
+        for (_, transcript) in self
+            .claude
+            .iter()
+            .filter(|(path, _)| path.starts_with(&root))
+        {
             for (day, models) in &transcript.days {
                 if *day < first_day || *day > today {
                     continue;

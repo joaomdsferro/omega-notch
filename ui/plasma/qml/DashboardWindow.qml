@@ -1352,7 +1352,7 @@ Window {
             DashCard {
                 id: botsCard
                 width: parent.width
-                visible: Engine.dashboardBots.length > 0
+                visible: root.matches("grok_bot") && Engine.dashboardBots.length > 0
                 heading: "Grok Bot bots"
                 caption: "By estimated usage in the last " + root.days + " days · estimated from local transcripts, never measured"
 

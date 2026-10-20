@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::Value;
 
 use super::traits::{Provider, ProviderError};
@@ -51,7 +51,7 @@ impl CommandCodeProvider {
         let since = sub
             .get("currentPeriodStart")
             .and_then(parse_date)
-            .map(|at| at.to_rfc3339());
+            .map(|at| at.to_rfc3339_opts(SecondsFormat::Secs, true));
 
         let mut summary_query = vec![("orgId", org_id.as_str())];
         if let Some(since) = since.as_deref() {
@@ -140,13 +140,26 @@ fn with_query(base: &str, items: &[(&str, &str)]) -> String {
     let query: Vec<String> = items
         .iter()
         .filter(|(key, value)| !key.is_empty() && !value.is_empty())
-        .map(|(key, value)| format!("{key}={value}"))
+        .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
         .collect();
     if query.is_empty() {
         base.to_string()
     } else {
         format!("{base}?{}", query.join("&"))
     }
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 fn parse_usage(

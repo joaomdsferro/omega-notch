@@ -278,10 +278,13 @@ fn backfill_key(provider: &ProviderId) -> String {
 /// are backfilled separately: a profile added later still gets its history.
 pub fn backfill_done(provider: &ProviderId) -> anyhow::Result<bool> {
     let conn = connect()?;
+    // Pre-profile installs recorded the default Claude Code backfill under
+    // BACKFILL_KEY alone; treat that as done so we do not rewrite history.
+    let legacy = provider == &ProviderId::ClaudeCode;
     let found: Option<String> = conn
         .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            params![backfill_key(provider)],
+            "SELECT value FROM meta WHERE key = ?1 OR (?2 AND key = ?3)",
+            params![backfill_key(provider), legacy, BACKFILL_KEY],
             |r| r.get(0),
         )
         .optional()?;

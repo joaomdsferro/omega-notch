@@ -78,11 +78,14 @@ final class ThemeCatalogTests: XCTestCase {
   private func contrast(_ a: String, _ b: String) -> Double {
     func luminance(_ hex: String) -> Double {
       let value = UInt32(hex.dropFirst(), radix: 16) ?? 0
-      let parts = [
-        Double((value >> 16) & 0xFF) / 255, Double((value >> 8) & 0xFF) / 255,
-        Double(value & 0xFF) / 255,
-      ].map { $0 <= 0.03928 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
-      return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2]
+      func linear(_ channel: UInt32) -> Double {
+        let v: Double = Double(channel & 0xFF) / 255
+        return v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+      }
+      let r: Double = linear(value >> 16)
+      let g: Double = linear(value >> 8)
+      let b: Double = linear(value)
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b
     }
     let first = luminance(a), second = luminance(b)
     return (max(first, second) + 0.05) / (min(first, second) + 0.05)

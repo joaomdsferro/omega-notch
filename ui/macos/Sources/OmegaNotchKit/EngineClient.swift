@@ -108,7 +108,7 @@ public final class EngineClient {
     let days = min(90, max(7, days))
     if days != dashboardDays { clearAnalysis() }
     dashboardDays = days
-    dashboardLoading = true
+    dashboardLoading = connected && socket != nil
     var message: [String: JSONValue] = [
       "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
     ]
@@ -234,6 +234,7 @@ public final class EngineClient {
   private func disconnected() {
     socket = nil
     connected = false
+    dashboardLoading = false
     // The answer would come on this connection; it will not now.
     if analysis?.state == "running" {
       analysis?.state = "failed"

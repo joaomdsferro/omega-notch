@@ -34,7 +34,7 @@ struct ThemeTokens {
   /// A theme of the catalogue; an unknown name gives the default's.
   init(name: String) {
     let colors = ThemeCatalog.colors(name)
-    hex = colors
+    hex = colors.mapValues(\.hex)
     func color(_ token: String) -> Color {
       guard let value = colors[token] else { return .clear }
       return Color(hex: value.hex).opacity(value.alpha)

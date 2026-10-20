@@ -267,7 +267,8 @@ Item {
     // A colour with its alpha scaled: the gauge's dashes need one, and a
     // shape path has no opacity of its own.
     function withAlpha(color, alpha) {
-        return Qt.rgba(color.r, color.g, color.b, (color.a === undefined ? 1 : color.a) * alpha)
+        const c = typeof color === "string" ? Qt.lighter(color, 1.0) : color
+        return Qt.rgba(c.r, c.g, c.b, c.a * alpha)
     }
 
     function usageColor(pct) {

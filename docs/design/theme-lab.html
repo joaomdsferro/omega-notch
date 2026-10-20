@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt" data-theme="noir">
+<html lang="en" data-theme="noir">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -730,7 +730,7 @@ function renderTokens() {
     return `<div class="token">
       <div class="k">${k}</div>
       <div class="v"><span class="chip" style="background:${v}"></span>${v.toUpperCase()}
-        <span class="r ${ok ? "ok" : "bad"}">${decorative ? "decorativo" : r.toFixed(2) + ":1"}</span></div>
+        <span class="r ${ok ? "ok" : "bad"}">${decorative ? "decorative" : r.toFixed(2) + ":1"}</span></div>
     </div>`;
   }).join("");
 }
