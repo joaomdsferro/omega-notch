@@ -231,7 +231,9 @@ struct DashboardView: View {
             ModelTable(models: rows, totalCost: costs.total)
           }
           DashCard(heading: "Today", caption: "Estimated cost and token mix") {
-            CostBreakdown(costs: shownCosts, total: costToday, today: todayTotals)
+            CostBreakdown(
+              costs: shownCosts, total: costToday, today: todayTotals,
+              loading: client.dashboardLoading)
           }
           .frame(width: 360)
         }
@@ -765,16 +767,18 @@ private struct CostBreakdown: View {
   var costs: [CostEstimate]
   var total: Double
   var today: TokenTotals
+  var loading: Bool
 
   @Environment(\.seriesShades) private var shades
 
   var body: some View {
     let rows = Array(costs.sorted { $0.costUsd > $1.costUsd }.prefix(6))
-    let mix = [
+    let mix: [(String, Double)] = [
       ("Cache read", today.cacheRead), ("Cache write", today.cacheWrite), ("Input", today.input),
       ("Output", today.output),
     ]
     let mixTotal = today.total
+    let emptyLabel = loading ? "Loading…" : "Nothing spent yet today."
 
     VStack(alignment: .leading, spacing: 16) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -782,20 +786,10 @@ private struct CostBreakdown: View {
         Text("today").font(.notch(13)).foregroundStyle(Theme.textSecondary)
       }
       if rows.count > 1 {
-        GeometryReader { geo in
-          HStack(spacing: 2) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-              Rectangle().fill(shades[index % shades.count])
-                .frame(width: max(2, (geo.size.width - CGFloat(rows.count - 1) * 2) * row.costUsd / max(total, 0.0001)))
-            }
-          }
-        }
-        .frame(height: 8)
-        .background(Theme.track)
-        .clipShape(Capsule())
+        shareBar(rows: rows)
       }
       if rows.isEmpty {
-        Text(client.dashboardLoading ? "Loading…" : "Nothing spent yet today.")
+        Text(emptyLabel)
           .font(.notch(13)).foregroundStyle(Theme.textTertiary)
       } else {
         VStack(spacing: 0) {
@@ -856,6 +850,23 @@ private struct CostBreakdown: View {
         .font(.notch(11)).foregroundStyle(Theme.textTertiary)
         .fixedSize(horizontal: false, vertical: true)
     }
+  }
+
+  @ViewBuilder
+  private func shareBar(rows: [CostEstimate]) -> some View {
+    GeometryReader { geo in
+      HStack(spacing: 2) {
+        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+          let width = max(
+            2,
+            (geo.size.width - CGFloat(rows.count - 1) * 2) * row.costUsd / max(total, 0.0001))
+          Rectangle().fill(shades[index % shades.count]).frame(width: width)
+        }
+      }
+    }
+    .frame(height: 8)
+    .background(Theme.track)
+    .clipShape(Capsule())
   }
 }
 
