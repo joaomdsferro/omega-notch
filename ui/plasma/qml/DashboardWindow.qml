@@ -582,6 +582,25 @@ Window {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
+        // The default Flickable step is tiny on this long page, so a wheel
+        // notch moves a comfortable chunk instead.
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            blocking: true
+            onWheel: (event) => {
+                // A discrete wheel reports no scroll phase, even when Wayland
+                // also labels it as a touchpad; touchpad gestures keep their
+                // 1:1 pixels.
+                const discrete = event.phase === Qt.NoScrollPhase
+                const step = discrete
+                           ? event.angleDelta.y / 120 * 110
+                           : event.pixelDelta.y
+                const maxY = Math.max(0, flick.contentHeight - flick.height)
+                flick.contentY = Math.max(0, Math.min(maxY, flick.contentY - step))
+                event.accepted = true
+            }
+        }
+
         Column {
             id: page
             x: 32
