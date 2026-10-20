@@ -260,6 +260,226 @@ fn empty_stats(today: NaiveDate) -> TokenStats {
     }
 }
 
+/// How long a running tool or an unfinished turn may go untouched before it
+/// is taken for a session that died mid-turn rather than one still working.
+/// A tool writing no output for this long is not still starting up, and the
+/// process leaves no state file that could outlive it.
+const LIVE_STALE: Duration = Duration::from_secs(15 * 60);
+
+/// A session that is working or stopped to ask something, for the ring and
+/// the chats' live dots.
+#[derive(Debug, Clone)]
+pub struct Liveness {
+    /// The root session: a subagent's work belongs to the chat that started it.
+    pub id: String,
+    pub title: String,
+    pub kind: SessionKind,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// What every opencode session is doing right now, read from the messages the
+/// database already holds: an assistant turn without `time.completed` is still
+/// running, a tool waiting on approval is `pending`, and a completed `question`
+/// tool means the agent stopped to ask.
+pub fn live_sessions() -> Vec<Liveness> {
+    connect()
+        .map(|conn| live_sessions_from(&conn, Utc::now()))
+        .unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+struct MessageMeta {
+    role: Option<String>,
+    time: Option<MessageTime>,
+}
+
+#[derive(Deserialize)]
+struct MessageTime {
+    completed: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct PartMeta {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    tool: Option<String>,
+    state: Option<PartState>,
+}
+
+#[derive(Deserialize)]
+struct PartState {
+    status: Option<String>,
+}
+
+fn live_sessions_from(conn: &Connection, now: DateTime<Utc>) -> Vec<Liveness> {
+    let sessions = read_sessions(conn);
+    if sessions.is_empty() {
+        return Vec::new();
+    }
+    let by_id: HashMap<&str, &SessionRow> = sessions.iter().map(|s| (s.id.as_str(), s)).collect();
+    let root_of = |id: &str| -> String {
+        let mut current = id;
+        for _ in 0..8 {
+            match by_id.get(current).and_then(|s| s.parent.as_deref()) {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        current.to_string()
+    };
+
+    // The newest message of every session, in one pass.
+    // Ordered by when the message was written, not last touched: opencode
+    // rewrites a prompt's summary later, which would keep an old user message
+    // newer than the assistant turns it started.
+    let Ok(mut statement) = conn.prepare(
+        "SELECT m.session_id, m.id, m.time_created, m.time_updated, m.data
+         FROM message m
+         JOIN (SELECT session_id, MAX(time_created) AS at FROM message GROUP BY session_id) newest
+           ON newest.session_id = m.session_id AND newest.at = m.time_created",
+    ) else {
+        return Vec::new();
+    };
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
+        ))
+    });
+
+    struct Latest {
+        message: String,
+        at: i64,
+        touched: i64,
+        meta: MessageMeta,
+    }
+    let mut latest: HashMap<String, Latest> = HashMap::new();
+    let Ok(rows) = rows else {
+        return Vec::new();
+    };
+    for row in rows.flatten() {
+        let (session, message, at, touched, raw) = row;
+        let Ok(meta) = serde_json::from_str::<MessageMeta>(&raw) else {
+            continue;
+        };
+        let root = root_of(&session);
+        let newer = latest
+            .get(&root)
+            .is_none_or(|current| (at, touched) > (current.at, current.touched));
+        if newer {
+            latest.insert(
+                root,
+                Latest {
+                    message,
+                    at,
+                    touched,
+                    meta,
+                },
+            );
+        }
+    }
+
+    let stale = LIVE_STALE.as_millis() as i64;
+    let mut out = Vec::new();
+    for (root, latest) in latest {
+        let Some(session) = by_id.get(root.as_str()) else {
+            continue;
+        };
+        let Some(kind) = classify_latest(
+            conn,
+            &latest.message,
+            &latest.meta,
+            latest.at.max(latest.touched),
+            now,
+            stale,
+        ) else {
+            continue;
+        };
+        out.push(Liveness {
+            id: root,
+            title: chat_title(session).unwrap_or_else(|| "Untitled".into()),
+            kind,
+            updated_at: utc_from_ms(latest.touched).unwrap_or(now),
+        });
+    }
+    out.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+    out
+}
+
+fn classify_latest(
+    conn: &Connection,
+    message: &str,
+    meta: &MessageMeta,
+    at: i64,
+    now: DateTime<Utc>,
+    stale: i64,
+) -> Option<SessionKind> {
+    let fresh = now.timestamp_millis() - at < stale;
+    if meta.role.as_deref() == Some("user") {
+        // A prompt just sent: the turn has started even if the assistant
+        // message is not written yet.
+        return Some(SessionKind::Busy);
+    }
+    if meta.time.as_ref().and_then(|t| t.completed).is_none() {
+        return Some(if fresh {
+            SessionKind::Busy
+        } else {
+            SessionKind::Idle
+        });
+    }
+
+    let Ok(mut statement) = conn
+        .prepare("SELECT data, time_updated FROM part WHERE message_id = ?1 ORDER BY time_created")
+    else {
+        return Some(SessionKind::Idle);
+    };
+    let parts = statement.query_map([message], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    });
+
+    let mut last_tool: Option<(String, i64)> = None;
+    let mut pending = false;
+    let mut running = false;
+    let Ok(parts) = parts else {
+        return Some(SessionKind::Idle);
+    };
+    for part in parts.flatten() {
+        let (raw, part_at) = part;
+        let Ok(part) = serde_json::from_str::<PartMeta>(&raw) else {
+            continue;
+        };
+        if part.kind.as_deref() != Some("tool") {
+            continue;
+        }
+        let status = part.state.as_ref().and_then(|s| s.status.as_deref());
+        let recent = now.timestamp_millis() - part_at < stale;
+        match status {
+            Some("pending") if recent => pending = true,
+            Some("running") if recent => running = true,
+            _ => {}
+        }
+        if let Some(tool) = part.tool {
+            last_tool = Some((tool, part_at));
+        }
+    }
+
+    // A tool waiting on permission outranks work that is running.
+    if pending {
+        return Some(SessionKind::WaitingYou);
+    }
+    if running {
+        return Some(SessionKind::Busy);
+    }
+    // The turn ended on a question: it is the user's reply that resumes it.
+    if last_tool.is_some_and(|(tool, _)| tool == "question") {
+        return Some(SessionKind::WaitingYou);
+    }
+    Some(SessionKind::Idle)
+}
+
 /// Recent chats and the last `HISTORY_DAYS` of tokens, as the dashboard and
 /// the live snapshot read them.
 pub fn activity() -> (Vec<ChatSummary>, TokenStats) {
@@ -385,6 +605,10 @@ fn activity_from(conn: &Connection, now: DateTime<Local>) -> (Vec<ChatSummary>, 
     stats.session_meta = session_meta;
 
     // Chats: root sessions only, newest first, as much as a snapshot holds.
+    let live: HashMap<String, SessionKind> = live_sessions_from(conn, now.with_timezone(&Utc))
+        .into_iter()
+        .map(|liveness| (liveness.id, liveness.kind))
+        .collect();
     let counts = user_message_counts(conn);
     let mut roots: Vec<&SessionRow> = sessions.iter().filter(|s| s.parent.is_none()).collect();
     roots.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
@@ -408,8 +632,10 @@ fn activity_from(conn: &Connection, now: DateTime<Local>) -> (Vec<ChatSummary>, 
             preview: None,
             avatar_shape: None,
             avatar_color: None,
-            state: SessionKind::Idle,
-            live: false,
+            state: live.get(&session.id).copied().unwrap_or(SessionKind::Idle),
+            live: live
+                .get(&session.id)
+                .is_some_and(|kind| *kind != SessionKind::Idle),
             updated_at: session.updated_at,
             messages: counts.get(&session.id).copied().unwrap_or(0),
             tokens: Some(tokens),
@@ -572,7 +798,14 @@ mod tests {
              );
              CREATE TABLE message(
                 id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
-                time_created INTEGER NOT NULL, data TEXT NOT NULL
+                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+                data TEXT NOT NULL
+             );
+             CREATE TABLE part(
+                id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+                data TEXT NOT NULL
              );",
         )
         .unwrap();
@@ -614,10 +847,189 @@ mod tests {
             at,
         );
         conn.execute(
-            "INSERT INTO message(id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO message(id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
             rusqlite::params![id, session, at, data],
         )
         .unwrap();
+    }
+
+    fn add_message(
+        conn: &Connection,
+        id: &str,
+        session: &str,
+        role: &str,
+        completed: Option<i64>,
+        finish: Option<&str>,
+        at: i64,
+    ) {
+        let completed = completed.map_or("null".to_string(), |done| done.to_string());
+        let finish = finish.map_or("null".to_string(), |finish| format!("\"{finish}\""));
+        let data = format!(
+            r#"{{"role":"{role}","time":{{"created":{at},"completed":{completed}}},"finish":{finish}}}"#
+        );
+        conn.execute(
+            "INSERT INTO message(id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            rusqlite::params![id, session, at, data],
+        )
+        .unwrap();
+    }
+
+    fn add_part(
+        conn: &Connection,
+        id: &str,
+        message: &str,
+        session: &str,
+        kind: &str,
+        tool: Option<&str>,
+        status: Option<&str>,
+        at: i64,
+    ) {
+        let data = serde_json::json!({
+            "type": kind,
+            "tool": tool,
+            "state": status.map(|status| serde_json::json!({ "status": status })),
+        });
+        conn.execute(
+            "INSERT INTO part(id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+            rusqlite::params![id, message, session, at, data.to_string()],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_turn_without_a_completion_time_is_working() {
+        let conn = fixture();
+        let now = Utc::now();
+        let at = now.timestamp_millis();
+        add_session(&conn, "ses_root", None, "Refactor", "", at);
+        add_message(&conn, "msg_a", "ses_root", "assistant", None, None, at);
+
+        let live = live_sessions_from(&conn, now);
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].kind, SessionKind::Busy);
+        assert_eq!(live[0].title, "Refactor");
+    }
+
+    #[test]
+    fn a_finished_turn_is_idle_and_an_old_one_is_abandoned() {
+        let conn = fixture();
+        let now = Utc::now();
+        let at = now.timestamp_millis();
+        add_session(&conn, "ses_done", None, "Done", "", at);
+        add_message(
+            &conn,
+            "msg_done",
+            "ses_done",
+            "assistant",
+            Some(at),
+            Some("stop"),
+            at,
+        );
+        assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Idle);
+
+        add_session(&conn, "ses_stale", None, "Stale", "", at - 3_600_000);
+        add_message(
+            &conn,
+            "msg_stale",
+            "ses_stale",
+            "assistant",
+            None,
+            None,
+            at - 3_600_000,
+        );
+        let live = live_sessions_from(&conn, now);
+        let stale = live
+            .iter()
+            .find(|session| session.id == "ses_stale")
+            .unwrap();
+        assert_eq!(stale.kind, SessionKind::Idle);
+    }
+
+    #[test]
+    fn a_question_waits_until_the_reply_arrives() {
+        let conn = fixture();
+        let now = Utc::now();
+        let at = now.timestamp_millis();
+        add_session(&conn, "ses_ask", None, "Ask", "", at);
+        add_message(
+            &conn,
+            "msg_ask",
+            "ses_ask",
+            "assistant",
+            Some(at),
+            Some("tool-calls"),
+            at,
+        );
+        add_part(
+            &conn,
+            "prt_ask",
+            "msg_ask",
+            "ses_ask",
+            "tool",
+            Some("question"),
+            Some("completed"),
+            at,
+        );
+        assert_eq!(
+            live_sessions_from(&conn, now)[0].kind,
+            SessionKind::WaitingYou
+        );
+
+        // The answer is a newer user message: the session is working again.
+        add_message(
+            &conn,
+            "msg_reply",
+            "ses_ask",
+            "user",
+            None,
+            None,
+            at + 1_000,
+        );
+        assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Busy);
+    }
+
+    #[test]
+    fn a_running_tool_works_and_a_pending_one_waits() {
+        let conn = fixture();
+        let now = Utc::now();
+        let at = now.timestamp_millis();
+        add_session(&conn, "ses_tool", None, "Tool", "", at);
+        add_message(
+            &conn,
+            "msg_tool",
+            "ses_tool",
+            "assistant",
+            Some(at),
+            Some("tool-calls"),
+            at,
+        );
+        add_part(
+            &conn,
+            "prt_tool",
+            "msg_tool",
+            "ses_tool",
+            "tool",
+            Some("bash"),
+            Some("running"),
+            at,
+        );
+        assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Busy);
+
+        conn.execute(
+            "UPDATE part SET data = ?1 WHERE id = 'prt_tool'",
+            rusqlite::params![
+                serde_json::json!({"type":"tool","tool":"bash","state":{"status":"pending"}})
+                    .to_string()
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            live_sessions_from(&conn, now)[0].kind,
+            SessionKind::WaitingYou
+        );
     }
 
     #[test]

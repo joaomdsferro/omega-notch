@@ -34,9 +34,11 @@ pub fn claude_registry_available() -> bool {
 
 pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
     let mut claude = ClaudeTracker::default();
+    let mut opencode = OpenCodeTracker::default();
 
     // Initial scan
     claude.publish(&store).await;
+    opencode.publish(&store).await;
     publish_cursor_best_effort(&store).await;
     publish_copilot_best_effort(&store).await;
     store.refresh_activity().await;
@@ -94,6 +96,7 @@ pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
             }
             _ = ticker.tick() => {
                 claude.publish(&store).await;
+                opencode.publish(&store).await;
                 publish_cursor_best_effort(&store).await;
                 publish_copilot_best_effort(&store).await;
                 activity_dirty = true;
@@ -171,6 +174,70 @@ impl ClaudeTracker {
         for (_, state) in announced {
             store.announce(state).await;
         }
+    }
+}
+
+/// opencode keeps no process registry: its database is the only trace, and a
+/// turn's latest message says whether it is still running. Polled with the
+/// ticker, since writes to the database raise no filesystem event we watch.
+#[derive(Default)]
+struct OpenCodeTracker {
+    known: HashMap<String, SessionKind>,
+    primed: bool,
+}
+
+impl OpenCodeTracker {
+    async fn publish(&mut self, store: &UsageStore) {
+        let live = crate::opencode::live_sessions();
+        if self.primed {
+            for session in &live {
+                let before = self.known.get(&session.id).copied();
+                let announce = match (before, session.kind) {
+                    (Some(prev), SessionKind::Idle) if prev != SessionKind::Idle => true,
+                    (_, SessionKind::WaitingYou) if before != Some(SessionKind::WaitingYou) => true,
+                    _ => false,
+                };
+                if announce {
+                    store
+                        .announce(SessionState {
+                            provider: ProviderId::OpenCode,
+                            kind: session.kind,
+                            label: Some(session.title.clone()),
+                            updated_at: session.updated_at,
+                        })
+                        .await;
+                }
+            }
+        }
+        self.known = live
+            .iter()
+            .map(|session| (session.id.clone(), session.kind))
+            .collect();
+        self.primed = true;
+
+        let rank = |kind: SessionKind| match kind {
+            SessionKind::WaitingYou => 2,
+            SessionKind::Busy => 1,
+            SessionKind::Idle => 0,
+        };
+        let lead = live
+            .iter()
+            .max_by_key(|session| (rank(session.kind), session.updated_at));
+        let state = match lead {
+            Some(session) if session.kind != SessionKind::Idle => SessionState {
+                provider: ProviderId::OpenCode,
+                kind: session.kind,
+                label: Some(session.title.clone()),
+                updated_at: session.updated_at,
+            },
+            _ => SessionState {
+                provider: ProviderId::OpenCode,
+                kind: SessionKind::Idle,
+                label: None,
+                updated_at: Utc::now(),
+            },
+        };
+        store.set_session(state).await;
     }
 }
 
@@ -646,6 +713,17 @@ pub fn summarize_sessions() -> HashMap<ProviderId, SessionKind> {
         };
         map.insert(profile.id, claude.kind);
     }
+    let opencode = crate::opencode::live_sessions();
+    let kind = opencode
+        .iter()
+        .map(|session| session.kind)
+        .max_by_key(|kind| match kind {
+            SessionKind::WaitingYou => 2,
+            SessionKind::Busy => 1,
+            SessionKind::Idle => 0,
+        })
+        .unwrap_or(SessionKind::Idle);
+    map.insert(ProviderId::OpenCode, kind);
     map.insert(ProviderId::Cursor, detect_cursor_session().kind);
     map.insert(ProviderId::Copilot, detect_copilot_session().kind);
     map
