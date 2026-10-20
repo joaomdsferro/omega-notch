@@ -180,7 +180,7 @@ Item {
         id: tip
         readonly property var day: root.hovered >= 0 ? root.days[root.hovered] : null
         visible: day !== null
-        width: 220
+        width: 260
         height: tipCol.implicitHeight + 24
         radius: 10
         color: "#E61C1C21"
@@ -231,13 +231,17 @@ Item {
                         color: kind.color
                     }
                     Text {
+                        id: tipLabel
                         x: 16
                         anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 16 - tipValue.width - 8
                         text: kind.label
                         color: Theme.textSecondary
                         font.pixelSize: 11
+                        elide: Text.ElideRight
                     }
                     Text {
+                        id: tipValue
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         text: tip.day ? root.fmt(tip.day[kind.key] || 0) : ""
