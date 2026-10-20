@@ -171,10 +171,15 @@ fn parse_usage(
         .get("totalCost")
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
-    let remaining = credits
-        .pointer("/credits/monthlyCredits")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
+    // Monthly allotment plus any purchased or free balance still left.
+    let remaining: f64 = [
+        "/credits/monthlyCredits",
+        "/credits/purchasedCredits",
+        "/credits/freeCredits",
+    ]
+    .into_iter()
+    .map(|path| credits.pointer(path).and_then(Value::as_f64).unwrap_or(0.0))
+    .sum();
     let cap = used + remaining;
     if cap <= 0.0 {
         return Err(ProviderError::Message(
@@ -268,5 +273,16 @@ mod tests {
             &serde_json::json!({}),
         );
         assert!(reading.is_err());
+    }
+
+    #[test]
+    fn purchased_and_free_credits_count_toward_the_cap() {
+        let summary = serde_json::json!({"totalCost": 2.0});
+        let credits = serde_json::json!({
+            "credits": {"monthlyCredits": 0.0, "purchasedCredits": 5.0, "freeCredits": 3.0}
+        });
+        let reading = parse_usage(&summary, &credits, &serde_json::json!({})).unwrap();
+        // used 2 / (2 + 5 + 3) = 20%
+        assert!((reading.windows[0].used_pct - 20.0).abs() < 0.001);
     }
 }
