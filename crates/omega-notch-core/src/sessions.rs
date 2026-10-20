@@ -182,7 +182,7 @@ impl ClaudeTracker {
 /// ticker, since writes to the database raise no filesystem event we watch.
 #[derive(Default)]
 struct OpenCodeTracker {
-    known: HashMap<String, SessionKind>,
+    known: HashMap<String, (SessionKind, bool)>,
     primed: bool,
 }
 
@@ -192,10 +192,15 @@ impl OpenCodeTracker {
         if self.primed {
             for session in &live {
                 let before = self.known.get(&session.id).copied();
-                let announce = match (before, session.kind) {
-                    (Some(prev), SessionKind::Idle) if prev != SessionKind::Idle => true,
-                    (_, SessionKind::WaitingYou) if before != Some(SessionKind::WaitingYou) => true,
-                    _ => false,
+                let announce = match before {
+                    Some((prev, was_finished)) => match session.kind {
+                        // A stale guess is not a finish; only the turn writing
+                        // its own completion is.
+                        SessionKind::Idle => session.finished && !was_finished,
+                        SessionKind::WaitingYou => prev != SessionKind::WaitingYou,
+                        SessionKind::Busy => false,
+                    },
+                    None => session.kind == SessionKind::WaitingYou,
                 };
                 if announce {
                     store
@@ -211,7 +216,7 @@ impl OpenCodeTracker {
         }
         self.known = live
             .iter()
-            .map(|session| (session.id.clone(), session.kind))
+            .map(|session| (session.id.clone(), (session.kind, session.finished)))
             .collect();
         self.primed = true;
 
