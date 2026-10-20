@@ -51,7 +51,7 @@ Rectangle {
     color: cardHover.hovered ? Theme.panelHover : Theme.panelRaised
     border.width: 1
     border.color: Theme.cardStroke
-    Behavior on color { ColorAnimation { duration: 120 } }
+    Behavior on color { ColorAnimation { duration: Theme.motion(Theme.motionHover) } }
 
     // The top edge catches the light, like the other cards.
     Rectangle {
@@ -66,6 +66,20 @@ Rectangle {
     Accessible.role: Accessible.Button
     Accessible.name: (reading ? reading.display_name : "") + ", "
                      + (hasData ? Math.round(headline) + "% used" : "no data") + ". Refresh"
+    Accessible.focusable: true
+    activeFocusOnTab: true
+    Keys.onReturnPressed: (event) => {
+        if (root.reading) Engine.refresh(root.reading.provider)
+        event.accepted = true
+    }
+    Keys.onEnterPressed: (event) => {
+        if (root.reading) Engine.refresh(root.reading.provider)
+        event.accepted = true
+    }
+    Keys.onSpacePressed: (event) => {
+        if (root.reading) Engine.refresh(root.reading.provider)
+        event.accepted = true
+    }
 
     HoverHandler {
         id: cardHover
@@ -221,10 +235,11 @@ Rectangle {
                         height: parent.height
                         radius: 2
                         color: Theme.usageColor(parent.parent.pct)
-                        Behavior on width { NumberAnimation { duration: 500; easing.type: Easing.OutCubic } }
+                        Behavior on width { NumberAnimation { duration: Theme.motion(Theme.motionFill); easing.type: Easing.Bezier; easing.bezierCurve: Theme.motionCurve } }
                     }
                 }
             }
         }
     }
+    FocusRing { target: root }
 }

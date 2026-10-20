@@ -1,4 +1,4 @@
-//! Usage limit alerts: one when a provider's headline window passes 80%, one
+//! Usage limit alerts: one when a provider's tightest window passes 80%, one
 //! when it reaches 100%.
 //!
 //! Each provider keeps the highest threshold already announced. It comes back
@@ -32,7 +32,7 @@ impl LimitWatch {
         if reading.status != ReadingStatus::Ok {
             return None;
         }
-        let window = reading.windows.first()?;
+        let window = reading.tightest_window()?;
         let pct = window.used_pct;
         let reached = level(pct);
 
@@ -169,5 +169,51 @@ mod tests {
         assert_eq!(alert.threshold, 80);
         assert_eq!(alert.label, "Current session");
         assert_eq!(alert.used_pct, 95.0);
+    }
+
+    #[test]
+    fn tightest_window_drives_the_alert() {
+        let mut watch = LimitWatch::default();
+        let low = UsageReading {
+            provider: ProviderId::ClaudeCode,
+            display_name: "Claude Code".into(),
+            fidelity: Fidelity::Official,
+            status: ReadingStatus::Ok,
+            windows: vec![
+                UsageWindow {
+                    label: "Current session".into(),
+                    used_pct: 0.0,
+                    resets_at: None,
+                },
+                UsageWindow {
+                    label: "Weekly limit".into(),
+                    used_pct: 50.0,
+                    resets_at: None,
+                },
+            ],
+            fetched_at: Utc::now(),
+            message: None,
+        };
+        assert!(watch.check(&low).is_none());
+
+        let high = UsageReading {
+            windows: vec![
+                UsageWindow {
+                    label: "Current session".into(),
+                    used_pct: 0.0,
+                    resets_at: None,
+                },
+                UsageWindow {
+                    label: "Weekly limit".into(),
+                    used_pct: 97.0,
+                    resets_at: None,
+                },
+            ],
+            ..low.clone()
+        };
+        let alert = watch.check(&high).unwrap();
+        assert_eq!(alert.threshold, 80);
+        assert_eq!(alert.label, "Weekly limit");
+        assert_eq!(alert.used_pct, 97.0);
     }
 }

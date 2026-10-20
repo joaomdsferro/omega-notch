@@ -3,7 +3,8 @@
   "providers": [
     {
       "id": "claude_code",
-      "display_name": "Claude Code"
+      "display_name": "Claude Code",
+      "detected": true
     }
   ],
   "readings": [
@@ -138,6 +139,9 @@
     "screen": "",
     "dashboard_palette": "mono",
     "dashboard_colors": [],
-    "theme": "noir"
+    "theme": "noir",
+    "favorites": [],
+    "notch_order": [],
+    "undetected": []
   }
 }

@@ -114,6 +114,28 @@ impl CopilotAccount {
     }
 }
 
+/// A token to read with, the editor plugins' folder, or the Copilot
+/// extension in a VS Code build.
+pub(super) fn detected() -> bool {
+    if !read_tokens().is_empty() || paths::github_copilot_dir().is_dir() {
+        return true;
+    }
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    [".vscode", ".vscode-insiders", ".vscode-oss"]
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(home.join(dir).join("extensions")).ok())
+        .flatten()
+        .flatten()
+        .any(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("github.copilot")
+        })
+}
+
 /// Our own sign-in first, then every GitHub OAuth token a Copilot client left
 /// on disk, newest format first.
 fn read_tokens() -> Vec<String> {

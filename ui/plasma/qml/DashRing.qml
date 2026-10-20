@@ -11,7 +11,7 @@ Item {
 
     readonly property bool hasData: pct >= 0
     property real shown: hasData ? Math.min(100, pct) : 0
-    Behavior on shown { NumberAnimation { duration: 600; easing.type: Easing.OutCubic } }
+    Behavior on shown { NumberAnimation { duration: Theme.motion(Theme.motionFill); easing.type: Easing.Bezier; easing.bezierCurve: Theme.motionCurve } }
 
     readonly property real r: (Math.min(width, height) - stroke) / 2
 

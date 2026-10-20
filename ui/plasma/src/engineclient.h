@@ -55,6 +55,10 @@ class EngineClient : public QObject
     // Whether the dashboard is on its way: a request is out and no answer has
     // come yet.
     Q_PROPERTY(bool dashboardLoading READ dashboardLoading NOTIFY dashboardChanged)
+    // Why the dashboard has no numbers to show: the request never reached the
+    // engine, or the engine stopped before answering. Empty once an answer
+    // arrives.
+    Q_PROPERTY(QString dashboardError READ dashboardError NOTIFY dashboardChanged)
     Q_PROPERTY(QString screenName READ screenName NOTIFY configChanged)
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
@@ -72,9 +76,18 @@ class EngineClient : public QObject
     // Every provider the engine can fetch: {id, name, enabled}, in display
     // order. The engine's registry is the list; nothing here is hardcoded.
     Q_PROPERTY(QVariantList providers READ providers NOTIFY configChanged)
+    // The enabled providers, {id, name}, in the order the notch lays its rings
+    // out: the user's order first, then the registry's.
+    Q_PROPERTY(QVariantList notchProviders READ notchProviders NOTIFY configChanged)
+    // Ids the user starred; the notch prefers them over idle providers.
+    Q_PROPERTY(QStringList favorites READ favorites NOTIFY configChanged)
     // {state: ""|starting|pending|signed_in|failed, user_code, verification_uri, message}
     Q_PROPERTY(QVariantMap copilotLogin READ copilotLogin NOTIFY copilotLoginChanged)
     Q_PROPERTY(bool peekOpen READ peekOpen NOTIFY peekOpenChanged)
+    // Whether the desktop asks for less movement: KDE's AnimationDurationFactor
+    // at 0, or OMEGA_NOTCH_REDUCED_MOTION. Settings and the dashboard shorten
+    // or skip their animation when it is on.
+    Q_PROPERTY(bool reducedMotion READ reducedMotion NOTIFY reducedMotionChanged)
     Q_PROPERTY(QString peekProvider READ peekProvider NOTIFY peekOpenChanged)
     Q_PROPERTY(QString peekKind READ peekKind NOTIFY peekOpenChanged)
     Q_PROPERTY(QString peekLabel READ peekLabel NOTIFY peekOpenChanged)
@@ -115,6 +128,7 @@ public:
     QStringList dashboardColors() const { return m_dashboardColors; }
     QString theme() const { return m_theme; }
     bool dashboardLoading() const { return m_dashboardLoading; }
+    QString dashboardError() const { return m_dashboardError; }
     QString screenName() const { return m_screenName; }
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
@@ -128,13 +142,23 @@ public:
     bool limitAlerts() const { return m_limitAlerts; }
     QString soundFinished() const { return m_soundFinished; }
     QString soundWaiting() const { return m_soundWaiting; }
+    // Settings' order: favorites, then those found on this machine, then the
+    // rest; the most popular lead each group, the others go A to Z. Each
+    // entry carries `favorite`, `detected` and `group` ("favorites",
+    // "detected", "other").
     QVariantList providers() const;
+    QVariantList notchProviders() const;
+    QStringList favorites() const { return m_favorites; }
     Q_INVOKABLE bool providerEnabled(const QString &id) const;
+    Q_INVOKABLE void setFavorite(const QString &id, bool favorite);
+    // Moves a provider `by` places in the notch's order (negative is earlier).
+    Q_INVOKABLE void moveInNotch(const QString &id, int by);
     QVariantMap copilotLogin() const { return m_copilotLogin; }
     bool peekOpen() const { return m_peekOpen; }
     QString peekProvider() const { return m_peekProvider; }
     QString peekKind() const { return m_peekKind; }
     QString peekLabel() const { return m_peekLabel; }
+    bool reducedMotion() const { return m_reducedMotion; }
     // OMEGA_NOTCH_PREVIEW=<provider id> pins that provider's card open, and
     // OMEGA_NOTCH_PREVIEW=settings opens Settings at launch, for working on
     // either without driving the pointer.
@@ -209,6 +233,7 @@ signals:
     void configChanged();
     void screensChanged();
     void peekOpenChanged();
+    void reducedMotionChanged();
     void copilotLoginChanged();
     void sessionFinished(const QString &provider, const QString &label);
     void sessionWaiting(const QString &provider, const QString &label);
@@ -235,6 +260,7 @@ private:
     void applyConfig(const QJsonObject &config);
     void pushConfig();
     void triggerPeek(const QString &provider, const QString &label, const QString &kind);
+    void readReducedMotion();
     QString socketPath() const;
 
     QLocalSocket m_socket;
@@ -270,6 +296,7 @@ private:
     QString m_peekProvider;
     QString m_peekKind;
     QString m_peekLabel;
+    bool m_reducedMotion = false;
     QString m_edge = QStringLiteral("right");
     double m_edgePosition = 0.5;
     QString m_sizePreset = QStringLiteral("medium");
@@ -285,6 +312,7 @@ private:
     QStringList m_dashboardColors;
     QString m_theme = QStringLiteral("noir");
     bool m_dashboardLoading = false;
+    QString m_dashboardError;
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;
@@ -300,6 +328,8 @@ private:
     // The engine's provider catalog, and the config's on/off map for it.
     QVariantList m_providerCatalog;
     QJsonObject m_providerStates;
+    QStringList m_favorites;
+    QStringList m_notchOrder;
     QVariantMap m_copilotLogin;
     QJsonObject m_rawConfig;
 };

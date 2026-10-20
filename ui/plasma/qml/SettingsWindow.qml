@@ -37,6 +37,21 @@ Window {
     // The engine's registry, with each provider's on/off state.
     readonly property var providers: Engine.providers
 
+    // What the Providers tab is narrowed to. Every word must appear in the
+    // name or the id, so "cl co" finds Claude Code.
+    property string providerSearch: ""
+    readonly property bool searchingProviders: providerSearch.trim().length > 0
+    readonly property var shownProviders: providers.filter(p => providerMatches(p, providerSearch))
+    // Whether the providers not found here are listed while nothing is searched.
+    property bool showOtherProviders: false
+
+    function providerMatches(p, query) {
+        const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 0)
+        if (words.length === 0) return true
+        const hay = (p.name + " " + p.id.replace(/[_-]/g, " ")).toLowerCase()
+        return words.every(w => hay.indexOf(w) >= 0)
+    }
+
     function providerEnabled(id) {
         const list = Engine.providers
         for (let i = 0; i < list.length; ++i) {
@@ -77,7 +92,12 @@ Window {
             return { kind: "error", text: "Unavailable", detail: r.message || "" }
         if (!r.windows || r.windows.length === 0)
             return { kind: "pending", text: "No limits", detail: "This provider reports no usage limits" }
-        const w = r.windows[0]
+        let best = 0
+        for (let i = 1; i < r.windows.length; ++i) {
+            if ((Number(r.windows[i].used_pct) || 0) > (Number(r.windows[best].used_pct) || 0))
+                best = i
+        }
+        const w = r.windows[best]
         const pct = Math.round(w.used_pct || 0)
         const lines = []
         for (let i = 0; i < r.windows.length; ++i) {
@@ -963,8 +983,8 @@ Window {
         Column {
             anchors.left: glyph.right
             anchors.leftMargin: 14
-            anchors.right: toggle.left
-            anchors.rightMargin: 16
+            anchors.right: star.left
+            anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             spacing: 7
 
@@ -1025,6 +1045,47 @@ Window {
                 }
             }
         }
+        // Starred providers lead the list, and the notch prefers them.
+        Item {
+            id: star
+            anchors.right: toggle.left
+            anchors.rightMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            width: 28
+            height: 28
+            activeFocusOnTab: true
+
+            Accessible.role: Accessible.CheckBox
+            Accessible.name: "Favorite " + card.modelData.name
+            Accessible.checked: card.modelData.favorite
+            Accessible.onPressAction: star.toggle()
+
+            function toggle() { Engine.setFavorite(card.modelData.id, !card.modelData.favorite) }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 8
+                color: starHover.hovered ? Theme.panelHover : "transparent"
+                border.width: star.activeFocus ? 2 : 0
+                border.color: Theme.accent
+            }
+            SettingsIcon {
+                anchors.centerIn: parent
+                width: 16
+                height: 16
+                name: "star"
+                color: card.modelData.favorite ? "#F5C542" : starHover.hovered ? Theme.textSecondary : Theme.textTertiary
+                filled: card.modelData.favorite
+            }
+            HoverHandler { id: starHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: star.toggle() }
+            Keys.onReturnPressed: toggle()
+            Keys.onSpacePressed: toggle()
+            SettingsToolTip {
+                visible: starHover.hovered
+                text: card.modelData.favorite ? "Remove from favorites" : "Add to favorites"
+            }
+        }
         SettingsToggle {
             id: toggle
             anchors.right: parent.right
@@ -1034,6 +1095,168 @@ Window {
             accessibleName: card.modelData.name
             onToggled: (checked) => Engine.setProviderEnabled(card.modelData.id, checked)
         }
+    }
+
+    // A titled group of provider cards, two to a row; empty groups vanish.
+    component ProviderGroup: Column {
+        id: section
+        property string group: ""
+        property string heading: ""
+        // Folded while nothing is searched and another group has cards, so
+        // a long tail of tools that are not here does not bury those that are.
+        property bool foldable: false
+        readonly property var members: root.shownProviders.filter(p => p.group === section.group)
+        readonly property bool canFold: foldable && !root.searchingProviders
+                                        && root.shownProviders.length > members.length
+        readonly property bool folded: canFold && !root.showOtherProviders
+
+        visible: root.tab === "providers" && members.length > 0
+        width: parent.width
+        spacing: 8
+
+        Item {
+            width: parent.width
+            height: Math.max(headingText.implicitHeight, foldButton.visible ? foldButton.height : 0)
+
+            Text {
+                id: headingText
+                anchors.verticalCenter: parent.verticalCenter
+                text: section.heading.toUpperCase() + "  ·  " + section.members.length
+                color: Theme.textTertiary
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.8
+            }
+            Rectangle {
+                id: foldButton
+                visible: section.canFold
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: foldLabel.implicitWidth + 20
+                height: 24
+                radius: 7
+                color: foldHover.hovered ? Theme.panelHover : "transparent"
+                activeFocusOnTab: true
+
+                Accessible.role: Accessible.Button
+                Accessible.name: foldLabel.text
+                Accessible.onPressAction: toggle()
+
+                function toggle() { root.showOtherProviders = !root.showOtherProviders }
+
+                Text {
+                    id: foldLabel
+                    anchors.centerIn: parent
+                    text: section.folded ? "Show " + section.members.length : "Hide"
+                    color: Theme.textSecondary
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                }
+                HoverHandler { id: foldHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: foldButton.toggle() }
+                Keys.onReturnPressed: toggle()
+                Keys.onEnterPressed: toggle()
+                Keys.onSpacePressed: toggle()
+                FocusRing { target: foldButton }
+            }
+        }
+        Grid {
+            id: grid
+            visible: !section.folded
+            width: parent.width
+            columns: 2
+            columnSpacing: 10
+            rowSpacing: 10
+
+            Repeater {
+                model: section.folded ? [] : section.members
+                delegate: ProviderCard {
+                    width: (grid.width - grid.columnSpacing) / 2
+                }
+            }
+        }
+    }
+
+    // Narrows the Providers tab: a magnifier, the words, and a cross to clear
+    // them. Escape clears too, and Ctrl+F comes back here.
+    component ProviderSearch: Rectangle {
+        id: box
+        property alias input: searchInput
+
+        height: 38
+        radius: 10
+        color: Theme.panelRaised
+        border.width: searchInput.activeFocus ? 2 : 1
+        border.color: searchInput.activeFocus ? Theme.text : Theme.cardStroke
+
+        SettingsIcon {
+            id: searchIcon
+            x: 12
+            anchors.verticalCenter: parent.verticalCenter
+            width: 15
+            height: 15
+            name: "search"
+            color: root.searchingProviders ? Theme.text : Theme.textTertiary
+        }
+        TextInput {
+            id: searchInput
+            anchors.left: searchIcon.right
+            anchors.leftMargin: 8
+            anchors.right: clearSearch.visible ? clearSearch.left : parent.right
+            anchors.rightMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.providerSearch
+            onTextEdited: root.providerSearch = text
+            color: Theme.text
+            selectionColor: Theme.textTertiary
+            selectByMouse: true
+            clip: true
+            activeFocusOnTab: true
+            font.pixelSize: 13
+            Keys.onEscapePressed: (event) => {
+                event.accepted = root.providerSearch.length > 0
+                root.providerSearch = ""
+            }
+            Accessible.role: Accessible.EditableText
+            Accessible.name: "Search providers"
+            Accessible.focusable: true
+
+            Text {
+                visible: searchInput.text.length === 0
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Search " + root.providers.length + " providers"
+                color: Theme.textTertiary
+                font.pixelSize: 13
+            }
+        }
+        Item {
+            id: clearSearch
+            visible: root.providerSearch.length > 0
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            width: 22
+            height: 22
+            activeFocusOnTab: true
+            Keys.onReturnPressed: (event) => { root.providerSearch = ""; event.accepted = true }
+            Keys.onEnterPressed: (event) => { root.providerSearch = ""; event.accepted = true }
+            Keys.onSpacePressed: (event) => { root.providerSearch = ""; event.accepted = true }
+            Accessible.role: Accessible.Button
+            Accessible.name: "Clear the search"
+            Accessible.focusable: true
+            HoverHandler { cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: root.providerSearch = "" }
+            SettingsIcon {
+                anchors.centerIn: parent
+                width: 12
+                height: 12
+                name: "x"
+                color: Theme.textTertiary
+            }
+            FocusRing { target: clearSearch }
+        }
+        HoverHandler { cursorShape: Qt.IBeamCursor }
+        TapHandler { onTapped: searchInput.forceActiveFocus() }
     }
 
     // ---- Sidebar ----
@@ -1513,18 +1736,117 @@ Window {
             }
 
             // Providers
-            Grid {
-                id: providerGrid
+            ProviderSearch {
+                id: providerSearchBox
                 visible: root.tab === "providers"
                 width: parent.width
-                columns: 2
-                columnSpacing: 10
-                rowSpacing: 10
+            }
+            Shortcut {
+                sequence: StandardKey.Find
+                enabled: root.tab === "providers"
+                onActivated: {
+                    providerSearchBox.input.forceActiveFocus()
+                    providerSearchBox.input.selectAll()
+                }
+            }
+            Text {
+                visible: root.tab === "providers" && root.searchingProviders
+                         && root.shownProviders.length === 0
+                width: parent.width
+                topPadding: 8
+                text: "No provider matches \u201C" + root.providerSearch.trim() + "\u201D"
+                color: Theme.textSecondary
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+            ProviderGroup { group: "favorites"; heading: "Favorites" }
+            ProviderGroup { group: "detected"; heading: "On this computer" }
+            ProviderGroup { group: "other"; heading: "Not found on this computer"; foldable: true }
+            Card {
+                visible: root.tab === "providers" && !root.searchingProviders
+                         && Engine.notchProviders.length > 1
+                heading: "Order in the notch"
 
+                Item {
+                    width: parent.width
+                    height: 24
+                    Text {
+                        width: parent.width
+                        text: "The rings follow this order. Starred providers are shown before idle ones."
+                        color: Theme.textSecondary
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
                 Repeater {
-                    model: root.providers
-                    delegate: ProviderCard {
-                        width: (providerGrid.width - providerGrid.columnSpacing) / 2
+                    model: Engine.notchProviders
+                    delegate: Item {
+                        id: orderRow
+                        required property var modelData
+                        required property int index
+
+                        width: parent.width
+                        height: 40
+
+                        Rectangle {
+                            visible: orderRow.index > 0
+                            width: parent.width
+                            height: 1
+                            color: Theme.hairline
+                        }
+                        Text {
+                            id: orderNumber
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 22
+                            text: orderRow.index + 1
+                            color: Theme.textTertiary
+                            font.pixelSize: 12
+                            font.family: "monospace"
+                        }
+                        ProviderGlyph {
+                            id: orderGlyph
+                            anchors.left: orderNumber.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 18
+                            height: 18
+                            provider: orderRow.modelData.id
+                            color: Theme.text
+                        }
+                        Text {
+                            anchors.left: orderGlyph.right
+                            anchors.leftMargin: 12
+                            anchors.right: moveUp.left
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: orderRow.modelData.name
+                            color: Theme.text
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
+                        SettingsButton {
+                            id: moveUp
+                            anchors.right: moveDown.left
+                            anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 28
+                            implicitHeight: 28
+                            height: 28
+                            icon: "chevron-up"
+                            tip: "Move " + orderRow.modelData.name + " earlier"
+                            enabled_: orderRow.index > 0
+                            onClicked: Engine.moveInNotch(orderRow.modelData.id, -1)
+                        }
+                        SettingsButton {
+                            id: moveDown
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 28
+                            height: 28
+                            icon: "chevron-down"
+                            tip: "Move " + orderRow.modelData.name + " later"
+                            enabled_: orderRow.index < Engine.notchProviders.length - 1
+                            onClicked: Engine.moveInNotch(orderRow.modelData.id, 1)
+                        }
                     }
                 }
             }

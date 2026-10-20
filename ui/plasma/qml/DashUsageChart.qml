@@ -113,7 +113,7 @@ Item {
                     x: root.gap / 2
                     width: parent.width - root.gap
                     opacity: col.dimmed ? 0.45 : 1
-                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.motion(Theme.motionHover) } }
 
                     Repeater {
                         model: root.topDown
@@ -125,7 +125,7 @@ Item {
                             height: root.axisMax > 0 ? Math.round(plot.height * v / root.axisMax) : 0
                             visible: height > 0
                             color: kind.color
-                            Behavior on height { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
+                            Behavior on height { NumberAnimation { duration: Theme.motion(Theme.motionFill); easing.type: Easing.Bezier; easing.bezierCurve: Theme.motionCurve } }
                         }
                     }
                 }

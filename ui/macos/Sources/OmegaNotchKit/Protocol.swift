@@ -16,6 +16,17 @@ public enum SessionKind: String, Codable, Sendable {
 public struct ProviderInfo: Codable, Equatable, Sendable, Identifiable {
   public var id: String
   public var displayName: String
+  /// The tool left something on this machine; an engine without the field
+  /// found everything.
+  public var detected: Bool?
+
+  public init(id: String, displayName: String, detected: Bool? = nil) {
+    self.id = id
+    self.displayName = displayName
+    self.detected = detected
+  }
+
+  public var isDetected: Bool { detected ?? true }
 }
 
 public struct UsageWindow: Codable, Equatable, Sendable {
@@ -36,7 +47,13 @@ public struct UsageReading: Codable, Equatable, Sendable, Identifiable {
   public var id: String { provider }
   /// Something to draw: a limit, from a reading that is current or merely old.
   public var hasData: Bool { !windows.isEmpty && (status == "ok" || status == "stale") }
-  public var headlinePct: Double { hasData ? windows[0].usedPct : 0 }
+  /// The window that will stop you first (highest used share).
+  public var tightestWindow: UsageWindow? {
+    guard hasData else { return nil }
+    return windows.max { a, b in a.usedPct < b.usedPct }
+  }
+  /// Share used on the tightest window.
+  public var headlinePct: Double { tightestWindow?.usedPct ?? 0 }
 }
 
 public struct SessionState: Codable, Equatable, Sendable {

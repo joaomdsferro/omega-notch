@@ -36,11 +36,16 @@ final class ProtocolTests: XCTestCase {
 
     XCTAssertEqual(providers.first?.id, "claude_code")
     XCTAssertEqual(providers.first?.displayName, "Claude Code")
+    XCTAssertEqual(providers.first?.isDetected, true)
+    // An engine from before `detected` found everything.
+    let old = try ServerMessage.decoder.decode(
+      ProviderInfo.self, from: Data(#"{"id":"codex","display_name":"Codex"}"#.utf8))
+    XCTAssertTrue(old.isDetected)
 
     let reading = try XCTUnwrap(readings.first)
     XCTAssertEqual(reading.provider, "claude_code")
     XCTAssertEqual(reading.windows.count, 2)
-    XCTAssertEqual(reading.headlinePct, 45)
+    XCTAssertEqual(reading.headlinePct, 55.5)
     XCTAssertNotNil(reading.windows[0].resetsAt)
     XCTAssertNil(reading.windows[1].resetsAt)
 

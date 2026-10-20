@@ -183,12 +183,17 @@ pub fn opencode_db() -> PathBuf {
     opencode_dir().join("opencode.db")
 }
 
-/// Kimi Code CLI's OAuth session. `KIMI_CODE_HOME` moves the whole data root.
-pub fn kimi_credentials() -> PathBuf {
+/// Kimi Code CLI's data root; `KIMI_CODE_HOME` moves it.
+pub fn kimi_home() -> PathBuf {
     if let Some(root) = std::env::var_os("KIMI_CODE_HOME").filter(|p| !p.is_empty()) {
-        return PathBuf::from(root).join("credentials/kimi-code.json");
+        return PathBuf::from(root);
     }
-    home().join(".kimi-code/credentials/kimi-code.json")
+    home().join(".kimi-code")
+}
+
+/// Kimi Code CLI's OAuth session.
+pub fn kimi_credentials() -> PathBuf {
+    kimi_home().join("credentials/kimi-code.json")
 }
 
 /// Grok CLI's session: the access token, and the refresh token and client id

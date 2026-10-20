@@ -57,7 +57,7 @@ async fn serve() -> anyhow::Result<()> {
     paths::create_private_dir(&paths::app_data_dir())?;
     std::fs::create_dir_all(paths::app_data_dir().join("hooks"))?;
 
-    let config = AppConfig::load();
+    let config = AppConfig::load_settled();
     let store = UsageStore::new(config);
     store.clone().spawn_background();
 

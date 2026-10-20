@@ -1,11 +1,17 @@
 #include "engineclient.h"
 
+#include <algorithm>
+#include <climits>
+
 #include <QRegularExpression>
 #include <QUuid>
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QJsonDocument>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QDebug>
 #include <QRegion>
@@ -65,6 +71,26 @@ static bool isHexColor(const QString &color)
     return hex.match(color).hasMatch();
 }
 
+static QStringList stringList(const QJsonValue &value)
+{
+    QStringList out;
+    for (const QJsonValue &item : value.toArray()) {
+        const QString text = item.toString();
+        if (!text.isEmpty() && !out.contains(text)) {
+            out.append(text);
+        }
+    }
+    return out;
+}
+
+// The providers most people reach for; they lead their group. An account of
+// one (`claude_code-work`) goes with its base.
+static int popularRank(const QString &id)
+{
+    static const QStringList popular = {QStringLiteral("claude_code"), QStringLiteral("codex")};
+    return popular.indexOf(id.section(QLatin1Char('-'), 0, 0));
+}
+
 // The themes the app can paint with; the first is the default. The same
 // names live in the engine's config and in Theme.qml.
 static const QStringList &themeNames()
@@ -104,8 +130,43 @@ EngineClient::EngineClient(QObject *parent)
     connect(qGuiApp, &QGuiApplication::screenRemoved, this, &EngineClient::screensChanged);
     connect(qGuiApp, &QGuiApplication::primaryScreenChanged, this, &EngineClient::screensChanged);
 
+    // Follow the desktop's motion setting: KDE writes it to kdeglobals, and a
+    // new value should reach the dashboard without a restart.
+    const QString configDir = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    const QString globals = configDir + QStringLiteral("/kdeglobals");
+    auto *motionWatch = new QFileSystemWatcher(this);
+    if (QFileInfo::exists(globals)) {
+        motionWatch->addPath(globals);
+    }
+    motionWatch->addPath(configDir);
+    const auto rereadMotion = [this, motionWatch, globals]() {
+        // A file replaced by an editor leaves the watcher's list.
+        if (!motionWatch->files().contains(globals) && QFileInfo::exists(globals)) {
+            motionWatch->addPath(globals);
+        }
+        readReducedMotion();
+    };
+    connect(motionWatch, &QFileSystemWatcher::fileChanged, this, rereadMotion);
+    connect(motionWatch, &QFileSystemWatcher::directoryChanged, this, rereadMotion);
+    readReducedMotion();
+
     tryConnect();
     m_reconnect.start();
+}
+
+void EngineClient::readReducedMotion()
+{
+    const QString path = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                         + QStringLiteral("/kdeglobals");
+    QSettings settings(path, QSettings::IniFormat);
+    bool reduced = settings.value(QStringLiteral("KDE/AnimationDurationFactor"), 1.0).toDouble() <= 0.0;
+    if (qEnvironmentVariableIsSet("OMEGA_NOTCH_REDUCED_MOTION")) {
+        reduced = qEnvironmentVariableIntValue("OMEGA_NOTCH_REDUCED_MOTION") != 0;
+    }
+    if (reduced != m_reducedMotion) {
+        m_reducedMotion = reduced;
+        emit reducedMotionChanged();
+    }
 }
 
 QString EngineClient::socketPath() const
@@ -140,6 +201,10 @@ void EngineClient::onConnected()
         {QStringLiteral("version"), 1},
     });
     sendJson(QJsonObject{{QStringLiteral("type"), QStringLiteral("subscribe")}});
+    // The page asked while the engine was away; ask again now that it is here.
+    if (!m_dashboardError.isEmpty()) {
+        requestDashboard(m_dashboardDays);
+    }
 }
 
 void EngineClient::onDisconnected()
@@ -149,6 +214,11 @@ void EngineClient::onDisconnected()
         emit connectedChanged();
     }
     // The answer would come on this connection; it will not now.
+    if (m_dashboardLoading) {
+        m_dashboardLoading = false;
+        m_dashboardError = QStringLiteral("The engine stopped before the numbers arrived.");
+        emit dashboardChanged();
+    }
     if (m_analysis.value(QStringLiteral("state")) == QLatin1String("running")) {
         m_analysis.insert(QStringLiteral("state"), QStringLiteral("failed"));
         m_analysis.insert(QStringLiteral("text"), QStringLiteral("Lost the engine before Claude answered. Ask again."));
@@ -295,6 +365,7 @@ void EngineClient::applyDashboard(const QJsonObject &obj)
     m_dashboardBots = obj.value(QStringLiteral("bots")).toArray().toVariantList();
     m_dashboardTotalUsd = obj.value(QStringLiteral("total_usd")).toDouble(0.0);
     m_dashboardLoading = false;
+    m_dashboardError.clear();
     emit dashboardChanged();
 }
 
@@ -361,6 +432,8 @@ void EngineClient::applyConfig(const QJsonObject &config)
     m_theme = knownTheme(config.value(QStringLiteral("theme")).toString());
 
     m_providerStates = config.value(QStringLiteral("providers")).toObject();
+    m_favorites = stringList(config.value(QStringLiteral("favorites")));
+    m_notchOrder = stringList(config.value(QStringLiteral("notch_order")));
 
     const QJsonObject alerts = config.value(QStringLiteral("alerts")).toObject();
     m_alertsEnabled = alerts.value(QStringLiteral("enabled")).toBool(true);
@@ -417,6 +490,17 @@ void EngineClient::requestDashboard(int days)
         clearAnalysis();
     }
     m_dashboardDays = bounded;
+    // Without a connection the request would be dropped in silence and the
+    // page would keep saying "Loading…" forever; say why instead.
+    if (!m_connected) {
+        m_dashboardLoading = false;
+        m_dashboardError = QStringLiteral("The engine is not running, so there are no numbers to show.");
+        emit dashboardChanged();
+        return;
+    }
+    if (!m_dashboardError.isEmpty()) {
+        m_dashboardError.clear();
+    }
     // The numbers are on their way: the page says so instead of pretending
     // there is nothing to show.
     if (!m_dashboardLoading) {
@@ -570,6 +654,8 @@ void EngineClient::pushConfig()
             {QStringLiteral("dashboard_colors"), QJsonArray::fromStringList(m_dashboardColors)},
             {QStringLiteral("theme"), m_theme},
             {QStringLiteral("providers"), m_providerStates},
+            {QStringLiteral("favorites"), QJsonArray::fromStringList(m_favorites)},
+            {QStringLiteral("notch_order"), QJsonArray::fromStringList(m_notchOrder)},
             {QStringLiteral("alerts"),
              QJsonObject{
                  {QStringLiteral("enabled"), m_alertsEnabled},
@@ -608,6 +694,8 @@ void EngineClient::pushConfig()
         m_rawConfig.insert(QStringLiteral("dashboard_colors"), QJsonArray::fromStringList(m_dashboardColors));
         m_rawConfig.insert(QStringLiteral("theme"), m_theme);
         m_rawConfig.insert(QStringLiteral("providers"), m_providerStates);
+        m_rawConfig.insert(QStringLiteral("favorites"), QJsonArray::fromStringList(m_favorites));
+        m_rawConfig.insert(QStringLiteral("notch_order"), QJsonArray::fromStringList(m_notchOrder));
         QJsonObject alerts = m_rawConfig.value(QStringLiteral("alerts")).toObject();
         alerts.insert(QStringLiteral("enabled"), m_alertsEnabled);
         alerts.insert(QStringLiteral("sound"), m_soundEnabled);
@@ -838,9 +926,39 @@ QVariantList EngineClient::providers() const
         map.insert(QStringLiteral("name"), map.value(QStringLiteral("display_name")));
         map.remove(QStringLiteral("display_name"));
         map.insert(QStringLiteral("enabled"), m_providerStates.value(id).toBool(true));
+        const bool favorite = m_favorites.contains(id);
+        // An engine that does not say found everything.
+        const bool detected = map.value(QStringLiteral("detected"), true).toBool();
+        map.insert(QStringLiteral("favorite"), favorite);
+        map.insert(QStringLiteral("detected"), detected);
+        map.insert(QStringLiteral("group"), favorite ? QStringLiteral("favorites")
+                                            : detected ? QStringLiteral("detected")
+                                                       : QStringLiteral("other"));
         list.append(map);
     }
     if (!list.isEmpty()) {
+        // Popular ones lead their group in their own order; the rest go A to Z.
+        std::stable_sort(list.begin(), list.end(), [](const QVariant &a, const QVariant &b) {
+            const QVariantMap x = a.toMap(), y = b.toMap();
+            const auto rank = [](const QVariantMap &m) {
+                const QString group = m.value(QStringLiteral("group")).toString();
+                return group == QLatin1String("favorites") ? 0 : group == QLatin1String("detected") ? 1 : 2;
+            };
+            if (rank(x) != rank(y)) {
+                return rank(x) < rank(y);
+            }
+            const QString xi = x.value(QStringLiteral("id")).toString();
+            const QString yi = y.value(QStringLiteral("id")).toString();
+            const auto popular = [](const QString &id) {
+                const int r = popularRank(id);
+                return r < 0 ? INT_MAX : r;
+            };
+            if (popular(xi) != popular(yi)) {
+                return popular(xi) < popular(yi);
+            }
+            return QString::compare(x.value(QStringLiteral("name")).toString(),
+                                    y.value(QStringLiteral("name")).toString(), Qt::CaseInsensitive) < 0;
+        });
         return list;
     }
     // An engine old enough not to announce its registry: the config still
@@ -850,6 +968,8 @@ QVariantList EngineClient::providers() const
             {QStringLiteral("id"), it.key()},
             {QStringLiteral("name"), displayName(it.key())},
             {QStringLiteral("enabled"), it.value().toBool(true)},
+            {QStringLiteral("detected"), true},
+            {QStringLiteral("group"), QStringLiteral("detected")},
         });
     }
     return list;
@@ -858,6 +978,59 @@ QVariantList EngineClient::providers() const
 bool EngineClient::providerEnabled(const QString &id) const
 {
     return m_providerStates.value(id).toBool(true);
+}
+
+QVariantList EngineClient::notchProviders() const
+{
+    // The registry's own order, then the user's on top of it.
+    QVariantList all;
+    for (const QVariant &entry : m_providerCatalog) {
+        const QVariantMap map = entry.toMap();
+        const QString id = map.value(QStringLiteral("id")).toString();
+        if (!id.isEmpty() && m_providerStates.value(id).toBool(true)) {
+            all.append(QVariantMap{{QStringLiteral("id"), id},
+                                   {QStringLiteral("name"), map.value(QStringLiteral("display_name"))}});
+        }
+    }
+    const auto place = [this](const QVariant &item) {
+        const int at = m_notchOrder.indexOf(item.toMap().value(QStringLiteral("id")).toString());
+        return at < 0 ? int(m_notchOrder.size()) : at;
+    };
+    std::stable_sort(all.begin(), all.end(), [&place](const QVariant &a, const QVariant &b) {
+        return place(a) < place(b);
+    });
+    return all;
+}
+
+void EngineClient::setFavorite(const QString &id, bool favorite)
+{
+    if (id.isEmpty() || m_favorites.contains(id) == favorite) {
+        return;
+    }
+    if (favorite) {
+        m_favorites.append(id);
+    } else {
+        m_favorites.removeAll(id);
+    }
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::moveInNotch(const QString &id, int by)
+{
+    QStringList order;
+    for (const QVariant &item : notchProviders()) {
+        order.append(item.toMap().value(QStringLiteral("id")).toString());
+    }
+    const int from = order.indexOf(id);
+    const int to = qBound(0, from + by, int(order.size()) - 1);
+    if (from < 0 || to == from) {
+        return;
+    }
+    order.move(from, to);
+    m_notchOrder = order;
+    emit configChanged();
+    pushConfig();
 }
 
 void EngineClient::setAlertsEnabled(bool enabled)

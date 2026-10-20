@@ -34,11 +34,17 @@ Rectangle {
                 height: parent.height
                 radius: 7
                 color: chosen ? Theme.controlChosen : segHover.hovered ? Theme.controlHover : "transparent"
-                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on color { ColorAnimation { duration: Theme.motion(Theme.motionHover) } }
+
+                activeFocusOnTab: true
+                Keys.onReturnPressed: (event) => { root.picked(seg.modelData.value); event.accepted = true }
+                Keys.onEnterPressed: (event) => { root.picked(seg.modelData.value); event.accepted = true }
+                Keys.onSpacePressed: (event) => { root.picked(seg.modelData.value); event.accepted = true }
 
                 Accessible.role: Accessible.RadioButton
                 Accessible.name: modelData.label
                 Accessible.checked: chosen
+                Accessible.focusable: true
 
                 Row {
                     anchors.centerIn: parent
@@ -68,6 +74,7 @@ Rectangle {
                 TapHandler {
                     onTapped: root.picked(seg.modelData.value)
                 }
+                FocusRing { target: seg }
             }
         }
     }

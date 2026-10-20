@@ -136,6 +136,48 @@ enum Theme {
     preset == "small" ? 0.86 : preset == "large" ? 1.18 : 1.0
   }
 
+  // MARK: Type
+
+  /// The scale from DESIGN.md, the same steps as Theme.qml.
+  static let typeBigNumber: CGFloat = 26
+  static let typePageTitle: CGFloat = 26
+  static let typeSectionTitle: CGFloat = 15
+  static let typeCardTitle: CGFloat = 14
+  static let typeBody: CGFloat = 13
+  static let typeLabel: CGFloat = 12
+  static let typeCaption: CGFloat = 11.5
+  static let typeMicro: CGFloat = 10.5
+  static let typeWeightRegular: Int = 400
+  static let typeWeightMedium: Int = 500
+  static let typeWeightSemibold: Int = 600
+  static let typeMicroTracking: Double = 0.06
+
+  /// A numeric weight token as SwiftUI's weight.
+  static func weight(_ value: Int) -> Font.Weight {
+    switch value {
+    case 500: .medium
+    case 600: .semibold
+    default: .regular
+    }
+  }
+
+  // MARK: Motion
+
+  /// Durations in milliseconds, the same steps as Theme.qml (DESIGN.md).
+  static let motionHover: Double = 120
+  static let motionState: Double = 180
+  static let motionEnter: Double = 240
+  static let motionFill: Double = 420
+  static let motionBreath: Double = 1400
+  /// One curve, out-cubic, in both shells: cubic-bezier(.22, .61, .36, 1).
+  static let motionCurve: [Double] = [0.22, 0.61, 0.36, 1]
+
+  /// An animation at one of the shared durations, on the shared curve.
+  static func motionAnimation(_ ms: Double) -> Animation {
+    .timingCurve(
+      motionCurve[0], motionCurve[1], motionCurve[2], motionCurve[3], duration: ms / 1000)
+  }
+
   static func usageColor(_ pct: Double) -> Color {
     switch Format.level(pct) {
     case .critical: critical
@@ -234,6 +276,11 @@ extension Font {
   static func notch(_ size: CGFloat, _ weight: Font.Weight = .regular, tabular: Bool = false) -> Font {
     let font = Font.system(size: size, weight: weight)
     return tabular ? font.monospacedDigit() : font
+  }
+
+  /// The same, with one of Theme's numeric weight tokens.
+  static func notch(_ size: CGFloat, _ weight: Int, tabular: Bool = false) -> Font {
+    notch(size, Theme.weight(weight), tabular: tabular)
   }
 }
 

@@ -12,6 +12,8 @@ Item {
     property color color: Theme.text
     // In grid units, so it scales with the icon: 2 is about 1.5px at 18px.
     property real strokeWidth: 2
+    // Fills an outline icon, as a starred star is.
+    property bool filled: false
 
     implicitWidth: 18
     implicitHeight: 18
@@ -83,6 +85,8 @@ Item {
             return [circle(12, 12, 10) + "M12 16v-4M12 8h.01", false]
         case "chevron-down":
             return ["M6 9l6 6 6-6", false]
+        case "chevron-up":
+            return ["M6 15l6-6 6 6", false]
         case "activity":
             return ["M22 12h-4l-3 9L9 3l-3 9H2", false]
         case "check":
@@ -106,7 +110,7 @@ Item {
         preferredRendererType: Shape.CurveRenderer
 
         ShapePath {
-            fillColor: root.glyph[1] ? root.color : "transparent"
+            fillColor: root.glyph[1] || root.filled ? root.color : "transparent"
             strokeColor: root.glyph[1] ? "transparent" : root.color
             strokeWidth: root.strokeWidth
             capStyle: ShapePath.RoundCap

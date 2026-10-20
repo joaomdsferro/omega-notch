@@ -44,7 +44,7 @@ Item {
 
     height: 56 + (expanded ? details.implicitHeight + 14 : 0)
     clip: true
-    Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+    Behavior on height { NumberAnimation { duration: Theme.motion(Theme.motionState); easing.type: Easing.Bezier; easing.bezierCurve: Theme.motionCurve } }
 
     component Cell: Text {
         horizontalAlignment: Text.AlignRight
@@ -60,7 +60,7 @@ Item {
         radius: 8
         color: Theme.panelHover
         opacity: rowHover.hovered || root.expanded ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.motion(Theme.motionHover) } }
     }
     Rectangle {
         width: parent.width
@@ -76,12 +76,18 @@ Item {
 
         Accessible.role: Accessible.Button
         Accessible.name: (root.session ? root.session.title : "") + (root.expanded ? ". Hide its models" : ". Show its models")
+        Accessible.focusable: true
+        activeFocusOnTab: true
+        Keys.onReturnPressed: (event) => { root.toggled(); event.accepted = true }
+        Keys.onEnterPressed: (event) => { root.toggled(); event.accepted = true }
+        Keys.onSpacePressed: (event) => { root.toggled(); event.accepted = true }
 
         HoverHandler {
             id: rowHover
             cursorShape: Qt.PointingHandCursor
         }
         TapHandler { onTapped: root.toggled() }
+        FocusRing { target: summary }
 
         Rectangle {
             id: tile
@@ -272,9 +278,14 @@ Item {
                 height: 28
                 radius: 7
                 color: openHover.hovered ? Theme.controlChosen : Theme.controlFill
-                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on color { ColorAnimation { duration: Theme.motion(Theme.motionHover) } }
+                activeFocusOnTab: true
+                Keys.onReturnPressed: (event) => { if (root.session) root.openRequested(); event.accepted = true }
+                Keys.onEnterPressed: (event) => { if (root.session) root.openRequested(); event.accepted = true }
+                Keys.onSpacePressed: (event) => { if (root.session) root.openRequested(); event.accepted = true }
                 Accessible.role: Accessible.Button
                 Accessible.name: "Open chat"
+                Accessible.focusable: true
                 Text {
                     id: openText
                     anchors.centerIn: parent
@@ -288,8 +299,10 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                 }
                 TapHandler { onTapped: if (root.session) root.openRequested() }
+                FocusRing { target: openButton }
             }
             Rectangle {
+                id: focusButton
                 visible: root.focusable
                 anchors.right: openButton.left
                 anchors.rightMargin: 8
@@ -298,9 +311,14 @@ Item {
                 height: 28
                 radius: 7
                 color: focusHover.hovered ? Theme.controlChosen : Theme.controlFill
-                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on color { ColorAnimation { duration: Theme.motion(Theme.motionHover) } }
+                activeFocusOnTab: true
+                Keys.onReturnPressed: (event) => { if (root.session) root.focusRequested(); event.accepted = true }
+                Keys.onEnterPressed: (event) => { if (root.session) root.focusRequested(); event.accepted = true }
+                Keys.onSpacePressed: (event) => { if (root.session) root.focusRequested(); event.accepted = true }
                 Accessible.role: Accessible.Button
                 Accessible.name: "Only this chat"
+                Accessible.focusable: true
                 Text {
                     id: focusText
                     anchors.centerIn: parent
@@ -314,6 +332,7 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                 }
                 TapHandler { onTapped: if (root.session) root.focusRequested() }
+                FocusRing { target: focusButton }
             }
         }
     }

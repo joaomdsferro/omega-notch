@@ -71,8 +71,8 @@ final class NotchModel {
   var s: CGFloat { Theme.scale(for: config.size) }
   var notchColor: String { config.notchColor }
 
-  var cellWidth: CGFloat { 48 * s }
-  var cellHeight: CGFloat { 67 * s }  // ring + gap + label
+  var cellWidth: CGFloat { 56 * s }   // room for tagged dual chip
+  var cellHeight: CGFloat { 72 * s }  // ring + gap + chip / %
   var cellAlong: CGFloat { vertical ? cellHeight : cellWidth }
   var cellSpacing: CGFloat { (vertical ? 20 : 22) * s }
   var padStart: CGFloat { (vertical ? 24 : 26) * s }

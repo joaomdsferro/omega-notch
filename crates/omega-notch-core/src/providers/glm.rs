@@ -70,6 +70,12 @@ impl GlmProvider {
     }
 }
 
+/// GLM has no tool of its own to find: it is here when a coding tool holds
+/// its key.
+pub(super) fn detected() -> bool {
+    load_credentials(&paths::claude_settings(), &paths::opencode_auth()).is_ok()
+}
+
 /// The GLM key is never held by this app: it rides on a coding tool that the
 /// user already set up. `~/.claude/settings.json` first, then opencode's
 /// sign-in. ZCode's encrypted store is not read here.

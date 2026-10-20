@@ -18,6 +18,10 @@ struct SettingsView: View {
   /// The dashboard series being recoloured.
   @State private var series = 0
   @State private var windowsAllowed = WindowRaiser.trusted
+  /// What the Providers tab is narrowed to.
+  @State private var providerQuery = ""
+  /// Whether the providers not found here are listed while nothing is searched.
+  @State private var showOtherProviders = false
   @AppStorage(WindowRaiser.pickTabKey) private var pickTab = false
   private let updater = Updater.shared
 
@@ -50,10 +54,21 @@ struct SettingsView: View {
     ("opencode", "OpenCode"),
   ]
 
-  private var providerList: [(String, String)] {
+  private var providerList: [ProviderInfo] {
     let announced = client.providers
-    if announced.isEmpty { return Self.fallbackProviders }
-    return announced.map { ($0.id, $0.displayName) }
+    if announced.isEmpty {
+      return Self.fallbackProviders.map { ProviderInfo(id: $0.0, displayName: $0.1, detected: true) }
+    }
+    return announced
+  }
+
+  /// Every word must appear in the name or the id, so "cl co" finds Claude Code.
+  static func providerMatches(_ provider: ProviderInfo, _ query: String) -> Bool {
+    let words = query.lowercased().split(whereSeparator: \.isWhitespace)
+    if words.isEmpty { return true }
+    let hay = (provider.displayName + " " + provider.id.replacingOccurrences(of: "_", with: " ")
+      .replacingOccurrences(of: "-", with: " ")).lowercased()
+    return words.allSatisfy { hay.contains($0) }
   }
 
   private var config: NotchConfig { client.config }
@@ -311,23 +326,55 @@ struct SettingsView: View {
     if reading.status == "needs_auth" || reading.status == "error" {
       return reading.message ?? "Unavailable"
     }
-    guard let window = reading.windows.first else { return "No limits reported" }
+    guard let window = reading.tightestWindow else { return "No limits reported" }
     return "\(Int(window.usedPct.rounded()))% of \(window.label.isEmpty ? "usage" : window.label.lowercased())"
       + (reading.status == "stale" ? " · stale" : "")
   }
 
-  private var providers: some View {
-    SettingsSection(heading: "Providers") {
-      ForEach(providerList, id: \.0) { id, name in
-        let enabled = config.providerEnabled(id)
-        SettingsSwitch(
-          title: name, subtitle: summary(id, enabled: enabled), provider: id,
-          subtitleIsError: enabled && client.readings.first { $0.provider == id }?.status == "error",
-          isOn: enabled
-        ) { on in update { $0.setProvider(id, enabled: on) } }
-      }
-      CopilotSignIn(client: client)
+  @ViewBuilder private var providers: some View {
+    let all = providerList
+    let shown = all.filter { Self.providerMatches($0, providerQuery) }
+    let found = shown.filter(\.isDetected)
+    let other = shown.filter { !$0.isDetected }
+    let searching = !providerQuery.trimmingCharacters(in: .whitespaces).isEmpty
+    // Folded while nothing is searched, so a long tail of tools that are not
+    // here does not bury those that are.
+    let canFold = !searching && !found.isEmpty
+    let folded = canFold && !showOtherProviders
+
+    SearchField(prompt: "Search \(all.count) providers", text: $providerQuery, large: true)
+    if shown.isEmpty {
+      Hint(text: "No provider matches \u{201C}\(providerQuery.trimmingCharacters(in: .whitespaces))\u{201D}")
     }
+    if !found.isEmpty {
+      SettingsSection(heading: "On this computer · \(found.count)") {
+        ForEach(found) { providerRow($0) }
+      }
+    }
+    if !other.isEmpty {
+      SettingsSection(heading: "Not found on this computer · \(other.count)") {
+        if canFold {
+          Button(folded ? "Show \(other.count)" : "Hide") { showOtherProviders.toggle() }
+            .buttonStyle(.plain)
+            .font(.notch(12, .medium))
+            .foregroundStyle(Theme.textSecondary)
+        }
+        if !folded {
+          ForEach(other) { providerRow($0) }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private func providerRow(_ provider: ProviderInfo) -> some View {
+    let id = provider.id
+    let enabled = config.providerEnabled(id)
+    SettingsSwitch(
+      title: provider.displayName, subtitle: summary(id, enabled: enabled), provider: id,
+      subtitleIsError: enabled && client.readings.first { $0.provider == id }?.status == "error",
+      isOn: enabled
+    ) { on in update { $0.setProvider(id, enabled: on) } }
+    if id == "copilot" { CopilotSignIn(client: client) }
   }
 
   // MARK: Alerts and startup

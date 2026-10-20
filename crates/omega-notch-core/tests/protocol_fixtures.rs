@@ -125,6 +125,7 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                 providers: vec![ProviderInfo {
                     id: ProviderId::ClaudeCode,
                     display_name: "Claude Code".into(),
+                    detected: true,
                 }],
                 readings: vec![reading()],
                 sessions: vec![session(SessionKind::Busy)],

@@ -217,6 +217,37 @@ Item {
     readonly property int watchAt: 75
     readonly property int criticalAt: 90
 
+    // ---- Motion ----
+    // The desktop's own setting (KDE's AnimationDurationFactor at 0), read by
+    // the engine. Reduced motion keeps every state change instant and stops
+    // anything that loops.
+    readonly property bool reducedMotion: typeof Engine !== "undefined" && Engine.reducedMotion
+    // Durations in milliseconds, the same steps in both shells (DESIGN.md).
+    readonly property int motionHover: 120
+    readonly property int motionState: 180
+    readonly property int motionEnter: 240
+    readonly property int motionFill: 420
+    readonly property int motionBreath: 1400
+    // One curve, out-cubic, in both shells: cubic-bezier(.22, .61, .36, 1).
+    readonly property var motionCurve: [0.22, 0.61, 0.36, 1]
+    // A duration as the desktop wants it: instant when motion is reduced.
+    function motion(ms) { return reducedMotion ? 0 : ms }
+
+    // ---- Type ----
+    // The scale from DESIGN.md; the same steps in both shells.
+    readonly property int typeBigNumber: 26
+    readonly property int typePageTitle: 26
+    readonly property int typeSectionTitle: 15
+    readonly property int typeCardTitle: 14
+    readonly property int typeBody: 13
+    readonly property int typeLabel: 12
+    readonly property real typeCaption: 11.5
+    readonly property real typeMicro: 10.5
+    readonly property int typeWeightRegular: 400
+    readonly property int typeWeightMedium: 500
+    readonly property int typeWeightSemibold: 600
+    readonly property real typeMicroTracking: 0.06
+
     // Medium is the size everything was drawn at; presets scale the lot.
     function scaleFor(preset) {
         return preset === "small" ? 0.86 : preset === "large" ? 1.18 : 1.0

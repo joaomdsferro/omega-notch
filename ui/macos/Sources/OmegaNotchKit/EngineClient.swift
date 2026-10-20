@@ -18,6 +18,10 @@ public final class EngineClient {
   /// Whether the dashboard is on its way: a request is out and no answer has
   /// come yet.
   public private(set) var dashboardLoading = false
+  /// Why the dashboard has no numbers to show: the request never reached the
+  /// engine, or the engine stopped before answering. Empty once an answer
+  /// arrives.
+  public private(set) var dashboardError = ""
   public private(set) var copilotLogin: CopilotLogin?
   /// Claude's latest advice on usage, if one was asked for.
   public private(set) var analysis: UsageAnalysis?
@@ -108,7 +112,15 @@ public final class EngineClient {
     let days = min(90, max(7, days))
     if days != dashboardDays { clearAnalysis() }
     dashboardDays = days
-    dashboardLoading = connected && socket != nil
+    guard connected else {
+      // The request would be dropped in silence and the page would keep
+      // saying "Loading…" forever; say why instead.
+      dashboardLoading = false
+      dashboardError = "The engine is not running, so there are no numbers to show."
+      return
+    }
+    dashboardError = ""
+    dashboardLoading = true
     var message: [String: JSONValue] = [
       "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
     ]
@@ -229,13 +241,18 @@ public final class EngineClient {
     connected = true
     send(.object(["type": .string("hello"), "client": .string("macos"), "version": .number(1)]))
     send(.object(["type": .string("subscribe")]))
+    // The page asked while the engine was away; ask again now that it is here.
+    if !dashboardError.isEmpty { requestDashboard(days: dashboardDays) }
   }
 
   private func disconnected() {
     socket = nil
     connected = false
-    dashboardLoading = false
     // The answer would come on this connection; it will not now.
+    if dashboardLoading {
+      dashboardLoading = false
+      dashboardError = "The engine stopped before the numbers arrived."
+    }
     if analysis?.state == "running" {
       analysis?.state = "failed"
       analysis?.text = "Lost the engine before Claude answered. Ask again."
@@ -295,6 +312,7 @@ public final class EngineClient {
       applyConfig(config)
     case .dashboard(let dashboard):
       dashboardLoading = false
+      dashboardError = ""
       self.dashboard = dashboard
     case .copilotLogin(let login):
       copilotLogin = login

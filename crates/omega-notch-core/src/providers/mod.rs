@@ -37,9 +37,11 @@ pub use traits::{Provider, ProviderError};
 
 use std::borrow::Cow;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 use crate::config::AppConfig;
+use crate::paths;
 use crate::protocol::{ProviderId, UsageReading};
 
 pub type FetchFuture =
@@ -53,22 +55,33 @@ pub struct ProviderDescriptor {
     /// A `Cow` because a profile discovered on disk is named `Claude Code
     /// (work)`: the label only exists at runtime.
     display_name: Cow<'static, str>,
+    /// Whether the tool has left anything on this machine: its folder, its
+    /// sign-in or its binary. Only looks at the disk, never the network.
+    detect: fn() -> bool,
     fetch: fn() -> FetchFuture,
 }
 
 impl ProviderDescriptor {
-    const fn new(id: ProviderId, display_name: &'static str, fetch: fn() -> FetchFuture) -> Self {
+    const fn new(
+        id: ProviderId,
+        display_name: &'static str,
+        detect: fn() -> bool,
+        fetch: fn() -> FetchFuture,
+    ) -> Self {
         Self {
             id,
             display_name: Cow::Borrowed(display_name),
+            detect,
             fetch,
         }
     }
 
+    /// A profile is only listed because its folder was found.
     fn for_profile(id: ProviderId, display_name: String, base: &Self) -> Self {
         Self {
             id,
             display_name: Cow::Owned(display_name),
+            detect: || true,
             fetch: base.fetch,
         }
     }
@@ -80,47 +93,117 @@ impl ProviderDescriptor {
     pub fn display_name(&self) -> &str {
         &self.display_name
     }
+
+    pub fn detected(&self) -> bool {
+        (self.detect)()
+    }
+}
+
+/// The folder a file would sit in exists: the tool is installed even when
+/// it is not signed in yet.
+fn folder_of(file: PathBuf) -> bool {
+    file.parent().is_some_and(Path::is_dir)
 }
 
 /// The providers this build can fetch, in the order shells show them.
 pub static PROVIDERS: &[ProviderDescriptor] = &[
-    ProviderDescriptor::new(ProviderId::Cursor, "Cursor", || {
-        Box::pin(CursorProvider.fetch())
+    ProviderDescriptor::new(
+        ProviderId::Cursor,
+        "Cursor",
+        || paths::cursor_state_db().exists(),
+        || Box::pin(CursorProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::ClaudeCode,
+        "Claude Code",
+        || paths::claude_home().is_dir(),
+        || Box::pin(ClaudeCodeProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::ClaudeDesktop,
+        "Claude Desktop",
+        || paths::claude_desktop_dir().is_dir(),
+        || Box::pin(ClaudeDesktopProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Copilot,
+        "GitHub Copilot",
+        copilot::detected,
+        || Box::pin(CopilotProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::GrokBot,
+        "Grok Bot",
+        || paths::grok_bot_dir().is_dir(),
+        || Box::pin(GrokBotProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Codex,
+        "Codex",
+        || paths::codex_home().is_dir(),
+        || Box::pin(CodexProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::OpenCode,
+        "OpenCode",
+        || paths::opencode_dir().is_dir(),
+        || Box::pin(OpenCodeProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Kimi,
+        "Kimi",
+        || paths::kimi_home().is_dir(),
+        || Box::pin(KimiProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Grok,
+        "Grok",
+        || folder_of(paths::grok_auth()),
+        || Box::pin(GrokProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Apify,
+        "Apify",
+        || folder_of(paths::apify_auth()),
+        || Box::pin(ApifyProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Devin,
+        "Devin",
+        || folder_of(paths::devin_desktop_db()) || folder_of(paths::devin_cli_credentials()),
+        || Box::pin(DevinProvider.fetch()),
+    ),
+    ProviderDescriptor::new(
+        ProviderId::Amp,
+        "Amp",
+        || folder_of(paths::amp_secrets()),
+        || Box::pin(AmpProvider.fetch()),
+    ),
+    ProviderDescriptor::new(ProviderId::Kiro, "Kiro", kiro::detected, || {
+        Box::pin(KiroProvider.fetch())
     }),
-    ProviderDescriptor::new(ProviderId::ClaudeCode, "Claude Code", || {
-        Box::pin(ClaudeCodeProvider.fetch())
+    ProviderDescriptor::new(
+        ProviderId::Kilo,
+        "Kilo",
+        || folder_of(paths::kilo_auth()),
+        || Box::pin(KiloProvider.fetch()),
+    ),
+    ProviderDescriptor::new(ProviderId::Glm, "GLM", glm::detected, || {
+        Box::pin(GlmProvider.fetch())
     }),
-    ProviderDescriptor::new(ProviderId::ClaudeDesktop, "Claude Desktop", || {
-        Box::pin(ClaudeDesktopProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::Copilot, "GitHub Copilot", || {
-        Box::pin(CopilotProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::GrokBot, "Grok Bot", || {
-        Box::pin(GrokBotProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::Codex, "Codex", || {
-        Box::pin(CodexProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::OpenCode, "OpenCode", || {
-        Box::pin(OpenCodeProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::Kimi, "Kimi", || Box::pin(KimiProvider.fetch())),
-    ProviderDescriptor::new(ProviderId::Grok, "Grok", || Box::pin(GrokProvider.fetch())),
-    ProviderDescriptor::new(ProviderId::Apify, "Apify", || {
-        Box::pin(ApifyProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::Devin, "Devin", || {
-        Box::pin(DevinProvider.fetch())
-    }),
-    ProviderDescriptor::new(ProviderId::Amp, "Amp", || Box::pin(AmpProvider.fetch())),
-    ProviderDescriptor::new(ProviderId::Kiro, "Kiro", || Box::pin(KiroProvider.fetch())),
-    ProviderDescriptor::new(ProviderId::Kilo, "Kilo", || Box::pin(KiloProvider.fetch())),
-    ProviderDescriptor::new(ProviderId::Glm, "GLM", || Box::pin(GlmProvider.fetch())),
-    ProviderDescriptor::new(ProviderId::CommandCode, "Command Code", || {
-        Box::pin(CommandCodeProvider.fetch())
-    }),
+    ProviderDescriptor::new(
+        ProviderId::CommandCode,
+        "Command Code",
+        || folder_of(paths::command_code_auth()),
+        || Box::pin(CommandCodeProvider.fetch()),
+    ),
 ];
+
+/// Whether a provider is on this machine. An account is, since it is only
+/// listed once its folder is found; an id this build does not know is not.
+pub fn detected(id: &ProviderId) -> bool {
+    descriptor(id).is_some_and(|provider| provider.detected())
+}
 
 pub fn descriptor(id: &ProviderId) -> Option<ProviderDescriptor> {
     if let Some(provider) = PROVIDERS.iter().find(|provider| provider.id == *id) {

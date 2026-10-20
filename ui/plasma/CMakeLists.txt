@@ -44,6 +44,7 @@ qt_add_qml_module(omega-notch-plasma
         qml/ToolButton.qml
         qml/DashboardWindow.qml
         qml/DashCard.qml
+        qml/FocusRing.qml
         qml/DashSegmented.qml
         qml/DashRing.qml
         qml/DashLimitCard.qml
