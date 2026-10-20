@@ -258,11 +258,11 @@
     <div class="eyebrow">Omega Notch · design lab</div>
     <h1>Theme Lab</h1>
     <p class="lede">
-      NOIR como base, com dois enxertos: a <strong>zona de perigo segmentada</strong> do CLUBE
-      (90–100% desenhada dentro do anel, vê-se o perigo antes de ler o número) e o
-      <strong>realce especular</strong> do VIDRO no topo do arco.
-      O bloco seguinte é o picker tal como vai ficar em <strong>Settings → Appearance</strong>;
-      trocar aqui troca a app toda, porque o tema é um conjunto de tokens, não uma folha de estilo.
+      NOIR as the base, with two grafts: CLUBE's <strong>segmented danger zone</strong>
+      (90–100% drawn inside the ring, so you see the danger before reading the number) and
+      VIDRO's <strong>specular highlight</strong> at the top of the arc.
+      The block below is the picker as it will look in <strong>Settings → Appearance</strong>;
+      changing it here repaints the whole app, because a theme is a set of tokens, not a stylesheet.
     </p>
   </header>
 
@@ -277,42 +277,42 @@
       <div id="themeList" role="radiogroup" aria-label="Theme"></div>
     </div>
     <p class="note">
-      Tokens que mudam com o tema: superfícies (panel / raised / hover), tinta (text / secondary / tertiary),
-      acento, as quatro cores semânticas, <code>unread</code> (que deixa de colidir com <code>ample</code>),
-      raio, sombra, e a família dos números. Nada disto toca no layout — a app mantém a mesma forma nos dois shells.
+      Tokens that change with the theme: surfaces (panel / raised / hover), ink (text / secondary / tertiary),
+      accent, the four semantic colours, <code>unread</code> (which no longer collides with <code>ample</code>),
+      radius, shadow, and the numeric family. None of it touches the layout — the app keeps the same shape in both shells.
     </p>
   </section>
 
   <div class="stage-title">
-    <h2>1 · A notch</h2>
-    <span>Topo, 3 providers, footer aberto — geometria real do <code>NotchShape.qml</code></span>
+    <h2>1 · The notch</h2>
+    <span>Top, 3 providers, footer open — real geometry from <code>NotchShape.qml</code></span>
   </div>
   <div class="desktop notch-stage" id="notchStage"></div>
   <p class="note">
-    O anel passa de arco contínuo para <strong>20 segmentos</strong> com a zona 90–100% já pintada
-    em <code>critical</code> dentro da track, e uma <strong>capa de 2 px na cabeça do arco</strong>
-    (o realce especular). O glifo do provider fica a 17 px, como hoje.
+    The ring moves from a continuous arc to <strong>20 segments</strong>, with the 90–100% zone already
+    painted in <code>critical</code> inside the track, and a <strong>2 px cap on the head of the arc</strong>
+    (the specular highlight). The provider glyph stays at 17 px, as today.
   </p>
 
   <div class="stage-title">
-    <h2>2 · O card</h2>
-    <span>Hover num provider — 320 px, raio 20, uma sombra só (a do card flutuante)</span>
+    <h2>2 · The card</h2>
+    <span>Hovering a provider — 320 px, radius 20, one shadow only (the floating card's)</span>
   </div>
   <div class="desktop card-stage">
     <div class="card" id="cardMock"></div>
   </div>
 
   <div class="stage-title">
-    <h2>3 · O dashboard</h2>
-    <span>TITLE → stats → limites → gráfico → tabela de modelos</span>
+    <h2>3 · The dashboard</h2>
+    <span>TITLE → stats → limits → chart → model table</span>
   </div>
   <div class="desktop dash-stage">
     <div class="dash" id="dashMock"></div>
   </div>
 
   <div class="stage-title">
-    <h2>4 · Tokens do tema ativo</h2>
-    <span>Contraste calculado, não estimado</span>
+    <h2>4 · Tokens of the active theme</h2>
+    <span>Contrast measured, not estimated</span>
   </div>
   <div class="tokens" id="tokenGrid"></div>
 </div>
@@ -322,7 +322,7 @@
 const THEMES = {
   noir: {
     label: "Noir",
-    blurb: "Grafite + um acento. Base recomendada.",
+    blurb: "Graphite + one accent. The recommended base.",
     t: {
       panel: "#0C0C10", raised: "#15151B", hover: "#1E1E26", card: "#08080A", notch: "#000000",
       text: "#FFFFFF", secondary: "#A9A9B5", tertiary: "#8B8B97",
@@ -334,7 +334,7 @@ const THEMES = {
   },
   vidro: {
     label: "Vidro",
-    blurb: "Material translúcido, especular a seguir o ponteiro.",
+    blurb: "Translucent material, specular highlight following the pointer.",
     t: {
       panel: "#0C0E14", raised: "#161923", hover: "#1F232F", card: "#14161E", notch: "#0A0B0F",
       text: "#FFFFFF", secondary: "#ADB3C4", tertiary: "#8E95A8",
@@ -346,7 +346,7 @@ const THEMES = {
   },
   clube: {
     label: "Clube",
-    blurb: "Painel de instrumentos: medidores, mono, grelha densa.",
+    blurb: "An instrument panel: gauges, mono, a dense grid.",
     t: {
       panel: "#0A0A0C", raised: "#131317", hover: "#1C1C22", card: "#0D0D10", notch: "#000000",
       text: "#FFFFFF", secondary: "#A4A4AE", tertiary: "#86868F",
@@ -358,7 +358,7 @@ const THEMES = {
   },
   aurora: {
     label: "Aurora",
-    blurb: "Campo de luz: halo com a cor de cada provider.",
+    blurb: "A field of light: a halo in each provider's colour.",
     t: {
       panel: "#0D0F1A", raised: "#161A28", hover: "#202639", card: "#141827", notch: "#05060B",
       text: "#FFFFFF", secondary: "#ADB3C8", tertiary: "#8E95AD",
@@ -370,7 +370,7 @@ const THEMES = {
   },
   terminal: {
     label: "Terminal",
-    blurb: "Mono, hairlines, um acento elétrico. Zero sombras.",
+    blurb: "Mono, hairlines, one electric accent. No shadows.",
     t: {
       panel: "#000000", raised: "#0D0D0D", hover: "#171717", card: "#0A0A0A", notch: "#000000",
       text: "#FFFFFF", secondary: "#A0A0A0", tertiary: "#7E7E7E",
@@ -455,13 +455,13 @@ function ringSVG(provider, pct, level, opts) {
     }
   }
 
-  // realce especular: uma capa clara na cabeça do arco
+  // specular highlight: a light cap on the head of the arc
   if (opts.cap && pct > 0) {
     const a = (-90 + 360 * Math.min(1, pct / 100)) * Math.PI / 180;
     const hx = cx + Math.cos(a) * R, hy = cy + Math.sin(a) * R;
     out += `<circle cx="${hx.toFixed(2)}" cy="${hy.toFixed(2)}" r="2.1" fill="#FFFFFF" opacity=".92"/>`;
   }
-  // glifo do provider
+  // provider glyph
   const path = MARKS[provider];
   if (path) {
     const g = 17 / 24;
@@ -529,7 +529,7 @@ function renderNotch() {
     { id: "codex", pct: 92, level: "critical", label: "92%" },
     { id: "cursor", pct: 41, level: "ample", label: "41%" }
   ];
-  const L = 308, D = 93, curl = 36, radius = 30;   // 3 cells + footer, do Main.qml
+  const L = 308, D = 93, curl = 36, radius = 30;   // 3 cells + footer, from Main.qml
   const padStart = 26, cellAlong = 48, spacing = 22, padAcross = 14;
   const ringY = padAcross + 22;
   let rings = "";
@@ -545,7 +545,7 @@ function renderNotch() {
     }" font-size="13" font-weight="600" fill="${p.level === "critical" ? t.critical : t.text}"
       style="font-variant-numeric:tabular-nums">${p.label}</text>`;
   });
-  // rodapé: o par dashboard/settings empilhado à esquerda, o grip à direita
+  // footer: the dashboard/settings pair stacked on the left, the grip on the right
   const bx = L - 68 + 5, by = (D - 58) / 2;
   const btn = (cx, cy) => `<circle cx="${cx}" cy="${cy}" r="13" fill="${
     CURRENT === "vidro" ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.09)"
@@ -555,7 +555,7 @@ function renderNotch() {
   const grip = `<g fill="${t.secondary}"><circle cx="${bx + 49}" cy="${by + 25}" r="1.4"/><circle cx="${bx + 53}" cy="${by + 25}" r="1.4"/><circle cx="${bx + 49}" cy="${by + 29}" r="1.4"/><circle cx="${bx + 53}" cy="${by + 29}" r="1.4"/><circle cx="${bx + 49}" cy="${by + 33}" r="1.4"/><circle cx="${bx + 53}" cy="${by + 33}" r="1.4"/></g>`;
 
   document.getElementById("notchStage").innerHTML = `
-    <svg width="420" height="152" viewBox="-62 -12 420 152" aria-label="Notch com três providers">
+    <svg width="420" height="152" viewBox="-62 -12 420 152" aria-label="Notch with three providers">
       <defs>
         <linearGradient id="spec" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#ffffff" stop-opacity="${CURRENT === "noir" ? ".10" : ".16"}"/>

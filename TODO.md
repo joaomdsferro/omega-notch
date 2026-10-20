@@ -1,114 +1,135 @@
-# TODO — próximas 15 features
+# TODO
 
-Ordem pensada para fechar primeiro o que está a meio, depois ganhar confiança nos
-dados, só então investir na interação que justifica o notch. Esforço: **S** ≤ 1 dia,
-**M** 2–4 dias, **L** 1+ semana. Cada item diz quando está pronto.
+Ordered roadmap. Close what is half-finished first, then earn trust in the data,
+then invest in the interaction that justifies the notch. Effort: **S** ≤ 1 day,
+**M** 2–4 days, **L** 1+ week. Every item says when it is done.
 
-## A. Fundação — fechar o que já está começado
+## Phases
 
-1. **CI de paridade macOS** · M
-   Compilar o shell macOS e correr `swift test` no CI, e resolver os pontos
-   abertos no `docs/design/HANDOFF.md` (ThemeStore, RingView, loading, estados).
-   *Pronto quando:* um PR que parte o Swift falha no CI, e o HANDOFF deixa de ter
-   itens "por compilar".
+- **Phase 0 — Foundation (done):** string ids and a dynamic provider registry;
+  multi-profile accounts for Claude Code and Codex.
+- **Phase 1 — Providers and accounts (done):** nine new providers (Kimi, Grok
+  CLI, Amp, Apify, Kiro, Kilo, GLM, Command Code, Devin); per-account sessions,
+  chats, tokens and jump for `~/.claude-*` and `~/.codex-*`; OpenCode working /
+  waiting states and a finish announcement.
+- **Phase 2 — More data sources:** Antigravity/Gemini quota and tokens; Ollama
+  and LM Studio; oMLX; custom endpoints (URL + key, health check, and a reason
+  when there is no data); fixtures and docs per provider; provider discovery on
+  a new machine, favourites and search in the picker.
+- **Phase 3 — Remote:** sessions over SSH; web views for remote dashboards; a
+  doctor that separates local from remote.
+- **Phase 4 — UI parity:** close items 1, 3, 4 and 5, plus the known bugs and
+  the terminal-tab decision.
+- **Phase 5 — Phone and multiple machines:** versioned export/import of
+  aggregates, folder/LAN/Tailscale sync with an idempotent merge, and a phone
+  companion reading the same snapshot.
 
-2. **Loading state no dashboard Plasma** · S
-   `Q_PROPERTY(bool dashboardLoading)` no `engineclient`, marcado em
-   `requestDashboard()` e limpo em `applyDashboard()`, usado nos estados vazios.
-   *Pronto quando:* abrir o dashboard com o engine lento mostra "Loading…" e não
-   o estado vazio, tal como no macOS.
+## Next 15
 
-3. **Estados de erro e de limite esgotado ao nível da página** · M
-   Hoje só existe o "engine offline" genérico e o limite dentro do cartão do
-   provider. Falta uma página de erro do dashboard e um estado de quota a 100%.
-   *Pronto quando:* um dashboard falhado tem uma acção de retry, e um provider a
-   100% lê-se na página, não só no anel.
+### A. Foundation
 
-4. **Teclado, foco e reduced motion no Plasma** · M
-   Os controlos do dashboard são `TapHandler` e não são focáveis; o picker de
-   temas já é. Ler o ajuste de movimento do sistema ou declará-lo em Settings.
-   *Pronto quando:* se navega o dashboard inteiro só com Tab/Enter/Esc e há anel
-   de foco visível em todos os controlos.
+1. **macOS parity in CI** · M
+   Compile the macOS shell and run `swift test` in CI, and fix the Swift issues
+   left by the theme work (`ThemeStore`, `RingView`, loading and states).
+   *Done when:* a PR that breaks Swift fails in CI, and no Swift target is left
+   unbuilt.
 
-5. **NOIR ao nível do componente** · M
-   Elevação por traço (1 px + realce no topo) em `DashCard.qml` e
-   `DashboardParts.swift`, a escala tipográfica completa do `DESIGN.md`, e uma
-   curva de movimento única nos dois shells.
-   *Pronto quando:* os dois shells usam os mesmos degraus e a mesma curva, e o
-   `check_themes.py` cobre também tipo e movimento.
+2. **Known dashboard bugs** · S
+   Slow scrolling in the dashboard tab, and OpenCode model names listed wrong.
+   *Done when:* scrolling stays smooth with 90 days of history, and OpenCode
+   sessions show the vendor and model they actually ran on.
 
-## B. Confiança nos dados
+3. **Page-level error and exhausted states** · M
+   Today there is only the generic "engine offline" and the limit inside a
+   provider's card. Add a dashboard error page and a page-level 100% quota
+   state.
+   *Done when:* a failed dashboard offers a retry, and a provider at 100% reads
+   on the page, not only on its ring.
 
-6. **Proveniência e frescura de cada leitura** · M
-   Cada leitura passa a dizer de onde veio e há quanto tempo: oficial, em cache,
-   estimado, sem dados. Painel "Doctor" em Settings que explica o que cada
-   provider consegue ver (reaproveita o `make doctor`).
-   *Pronto quando:* o card e o dashboard distinguem uma leitura de 3 minutos de
-   uma de ontem, e um provider sem dados diz porquê.
+4. **Keyboard, focus and reduced motion in Plasma** · M
+   Dashboard controls are `TapHandler`s and cannot take focus; the theme picker
+   already can. Honour the system motion setting or expose it in Settings.
+   *Done when:* the whole dashboard is reachable with Tab/Enter/Esc and every
+   control has a visible focus ring.
 
-7. **Burn-rate e previsão de reset** · M
-   Projecção linear da janela actual: "a este ritmo chegas ao limite às HH:MM" e
-   "vais ficar sem quota antes do reset". Visível no card e no dashboard.
-   *Pronto quando:* a previsão aparece só com dados suficientes, é marcada como
-   estimativa, e nunca substitui o número oficial.
+5. **Finish NOIR at component level** · M
+   The full type scale from `DESIGN.md` and one motion curve across both shells
+   (elevation shipped already).
+   *Done when:* both shells use the same type steps and the same curve, and
+   `check_themes.py` covers type and motion too.
 
-8. **Custo honesto** · M
-   Mostrar o que pagas (subscrição prorrateada ao período) antes do equivalente
-   em API, cache miss/rebuilt, e custo por prompt nas sessões mais caras.
-   *Pronto quando:* o dashboard responde "porque é que este prompt custou isto"
-   sem sair da linha da sessão.
+### B. Trust in the data
 
-9. **Orçamentos locais e histórico de quota** · M
-   Cap diário/mensal com notificação local, e guardar a utilização das janelas ao
-   longo do tempo para responder "quantas vezes é que bateste no limite".
-   *Pronto quando:* defines um cap em Settings, recebes um aviso ao cruzá-lo, e o
-   histórico mostra a tendência de quota sem guardar conteúdo de chats.
+6. **Reading provenance and freshness** · M
+   Every reading says where it came from and how old it is: official, cached,
+   estimated, no data. A Doctor panel in Settings explains what each provider
+   can see (reusing `make doctor`).
+   *Done when:* the card and dashboard tell a 3-minute-old reading from
+   yesterday's, and a provider with no data says why.
 
-## C. Interacção — o que o menu bar não faz
+7. **Burn rate and reset forecast** · M
+   Linear projection of the current window: "at this pace you hit the limit at
+   HH:MM" and "you run out before the reset". Shown in the card and dashboard.
+   *Done when:* the forecast appears only with enough data, is marked as an
+   estimate, and never replaces the official number.
 
-10. **Aprovações inline no notch** · L
-    Pedido de permissão do Claude Code via hook long-poll, com Allow / Allow
-    always / Deny no notch e a decisão devolvida ao CLI. Um shell primeiro (o
-    Plasma, por ser onde consegues testar), depois o outro.
-    *Pronto quando:* uma sessão bloqueada num pedido é resolvida sem ir ao
-    terminal, e a decisão "always" é respeitada.
+8. **Honest cost** · M
+   Show what you pay (subscription prorated to the range) before the API
+   equivalent, cache misses/rebuilt tokens, and cost per prompt on the dearest
+   sessions.
+   *Done when:* the dashboard answers "why did this prompt cost that" without
+   leaving the session row.
 
-11. **Fila única "Precisa de ti"** · M
-    Waiting, aprovações e perguntas de todos os providers numa lista ordenada por
-    urgência, com badge no nub e no anel do provider.
-    *Pronto quando:* uma sessão de outro provider a pedir algo aparece ao lado
-    da do Claude Code, com a mesma prioridade.
+9. **Local budgets and quota history** · M
+   Daily/monthly caps with a local notification, and keep window utilization
+   over time to answer "how often did you hit the limit".
+   *Done when:* a cap set in Settings raises a warning when crossed, and the
+   history shows the quota trend without storing chat content.
 
-12. **Foco tab-accurate** · M
-    Usar o `tty` que o engine já calcula para escolher a tab certa (Terminal,
-    iTerm2, Ghostty) em vez de só levantar a janela; e `--resume` quando a
-    sessão já morreu.
-    *Pronto quando:* clicar num chat com três tabs abertas cai na tab certa, nos
-    dois terminais mais usados.
+### C. Interaction — what a menu bar cannot do
 
-13. **Sessões ao vivo para Codex e OpenCode** · L
-    Ler os rollout logs do Codex e o `opencode.db` para derivar estado
-    working / waiting / done, tal como já se faz para o Claude Code.
-    *Pronto quando:* os dois providers têm ring com estado e "recent chats" com
-    a mesma qualidade do Claude Code.
+10. **Inline approvals in the notch** · L
+    Claude Code permission requests through a long-poll hook, with Allow /
+    Allow always / Deny in the notch and the decision returned to the CLI. One
+    shell first (Plasma, where it can be tested), then the other.
+    *Done when:* a session blocked on a request is resolved without opening a
+    terminal, and "always" is honoured.
 
-## D. Alcance
+11. **One "Needs you" queue** · M
+    Waiting sessions, approvals and questions from every provider in one list
+    ordered by urgency, with a badge on the nub and on the provider ring.
+    *Done when:* a session from another provider asking for input sits next to
+    a Claude Code one, at the same priority.
 
-14. **Duas máquinas num dashboard** · L
-    Export/import versionado de agregados (sem conteúdo de chats) e merge
-    idempotente por provider/dia/modelo; sincronização por pasta, LAN ou
-    Tailscale, sem conta e sem servidor.
-    *Pronto quando:* o dashboard de uma máquina mostra os totais somados das
-    duas, e importar o mesmo ficheiro duas vezes não duplica nada.
+12. **Tab-accurate focus** · M
+    Use the `tty` the engine already resolves to pick the right tab (Terminal,
+    iTerm2, Ghostty) instead of only raising the window, and `--resume` when
+    the session is gone.
+    *Done when:* clicking a chat with three tabs open lands on the right tab in
+    the two most-used terminals.
 
-15. **Status e incidentes dos providers** · S
-    Polling dos status pages (Anthropic, OpenAI, GitHub, Cursor) com cache de 5
-    minutos, badge no anel e aviso no card quando há incidente.
-    *Pronto quando:* uma falha do provider é distinguível de uma falha da tua
-    rede, e o badge desaparece quando o incidente fecha.
+13. **Live Codex sessions** · L
+    Read Codex rollout logs to derive working / waiting / done, as already done
+    for Claude Code and OpenCode.
+    *Done when:* Codex has a live ring state and recent chats at the same
+    quality as the other two.
 
-## Fora de âmbito por agora
+### D. Reach
 
-Skills entre providers (projecto irmão, não feature do notch), cloud/sync
-hospedado, multi-conta por provider e mais providers. Nada disto entra antes de
-1–9 estarem fechados.
+14. **Two machines, one dashboard** · L
+    Versioned export/import of aggregates (no chat content) and an idempotent
+    merge by provider/day/model; sync through a folder, LAN or Tailscale, with
+    no account and no server.
+    *Done when:* one machine's dashboard shows the summed totals from both, and
+    importing the same file twice duplicates nothing.
+
+15. **Provider status and incidents** · S
+    Poll status pages (Anthropic, OpenAI, GitHub, Cursor) with a 5-minute
+    cache, a badge on the ring and a note in the card when an incident is open.
+    *Done when:* a provider outage is distinguishable from a local network
+    failure, and the badge clears when the incident closes.
+
+## Out of scope for now
+
+Cross-provider skills (a sibling project, not a notch feature) and hosted
+cloud/sync. Neither starts before items 1–9 are closed.

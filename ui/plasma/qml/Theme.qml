@@ -55,7 +55,7 @@ Item {
     readonly property var themes: ({
         noir: {
             label: "Noir",
-            blurb: "Grafite com um acento",
+            blurb: "Graphite with one accent",
             swatches: ["#0C0C10", "#15151B", "#5B8CFF"],
             colors: {
                 notch: "#000000", card: "#08080A", cardStroke: "#24FFFFFF",
@@ -71,7 +71,7 @@ Item {
         },
         classic: {
             label: "Classic",
-            blurb: "O look de sempre",
+            blurb: "The look as it was",
             swatches: ["#0B0B0D", "#16161A", "#3DDC97"],
             colors: {
                 notch: "#000000", card: "#000000", cardStroke: "#1FFFFFFF",
@@ -87,7 +87,7 @@ Item {
         },
         vidro: {
             label: "Vidro",
-            blurb: "Material translúcido",
+            blurb: "Translucent material",
             swatches: ["#0C0E14", "#161923", "#7AA2FF"],
             colors: {
                 notch: "#0A0B0F", card: "#14161E", cardStroke: "#38FFFFFF",
@@ -103,7 +103,7 @@ Item {
         },
         clube: {
             label: "Clube",
-            blurb: "Painel de instrumentos",
+            blurb: "An instrument panel",
             swatches: ["#0A0A0C", "#131317", "#7FD1AE"],
             colors: {
                 notch: "#000000", card: "#0D0D10", cardStroke: "#24FFFFFF",
@@ -119,7 +119,7 @@ Item {
         },
         aurora: {
             label: "Aurora",
-            blurb: "Campo de luz",
+            blurb: "A field of light",
             swatches: ["#0D0F1A", "#161A28", "#7C8CFF"],
             colors: {
                 notch: "#05060B", card: "#141827", cardStroke: "#24FFFFFF",
@@ -135,7 +135,7 @@ Item {
         },
         terminal: {
             label: "Terminal",
-            blurb: "Mono, hairlines, um acento",
+            blurb: "Mono, hairlines, one accent",
             swatches: ["#000000", "#0D0D0D", "#00E5A0"],
             colors: {
                 notch: "#000000", card: "#0A0A0A", cardStroke: "#2EFFFFFF",
