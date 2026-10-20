@@ -23,18 +23,19 @@ Window {
     readonly property bool vertical: edge === "left" || edge === "right"
     readonly property real s: Theme.scaleFor(Engine.sizePreset)
 
-    // ---- Notch metrics (medium preset, scaled by s) ----
-    readonly property real cellWidth: 48 * s
-    readonly property real cellHeight: 67 * s       // ring + gap + label
+    // ---- Notch metrics (medium preset, scaled by s, snapped to the pixel) ----
+    readonly property real cellWidth: Theme.px(48 * s)
+    readonly property real cellHeight: Theme.px(67 * s)       // ring + gap + label
     readonly property real cellAlong: vertical ? cellHeight : cellWidth
-    readonly property real cellSpacing: (vertical ? 20 : 22) * s
-    readonly property real padStart: (vertical ? 24 : 26) * s
-    readonly property real padEnd: (vertical ? 16 : 26) * s
-    readonly property real padAcross: 14 * s
-    readonly property real depth: vertical ? 72 * s : cellHeight + padAcross + 12 * s
-    readonly property real curl: 34 * s
-    readonly property real footerLength: 68 * s
-    readonly property real cardGap: 19 * s          // notch edge -> card, tail included
+    readonly property real cellSpacing: Theme.px((vertical ? 20 : 22) * s)
+    readonly property real padStart: Theme.px((vertical ? 24 : 26) * s)
+    readonly property real padEnd: Theme.px((vertical ? 16 : 26) * s)
+    readonly property real padAcross: Theme.px(14 * s)
+    readonly property real depth: vertical ? Theme.px(72 * s)
+                                          : cellHeight + padAcross + Theme.px(12 * s)
+    readonly property real curl: Theme.px(34 * s)
+    readonly property real footerLength: Theme.px(68 * s)
+    readonly property real cardGap: Theme.px(19 * s)          // notch edge -> card, tail included
 
     readonly property var activeReadings: {
         const out = []
@@ -47,6 +48,8 @@ Window {
     }
     // Painted apart from the nub, so either can stay black.
     readonly property color notchColor: Engine.notchColor
+    // The nub's colour, as a colour the theme can measure against.
+    readonly property color nubColor: Qt.color(Engine.idleColor)
     // A session is working somewhere, or waiting for you: the nub moves to
     // say so, each in the motion chosen in Settings.
     function anySession(kind) {
@@ -75,7 +78,7 @@ Window {
     // Travel is measured against the expanded length so that unfolding never
     // pushes the rings out from under the pointer.
     readonly property real travel: Math.max(0, axisLength - expandedLength - 2 * curl)
-    readonly property real bodyStart: curl + (dragging ? dragPosition : Engine.edgePosition) * travel
+    readonly property real bodyStart: Theme.px(curl + (dragging ? dragPosition : Engine.edgePosition) * travel)
 
     width: vertical ? depth + cardGap + card.width + 40 : Screen.width
     height: vertical ? Screen.height : depth + cardGap + 660 * s
@@ -120,7 +123,7 @@ Window {
 
     // ---- Input region ----
     // Hidden, only the nub's sliver of the edge listens for the pointer.
-    readonly property real nubDepth: 6 * s * Engine.idleSize
+    readonly property real nubDepth: Theme.px(6 * s * Engine.idleSize)
     readonly property real maskDepth: revealed ? depth : nubDepth
     readonly property rect maskRect: vertical
         ? Qt.rect(edge === "right" ? width - maskDepth : 0, bodyStart - curl,
@@ -355,6 +358,7 @@ Window {
             // hiding and showing.
             readonly property color paint: Engine.idleColor
             color: Qt.rgba(paint.r, paint.g, paint.b, motion.fade)
+            rim: Theme.withAlpha("#FFFFFF", 0.25)
             curl: depth / 2
             radius: depth / 2
             x: root.vertical ? (root.edge === "right" ? root.width - depth : 0)
@@ -365,15 +369,26 @@ Window {
             visible: opacity > 0
             Behavior on opacity { NumberAnimation { duration: 240 } }
 
-            // Finished chats to read: a green dot on the nub.
+            // Finished chats to read: a dot on the nub, in a colour that
+            // reads on whatever colour the nub is, breathing so the eye
+            // finds it.
             Rectangle {
+                id: unreadDot
                 visible: root.unreadCount > 0
                 width: root.nubDepth * 0.7
                 height: width
                 radius: width / 2
-                color: Theme.unread
+                color: Theme.markColor(root.nubColor)
                 x: (nub.width - width) / 2
                 y: (nub.height - height) / 2
+                // A slow breath, and a touch smaller while it is faint.
+                scale: 0.9 + 0.1 * opacity
+                SequentialAnimation on opacity {
+                    running: unreadDot.visible
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 0.65; to: 1; duration: 2200; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 1; to: 0.65; duration: 2200; easing.type: Easing.InOutSine }
+                }
             }
         }
 
@@ -383,8 +398,9 @@ Window {
             length: root.bodyLength
             depth: root.depth
             curl: root.curl
-            radius: 28 * root.s
+            radius: Theme.px(28 * root.s)
             color: root.notchColor
+            rim: Theme.withAlpha("#FFFFFF", 0.10)
             x: root.vertical ? notch.x : notch.x - root.curl
             y: root.vertical ? notch.y - root.curl : notch.y
         }
@@ -428,7 +444,7 @@ Window {
 
                     width: root.cellWidth
                     height: root.cellHeight
-                    x: root.vertical ? (root.depth - width) / 2
+                    x: root.vertical ? Theme.px((root.depth - width) / 2)
                                      : root.padStart + index * (root.cellAlong + root.cellSpacing)
                     y: root.vertical ? root.padStart + index * (root.cellAlong + root.cellSpacing)
                                      : root.padAcross
@@ -455,12 +471,12 @@ Window {
             // the notch's depth on any edge.
             Grid {
                 columns: root.vertical ? 1 : 2
-                spacing: 6 * root.s
+                spacing: Theme.px(6 * root.s)
                 horizontalItemAlignment: Grid.AlignHCenter
                 verticalItemAlignment: Grid.AlignVCenter
-                x: root.vertical ? (root.depth - width) / 2
-                                 : root.collapsedLength + (root.footerLength - width) / 2 - 8 * root.s
-                y: root.vertical ? root.collapsedLength + (root.footerLength - height) / 2 - 6 * root.s
+                x: root.vertical ? Theme.px((root.depth - width) / 2)
+                                 : Theme.px(root.collapsedLength + (root.footerLength - width) / 2 - 8 * root.s)
+                y: root.vertical ? Theme.px(root.collapsedLength + (root.footerLength - height) / 2 - 6 * root.s)
                                  : (root.depth - height) / 2
                 opacity: root.expanded ? 1 : 0
                 visible: opacity > 0
@@ -468,7 +484,7 @@ Window {
 
                 Grid {
                     columns: root.vertical ? 2 : 1
-                    spacing: 6 * root.s
+                    spacing: Theme.px(6 * root.s)
 
                     ToolButton {
                         icon: "dashboard"
@@ -548,13 +564,20 @@ Window {
 
             readonly property bool shown: root.cardActive
             readonly property real margin: 12
-            // Slides a few pixels out of the notch as it appears.
+            // Slides a few pixels out of the notch as it appears, and grows a
+            // touch from the side that faces it: the card settles into place
+            // instead of simply showing up.
             property real slide: shown ? 0 : 8 * root.s
+            property real appear: shown ? 1 : 0
             Behavior on slide { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on appear { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            transformOrigin: root.vertical
+                ? (root.edge === "right" ? Item.Right : Item.Left)
+                : (root.edge === "top" ? Item.Top : Item.Bottom)
 
-            readonly property real alongStart: root.vertical
+            readonly property real alongStart: Theme.px(root.vertical
                 ? Math.max(margin, Math.min(root.height - height - margin, root.cardAim - height / 2))
-                : Math.max(margin, Math.min(root.width - width - margin, root.cardAim - width / 2))
+                : Math.max(margin, Math.min(root.width - width - margin, root.cardAim - width / 2)))
             tailOffset: root.cardAim - alongStart
 
             x: root.vertical
@@ -566,9 +589,9 @@ Window {
                 : (root.edge === "top" ? root.depth + root.cardGap - slide
                                        : root.height - root.depth - root.cardGap - height + slide)
 
-            opacity: shown ? 1 : 0
+            opacity: appear
             visible: opacity > 0
-            Behavior on opacity { NumberAnimation { duration: 140 } }
+            scale: 0.985 + 0.015 * appear
         }
     }
 

@@ -50,6 +50,11 @@ class EngineClient : public QObject
     // (an empty one keeps the palette's).
     Q_PROPERTY(QString dashboardPalette READ dashboardPalette NOTIFY configChanged)
     Q_PROPERTY(QStringList dashboardColors READ dashboardColors NOTIFY configChanged)
+    // The theme the app paints with, by name.
+    Q_PROPERTY(QString theme READ theme NOTIFY configChanged)
+    // Whether the dashboard is on its way: a request is out and no answer has
+    // come yet.
+    Q_PROPERTY(bool dashboardLoading READ dashboardLoading NOTIFY dashboardChanged)
     Q_PROPERTY(QString screenName READ screenName NOTIFY configChanged)
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
@@ -108,6 +113,8 @@ public:
     QString notchColor() const { return m_notchColor; }
     QString dashboardPalette() const { return m_dashboardPalette; }
     QStringList dashboardColors() const { return m_dashboardColors; }
+    QString theme() const { return m_theme; }
+    bool dashboardLoading() const { return m_dashboardLoading; }
     QString screenName() const { return m_screenName; }
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
@@ -156,6 +163,8 @@ public:
     Q_INVOKABLE void setIdleColor(const QString &color);
     Q_INVOKABLE void setNotchColor(const QString &color);
     Q_INVOKABLE void setDashboardPalette(const QString &name);
+    // The theme the app paints with; an unknown name is ignored.
+    Q_INVOKABLE void setTheme(const QString &name);
     // An empty colour gives the series the palette's back.
     Q_INVOKABLE void setDashboardColor(int index, const QString &color);
     Q_INVOKABLE void setScreenName(const QString &name);
@@ -274,6 +283,8 @@ private:
     QString m_notchColor = QStringLiteral("#000000");
     QString m_dashboardPalette = QStringLiteral("mono");
     QStringList m_dashboardColors;
+    QString m_theme = QStringLiteral("noir");
+    bool m_dashboardLoading = false;
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;

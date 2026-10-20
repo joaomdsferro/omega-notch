@@ -26,6 +26,7 @@ struct SettingsView: View {
     case notch = "Notch"
     case providers = "Providers"
     case alerts = "Alerts"
+    case appearance = "Appearance"
     case general = "General"
 
     var id: Self { self }
@@ -36,6 +37,7 @@ struct SettingsView: View {
       case .notch: "rectangle.topthird.inset.filled"
       case .providers: "square.grid.2x2"
       case .alerts: "bell"
+      case .appearance: "circle.lefthalf.filled"
       case .general: "gearshape"
       }
     }
@@ -67,6 +69,7 @@ struct SettingsView: View {
           case .notch: notch
           case .providers: providers
           case .alerts: alerts
+          case .appearance: appearance
           case .general:
             windows
             startup
@@ -403,6 +406,20 @@ struct SettingsView: View {
           open: $openSound
         ) { name in update { $0.soundWaiting = name } }
       }
+    }
+  }
+
+  // MARK: Appearance
+
+  @ViewBuilder private var appearance: some View {
+    SettingsSection(heading: "Theme") {
+      ThemePicker(value: config.theme) { name in
+        update { $0.theme = name }
+      }
+      Hint(
+        text:
+          "The theme paints the notch, the card and the dashboard. Noir is the default; Classic is the look the app had before."
+      )
     }
   }
 

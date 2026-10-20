@@ -15,6 +15,9 @@ public final class EngineClient {
   public private(set) var chats: [ChatSummary] = []
   public private(set) var tokens: [TokenStats] = []
   public private(set) var dashboard = Dashboard()
+  /// Whether the dashboard is on its way: a request is out and no answer has
+  /// come yet.
+  public private(set) var dashboardLoading = false
   public private(set) var copilotLogin: CopilotLogin?
   /// Claude's latest advice on usage, if one was asked for.
   public private(set) var analysis: UsageAnalysis?
@@ -105,6 +108,7 @@ public final class EngineClient {
     let days = min(90, max(7, days))
     if days != dashboardDays { clearAnalysis() }
     dashboardDays = days
+    dashboardLoading = true
     var message: [String: JSONValue] = [
       "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
     ]
@@ -289,6 +293,7 @@ public final class EngineClient {
     case .configUpdated(let config):
       applyConfig(config)
     case .dashboard(let dashboard):
+      dashboardLoading = false
       self.dashboard = dashboard
     case .copilotLogin(let login):
       copilotLogin = login

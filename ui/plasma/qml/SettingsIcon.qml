@@ -36,6 +36,9 @@ Item {
             return ["M5 4h14a1 1 0 0 1 1 1v11H4V5a1 1 0 0 1 1-1zM2 20h20", false]
         case "star":
             return ["M12 2.5l2.9 5.9 6.5.95-4.7 4.6 1.1 6.45L12 17.35 6.2 20.4l1.1-6.45-4.7-4.6 6.5-.95z", false]
+        case "appearance":
+            // A circle split in half: the same shape as a theme's two faces.
+            return ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 3v18", false]
         case "notch":
             return ["M5 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM21 8.5v7", false]
         case "grid":

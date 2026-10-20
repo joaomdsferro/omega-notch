@@ -106,6 +106,15 @@ public struct NotchConfig: Equatable, Sendable {
     raw["dashboard_colors"] = .array(list.map { .string($0) })
   }
 
+  /// The theme the app paints with, by name (see `ThemeCatalog`).
+  public var theme: String {
+    get {
+      let name = raw["theme"]?.string ?? ""
+      return ThemeCatalog.names.contains(name) ? name : ThemeCatalog.defaultName
+    }
+    set { if ThemeCatalog.names.contains(newValue) { raw["theme"] = .string(newValue) } }
+  }
+
   public func providerEnabled(_ id: String) -> Bool {
     raw["providers"]?[id]?.bool ?? true
   }

@@ -50,8 +50,18 @@ Rectangle {
     radius: 12
     color: cardHover.hovered ? Theme.panelHover : Theme.panelRaised
     border.width: 1
-    border.color: Theme.hairline
+    border.color: Theme.cardStroke
     Behavior on color { ColorAnimation { duration: 120 } }
+
+    // The top edge catches the light, like the other cards.
+    Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        gradient: Gradient {
+            GradientStop { position: 0; color: Theme.withAlpha("#FFFFFF", 0.09) }
+            GradientStop { position: 0.16; color: "transparent" }
+        }
+    }
 
     Accessible.role: Accessible.Button
     Accessible.name: (reading ? reading.display_name : "") + ", "

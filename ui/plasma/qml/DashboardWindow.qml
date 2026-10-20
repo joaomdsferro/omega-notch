@@ -1081,7 +1081,9 @@ Window {
                         spacing: 12
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: Engine.connected ? "No tools are switched on." : "Waiting for the engine…"
+                            text: Engine.dashboardLoading ? "Loading…"
+                                : Engine.connected ? "No tools are switched on."
+                                : "Waiting for the engine…"
                             color: Theme.textSecondary
                             font.pixelSize: 13
                         }
@@ -1119,7 +1121,8 @@ Window {
                         days: root.costChart.days
                         series: root.costChart.series
                         today: root.today
-                        emptyText: "No cost history yet — it fills in as you work."
+                        emptyText: Engine.dashboardLoading ? "Loading…"
+                            : "No cost history yet — it fills in as you work."
                     }
                     Legend {
                         width: parent.width

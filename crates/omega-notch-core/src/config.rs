@@ -52,6 +52,10 @@ pub struct AppConfig {
     /// one keeps the palette's. At most `DASHBOARD_SERIES`.
     #[serde(default)]
     pub dashboard_colors: Vec<String>,
+    /// The theme the shells paint with, by name (see `THEMES`); an unknown
+    /// name falls back to the default.
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 pub const MAX_PROVIDERS_LIMIT: u32 = 5;
@@ -65,6 +69,14 @@ pub const NUB_MOTIONS: [&str; 7] = [
 pub const DASHBOARD_PALETTES: [&str; 3] = ["mono", "vivid", "colorblind"];
 /// Series the dashboard tells apart by colour; later ones reuse the last.
 pub const DASHBOARD_SERIES: usize = 6;
+
+/// The themes the shells can paint with. The first is the default; the rest
+/// are chosen in Settings, under Appearance.
+pub const THEMES: [&str; 6] = ["noir", "classic", "vidro", "clube", "aurora", "terminal"];
+
+fn default_theme() -> String {
+    "noir".to_string()
+}
 
 fn default_dashboard_palette() -> String {
     "mono".to_string()
@@ -257,6 +269,7 @@ impl Default for AppConfig {
             screen: String::new(),
             dashboard_palette: default_dashboard_palette(),
             dashboard_colors: Vec::new(),
+            theme: default_theme(),
         }
     }
 }
@@ -308,6 +321,9 @@ impl AppConfig {
         if !DASHBOARD_PALETTES.contains(&self.dashboard_palette.as_str()) {
             self.dashboard_palette = default_dashboard_palette();
         }
+        if !THEMES.contains(&self.theme.as_str()) {
+            self.theme = default_theme();
+        }
         for (id, muted) in [
             ("cursor", self.alerts.mute_cursor),
             ("claude_code", self.alerts.mute_claude_code),
@@ -357,6 +373,7 @@ mod tests {
         map.remove("screen");
         map.remove("dashboard_palette");
         map.remove("dashboard_colors");
+        map.remove("theme");
         let extra: serde_json::Value = serde_json::from_str(extra).unwrap();
         for (k, v) in extra.as_object().unwrap() {
             map.insert(k.clone(), v.clone());
@@ -475,5 +492,19 @@ mod tests {
         let c = parse("{}");
         assert_eq!(c.dashboard_palette, "mono");
         assert!(c.dashboard_colors.is_empty());
+    }
+
+    #[test]
+    fn themes_keep_known_names_and_fall_back_to_the_default() {
+        let c = parse(r#"{"theme":"clube"}"#);
+        assert_eq!(c.theme, "clube");
+
+        let c = parse(r#"{"theme":"neon"}"#);
+        assert_eq!(c.theme, "noir");
+
+        // A config from before the setting has none at all.
+        let c = parse("{}");
+        assert_eq!(c.theme, "noir");
+        assert!(THEMES.contains(&c.theme.as_str()));
     }
 }

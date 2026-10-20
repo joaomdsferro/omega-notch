@@ -17,6 +17,9 @@ Item {
     property real curl: 36
     property real radius: 30
     property color color: Theme.notch
+    // A light along the edge, so the shape has a lip and does not look like
+    // a flat sticker on the desktop.
+    property color rim: "transparent"
     // A ripple along the outer side, in px, travelling as `wavePhase` turns;
     // it fades out towards the corners so they stay round.
     property real wave: 0
@@ -72,8 +75,8 @@ Item {
 
         ShapePath {
             fillColor: root.color
-            strokeColor: "transparent"
-            strokeWidth: 0
+            strokeColor: root.rim
+            strokeWidth: root.rim === "transparent" ? 0 : 1
             PathSvg { path: root.outline }
         }
     }

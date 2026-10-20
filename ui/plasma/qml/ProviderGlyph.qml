@@ -4,15 +4,27 @@ import OmegaNotch
 
 // Provider marks: the official logos, as the single-path 24x24 versions from
 // Simple Icons. Kept as paths rather than image files so they stay crisp at
-// every size preset and take the ink colour of wherever they sit. Grok Bot
-// and Grok come from x.ai's own SVGs, since Simple Icons has neither.
+// every size preset and take the ink colour of wherever they sit. Grok comes
+// from x.ai's own SVG, since Simple Icons has none; the bot is drawn from
+// primitives so its eyes stay legible at notch size.
 Item {
     id: root
 
     property string provider: ""
     property color color: Theme.text
+    // What sits behind the mark, for the bot's eye slots.
+    property color surface: Theme.card
 
     readonly property real s: Math.min(width, height)
+
+    // The bot's two eye slots, split out of its mark so they can be painted
+    // on top of a solid disc instead of punched out of it.
+    readonly property var botEyes: {
+        if (provider !== "grok_bot")
+            return []
+        const parts = mark.split("Z")
+        return parts.length >= 3 ? [parts[1] + "Z", parts[2] + "Z"] : []
+    }
 
     readonly property string mark: {
         switch (provider) {
@@ -44,13 +56,50 @@ Item {
         width: 24
         height: 24
         scale: root.s / 24
+        visible: root.provider !== "grok_bot"
         preferredRendererType: Shape.CurveRenderer
 
         ShapePath {
             fillColor: root.color
-            fillRule: root.provider === "grok_bot" ? ShapePath.OddEvenFill : ShapePath.WindingFill
             strokeColor: "transparent"
             PathSvg { path: root.mark }
+        }
+    }
+
+    // Grok Bot's mark is a disc with two eye slots. The slots are drawn on
+    // top of a solid disc rather than punched out of the path: at notch size
+    // the cut-out outlines turn to mush, while a fill keeps the shape and the
+    // up-and-right gaze of x.ai's mark.
+    Item {
+        id: bot
+        width: root.s
+        height: root.s
+        x: Theme.px((root.width - width) / 2)
+        y: Theme.px((root.height - height) / 2)
+        visible: root.provider === "grok_bot"
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: root.color
+        }
+        Shape {
+            anchors.centerIn: parent
+            width: 24
+            height: 24
+            scale: root.s / 24
+            preferredRendererType: Shape.CurveRenderer
+
+            ShapePath {
+                fillColor: root.surface
+                strokeColor: "transparent"
+                PathSvg { path: root.botEyes.length > 0 ? root.botEyes[0] : "" }
+            }
+            ShapePath {
+                fillColor: root.surface
+                strokeColor: "transparent"
+                PathSvg { path: root.botEyes.length > 1 ? root.botEyes[1] : "" }
+            }
         }
     }
 }

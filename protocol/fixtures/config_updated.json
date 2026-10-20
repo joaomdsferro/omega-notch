@@ -38,6 +38,7 @@
     "notch_color": "#000000",
     "screen": "",
     "dashboard_palette": "mono",
-    "dashboard_colors": []
+    "dashboard_colors": [],
+    "theme": "noir"
   }
 }

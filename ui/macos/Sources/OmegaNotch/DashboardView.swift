@@ -37,6 +37,13 @@ struct DashboardView: View {
   private func matches(_ provider: String) -> Bool { providerFilter == "all" || provider == providerFilter }
   private var activeReadings: [UsageReading] { client.activeReadings }
   private var shownReadings: [UsageReading] { activeReadings.filter { matches($0.provider) } }
+
+  /// What to say where the numbers are not here yet: the engine is still
+  /// sending them, it is not running, or there is nothing to show.
+  private var loadingHint: String {
+    if client.dashboardLoading { return "Loading…" }
+    return client.connected ? "No tools are switched on." : "Waiting for the engine…"
+  }
   private var dates: [String] { DashboardData.rangeDates(days: days, now: now) }
   private var today: String { DashboardData.isoDay(now) }
   private var points: [HistoryPoint] { client.dashboard.points.filter { matches($0.provider) } }
@@ -392,7 +399,7 @@ struct DashboardView: View {
       }
       if shownReadings.isEmpty {
         VStack(spacing: 12) {
-          Text(client.connected ? "No tools are switched on." : "Waiting for the engine…")
+          Text(loadingHint)
             .font(.notch(13)).foregroundStyle(Theme.textSecondary)
           if client.connected { TextButton(label: "Open Settings", action: openSettings) }
         }
@@ -788,7 +795,8 @@ private struct CostBreakdown: View {
         .clipShape(Capsule())
       }
       if rows.isEmpty {
-        Text("Nothing spent yet today.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
+        Text(client.dashboardLoading ? "Loading…" : "Nothing spent yet today.")
+          .font(.notch(13)).foregroundStyle(Theme.textTertiary)
       } else {
         VStack(spacing: 0) {
           ForEach(Array(rows.enumerated()), id: \.offset) { index, row in

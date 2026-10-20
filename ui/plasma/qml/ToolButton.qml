@@ -14,7 +14,7 @@ Item {
 
     signal clicked()
 
-    width: 26 * scale_
+    width: Theme.px(26 * scale_)
     height: width
 
     Rectangle {
@@ -27,9 +27,10 @@ Item {
 
     // Settings: three sliders.
     Item {
-        anchors.centerIn: parent
-        width: 12 * root.scale_
-        height: 10 * root.scale_
+        width: Theme.px(12 * root.scale_)
+        height: Theme.px(10 * root.scale_)
+        x: Theme.px((parent.width - width) / 2)
+        y: Theme.px((parent.height - height) / 2)
         visible: root.icon === "settings"
 
         Repeater {
@@ -37,17 +38,17 @@ Item {
             delegate: Item {
                 required property real modelData
                 required property int index
-                y: index * (parent.height - 1.5 * root.scale_) / 2
+                y: Theme.px(index * (parent.height - Theme.px(1.5 * root.scale_)) / 2)
                 width: parent.width
-                height: 1.5 * root.scale_
+                height: Theme.px(1.5 * root.scale_)
 
                 Rectangle { anchors.fill: parent; radius: height / 2; color: Theme.inkSecondary(root.surface) }
                 Rectangle {
-                    width: 4 * root.scale_
+                    width: Theme.px(4 * root.scale_)
                     height: width
                     radius: width / 2
                     color: Theme.ink(root.surface)
-                    x: (parent.width - width) * modelData
+                    x: Theme.px((parent.width - width) * modelData)
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -56,14 +57,15 @@ Item {
 
     // Grip: six dots.
     Grid {
-        anchors.centerIn: parent
+        x: Theme.px((parent.width - width) / 2)
+        y: Theme.px((parent.height - height) / 2)
         visible: root.icon === "grip"
         columns: 2
-        spacing: 2.5 * root.scale_
+        spacing: Theme.px(2.5 * root.scale_)
         Repeater {
             model: 6
             delegate: Rectangle {
-                width: 2.5 * root.scale_
+                width: Theme.px(2.5 * root.scale_)
                 height: width
                 radius: width / 2
                 color: hover.hovered ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
@@ -73,17 +75,18 @@ Item {
 
     // Dashboard: three rising bars.
     Row {
-        anchors.centerIn: parent
+        x: Theme.px((parent.width - width) / 2)
+        y: Theme.px((parent.height - height) / 2)
         visible: root.icon === "dashboard"
-        spacing: 2 * root.scale_
+        spacing: Theme.px(2 * root.scale_)
         Repeater {
             model: [5, 9, 7]
             delegate: Rectangle {
                 required property real modelData
-                width: 3 * root.scale_
-                height: modelData * root.scale_
+                width: Theme.px(3 * root.scale_)
+                height: Theme.px(modelData * root.scale_)
                 anchors.bottom: parent.bottom
-                radius: 1 * root.scale_
+                radius: Theme.px(1 * root.scale_)
                 color: hover.hovered ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
             }
         }

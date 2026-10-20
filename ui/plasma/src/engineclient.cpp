@@ -65,6 +65,22 @@ static bool isHexColor(const QString &color)
     return hex.match(color).hasMatch();
 }
 
+// The themes the app can paint with; the first is the default. The same
+// names live in the engine's config and in Theme.qml.
+static const QStringList &themeNames()
+{
+    static const QStringList names = {QStringLiteral("noir"), QStringLiteral("classic"),
+                                      QStringLiteral("vidro"), QStringLiteral("clube"),
+                                      QStringLiteral("aurora"), QStringLiteral("terminal")};
+    return names;
+}
+
+// A theme's name, or the default when the config holds one we do not know.
+static QString knownTheme(const QString &name)
+{
+    return themeNames().contains(name) ? name : QStringLiteral("noir");
+}
+
 EngineClient::EngineClient(QObject *parent)
     : QObject(parent)
 {
@@ -278,6 +294,7 @@ void EngineClient::applyDashboard(const QJsonObject &obj)
     m_dashboardSuggestions = obj.value(QStringLiteral("suggestions")).toArray().toVariantList();
     m_dashboardBots = obj.value(QStringLiteral("bots")).toArray().toVariantList();
     m_dashboardTotalUsd = obj.value(QStringLiteral("total_usd")).toDouble(0.0);
+    m_dashboardLoading = false;
     emit dashboardChanged();
 }
 
@@ -341,6 +358,7 @@ void EngineClient::applyConfig(const QJsonObject &config)
         const QString hex = color.toString();
         m_dashboardColors.append(isHexColor(hex) ? hex.toUpper() : QString());
     }
+    m_theme = knownTheme(config.value(QStringLiteral("theme")).toString());
 
     m_providerStates = config.value(QStringLiteral("providers")).toObject();
 
@@ -399,6 +417,12 @@ void EngineClient::requestDashboard(int days)
         clearAnalysis();
     }
     m_dashboardDays = bounded;
+    // The numbers are on their way: the page says so instead of pretending
+    // there is nothing to show.
+    if (!m_dashboardLoading) {
+        m_dashboardLoading = true;
+        emit dashboardChanged();
+    }
     QJsonObject obj{
         {QStringLiteral("type"), QStringLiteral("get_dashboard")},
         {QStringLiteral("days"), m_dashboardDays},
@@ -544,6 +568,7 @@ void EngineClient::pushConfig()
             {QStringLiteral("screen"), m_screenName},
             {QStringLiteral("dashboard_palette"), m_dashboardPalette},
             {QStringLiteral("dashboard_colors"), QJsonArray::fromStringList(m_dashboardColors)},
+            {QStringLiteral("theme"), m_theme},
             {QStringLiteral("providers"), m_providerStates},
             {QStringLiteral("alerts"),
              QJsonObject{
@@ -581,6 +606,7 @@ void EngineClient::pushConfig()
         m_rawConfig.insert(QStringLiteral("screen"), m_screenName);
         m_rawConfig.insert(QStringLiteral("dashboard_palette"), m_dashboardPalette);
         m_rawConfig.insert(QStringLiteral("dashboard_colors"), QJsonArray::fromStringList(m_dashboardColors));
+        m_rawConfig.insert(QStringLiteral("theme"), m_theme);
         m_rawConfig.insert(QStringLiteral("providers"), m_providerStates);
         QJsonObject alerts = m_rawConfig.value(QStringLiteral("alerts")).toObject();
         alerts.insert(QStringLiteral("enabled"), m_alertsEnabled);
@@ -693,6 +719,16 @@ void EngineClient::setDashboardPalette(const QString &name)
         return;
     }
     m_dashboardPalette = name;
+    emit configChanged();
+    pushConfig();
+}
+
+void EngineClient::setTheme(const QString &name)
+{
+    if (knownTheme(name) != name) {
+        return;
+    }
+    m_theme = name;
     emit configChanged();
     pushConfig();
 }

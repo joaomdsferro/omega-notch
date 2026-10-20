@@ -808,3 +808,73 @@ struct MotionPicker: View {
     }
   }
 }
+
+/// The themes, one row each: the theme's own colours as a preview, its name,
+/// and a mark on the one in use.
+struct ThemePicker: View {
+  var value: String
+  var pick: (String) -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ForEach(Array(ThemeCatalog.names.enumerated()), id: \.element) { index, name in
+        ThemeRow(name: name, chosen: name == value) { pick(name) }
+        if index < ThemeCatalog.names.count - 1 {
+          Rectangle().fill(Theme.hairline).frame(height: 1)
+        }
+      }
+    }
+  }
+}
+
+/// One theme: its colours, its name, and the mark that says it is in use.
+private struct ThemeRow: View {
+  var name: String
+  var chosen: Bool
+  var pick: () -> Void
+
+  @State private var hovered = false
+
+  var body: some View {
+    Button(action: pick) {
+      HStack(spacing: 12) {
+        HStack(spacing: 3) {
+          ForEach(ThemeCatalog.swatches(name), id: \.self) { hex in
+            RoundedRectangle(cornerRadius: 4)
+              .fill(Color(hex: hex))
+              .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.cardStroke, lineWidth: 1))
+              .frame(width: 14, height: 28)
+          }
+        }
+        VStack(alignment: .leading, spacing: 1) {
+          Text(ThemeCatalog.label(name))
+            .font(.notch(13, .semibold))
+            .foregroundStyle(Theme.text)
+          Text(ThemeCatalog.blurb(name))
+            .font(.notch(11.5))
+            .foregroundStyle(Theme.textSecondary)
+        }
+        Spacer(minLength: 8)
+        ZStack {
+          Circle()
+            .stroke(chosen ? Theme.accent : Theme.track, lineWidth: 1.5)
+            .frame(width: 16, height: 16)
+          if chosen {
+            Circle().fill(Theme.accent).frame(width: 8, height: 8)
+          }
+        }
+      }
+      .padding(.vertical, 8)
+      .padding(.horizontal, 10)
+      .background(RoundedRectangle(cornerRadius: 10).fill(hovered ? Theme.panelHover : .clear))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovered = $0 }
+    .clickable()
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(ThemeCatalog.label(name))
+    .accessibilityValue(chosen ? "In use" : "")
+    .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+  }
+}

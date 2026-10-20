@@ -32,7 +32,16 @@ struct DashCard<Trailing: View, Content: View>: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(
       RoundedRectangle(cornerRadius: 12).fill(Theme.panelRaised)
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline, lineWidth: 1)))
+        // The top edge catches the light: the card has a lip, and does not
+        // look like a flat sticker on the page.
+        .overlay(
+          RoundedRectangle(cornerRadius: 12)
+            .fill(
+              LinearGradient(
+                colors: [Color.white.opacity(0.09), Color.white.opacity(0)],
+                startPoint: .top, endPoint: .init(x: 0.5, y: 0.16)))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardStroke, lineWidth: 1)))
   }
 }
 
@@ -337,7 +346,15 @@ struct LimitCard: View {
     .frame(maxWidth: .infinity, minHeight: 20 + 64 + 16 + CGFloat(windowSlots) * 40 + 12, alignment: .topLeading)
     .background(
       RoundedRectangle(cornerRadius: 12).fill(hovered ? Theme.panelHover : Theme.panelRaised)
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline, lineWidth: 1)))
+        // The top edge catches the light, like the other cards.
+        .overlay(
+          RoundedRectangle(cornerRadius: 12)
+            .fill(
+              LinearGradient(
+                colors: [Color.white.opacity(0.09), Color.white.opacity(0)],
+                startPoint: .top, endPoint: .init(x: 0.5, y: 0.16)))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardStroke, lineWidth: 1)))
     .animation(.easeOut(duration: 0.12), value: hovered)
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
