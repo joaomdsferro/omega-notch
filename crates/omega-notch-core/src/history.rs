@@ -369,7 +369,7 @@ pub fn query_models(days: u32) -> anyhow::Result<Vec<ModelDayPoint>> {
     )?;
     let rows = stmt.query_map(params![cutoff(days)], |row| {
         let provider: String = row.get(0)?;
-        let model: String = row.get(2)?;
+        let model = crate::chats::normalize_model_label(&row.get::<_, String>(2)?);
         let t = totals_from(row, 3)?;
         Ok(ModelDayPoint {
             provider: parse_provider(&provider),
@@ -499,7 +499,7 @@ fn scoped_since(
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
+            crate::chats::normalize_model_label(&row.get::<_, String>(2)?),
             row.get::<_, String>(3)?,
             totals_from(row, 4)?,
             row.get::<_, Option<String>>(8)?,
