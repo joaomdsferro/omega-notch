@@ -1,18 +1,36 @@
+mod amp;
+mod apify;
 mod claude_code;
 mod claude_desktop;
 mod codex;
+mod command_code;
 mod copilot;
 mod cursor;
+mod devin;
+mod glm;
+mod grok;
 mod grok_bot;
+mod kilo;
+mod kimi;
+mod kiro;
 mod opencode;
 mod traits;
 
+pub use amp::AmpProvider;
+pub use apify::ApifyProvider;
 pub use claude_code::ClaudeCodeProvider;
 pub use claude_desktop::ClaudeDesktopProvider;
 pub use codex::CodexProvider;
+pub use command_code::CommandCodeProvider;
 pub use copilot::CopilotProvider;
 pub use cursor::CursorProvider;
+pub use devin::DevinProvider;
+pub use glm::GlmProvider;
+pub use grok::GrokProvider;
 pub use grok_bot::GrokBotProvider;
+pub use kilo::KiloProvider;
+pub use kimi::KimiProvider;
+pub use kiro::KiroProvider;
 pub use opencode::OpenCodeProvider;
 pub use traits::{Provider, ProviderError};
 
@@ -74,6 +92,21 @@ pub static PROVIDERS: &[ProviderDescriptor] = &[
     ProviderDescriptor::new(ProviderId::OpenCode, "OpenCode", || {
         Box::pin(OpenCodeProvider.fetch())
     }),
+    ProviderDescriptor::new(ProviderId::Kimi, "Kimi", || Box::pin(KimiProvider.fetch())),
+    ProviderDescriptor::new(ProviderId::Grok, "Grok", || Box::pin(GrokProvider.fetch())),
+    ProviderDescriptor::new(ProviderId::Apify, "Apify", || {
+        Box::pin(ApifyProvider.fetch())
+    }),
+    ProviderDescriptor::new(ProviderId::Devin, "Devin", || {
+        Box::pin(DevinProvider.fetch())
+    }),
+    ProviderDescriptor::new(ProviderId::Amp, "Amp", || Box::pin(AmpProvider.fetch())),
+    ProviderDescriptor::new(ProviderId::Kiro, "Kiro", || Box::pin(KiroProvider.fetch())),
+    ProviderDescriptor::new(ProviderId::Kilo, "Kilo", || Box::pin(KiloProvider.fetch())),
+    ProviderDescriptor::new(ProviderId::Glm, "GLM", || Box::pin(GlmProvider.fetch())),
+    ProviderDescriptor::new(ProviderId::CommandCode, "Command Code", || {
+        Box::pin(CommandCodeProvider.fetch())
+    }),
 ];
 
 pub fn descriptor(id: &ProviderId) -> Option<&'static ProviderDescriptor> {
@@ -108,7 +141,7 @@ mod tests {
         for provider in PROVIDERS {
             assert!(seen.insert(provider.id().as_str()));
         }
-        assert_eq!(PROVIDERS.len(), 7);
+        assert_eq!(PROVIDERS.len(), 16);
         assert_eq!(
             descriptor(&ProviderId::OpenCode).map(ProviderDescriptor::display_name),
             Some("OpenCode")

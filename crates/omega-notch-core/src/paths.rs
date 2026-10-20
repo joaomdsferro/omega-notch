@@ -183,6 +183,65 @@ pub fn opencode_db() -> PathBuf {
     opencode_dir().join("opencode.db")
 }
 
+/// Kimi Code CLI's OAuth session. `KIMI_CODE_HOME` moves the whole data root.
+pub fn kimi_credentials() -> PathBuf {
+    if let Some(root) = std::env::var_os("KIMI_CODE_HOME").filter(|p| !p.is_empty()) {
+        return PathBuf::from(root).join("credentials/kimi-code.json");
+    }
+    home().join(".kimi-code/credentials/kimi-code.json")
+}
+
+/// Grok CLI's session: the access token, and the refresh token and client id
+/// it renews with.
+pub fn grok_auth() -> PathBuf {
+    home().join(".grok/auth.json")
+}
+
+/// Where the Amp CLI keeps its API key.
+pub fn amp_secrets() -> PathBuf {
+    home().join(".local/share/amp/secrets.json")
+}
+
+/// Where `apify login` keeps its session.
+pub fn apify_auth() -> PathBuf {
+    home().join(".apify/auth.json")
+}
+
+/// Devin Desktop's global-storage database, where its sign-in lives.
+pub fn devin_desktop_db() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home().join("Library/Application Support/Devin/User/globalStorage/state.vscdb")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        config_home().join("Devin/User/globalStorage/state.vscdb")
+    }
+}
+
+/// The credentials `devin auth login` writes, used when Devin Desktop is not
+/// installed. Devin keeps them under `~/.local/share` on macOS too.
+pub fn devin_cli_credentials() -> PathBuf {
+    home().join(".local/share/devin/credentials.toml")
+}
+
+/// The Command Code desktop app's sign-in.
+pub fn command_code_auth() -> PathBuf {
+    home().join(".commandcode/auth.json")
+}
+
+/// The Kilo CLI's account, shared by the VS Code extension and JetBrains
+/// plugin.
+pub fn kilo_auth() -> PathBuf {
+    home().join(".local/share/kilo/auth.json")
+}
+
+/// Claude Code's settings file, where a GLM Coding Plan key is often pointed
+/// at a Z.ai base URL.
+pub fn claude_settings() -> PathBuf {
+    claude_home().join("settings.json")
+}
+
 fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }

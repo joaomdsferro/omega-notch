@@ -518,11 +518,7 @@ mod tests {
         ];
         rows[0]["avatarShape"] = serde_json::json!("teardrop");
         rows[0]["avatarColor"] = serde_json::json!("violet");
-        write_blob(
-            &dir,
-            &format!("{account}roster.last-roster"),
-            &roster(rows),
-        );
+        write_blob(&dir, &format!("{account}roster.last-roster"), &roster(rows));
         let now = Utc::now().timestamp_millis();
         let old = now - Duration::days(30).num_milliseconds();
         let entries = serde_json::json!([

@@ -133,6 +133,15 @@ To remove it, run `./uninstall.sh` from the same folder.
 | **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |
 | **OpenCode** | the sub-provider's own limits when known (Anthropic, GitHub Copilot); its local data otherwise | — | `~/.local/share/opencode/opencode.db` (model per session) | the same database, last 7 days |
 | **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | the sand store's bot roster (`~/.config/Grok Bot/sand-client-persistence`), name and last message per bot | — |
+| **Kimi** | `api.kimi.com/coding/v1/usages` with the Kimi Code CLI's OAuth session (`~/.kimi-code/credentials/kimi-code.json`) | — | — | — |
+| **Grok** | `cli-chat-proxy.grok.com` credits, with Grok CLI's `~/.grok/auth.json` (renewed in memory) | — | — | — |
+| **Amp** | `ampcode.com/api/internal` balance, with the Amp CLI's key (`~/.local/share/amp/secrets.json`) | — | — | — |
+| **Apify** | `api.apify.com/v2/users/me/limits` (monthly spend against the account cap), with `APIFY_TOKEN` or `~/.apify/auth.json` | — | — | — |
+| **Kiro** | `kiro-cli chat --no-interactive /usage`, parsed from its card | — | — | — |
+| **Kilo** | `api.kilo.ai` coding-plan windows and credit balance, with the Kilo CLI's sign-in (`~/.local/share/kilo/auth.json`) | — | — | — |
+| **GLM** | Z.ai's quota monitor, with a GLM Coding Plan key from `~/.claude/settings.json` or opencode's sign-in | — | — | — |
+| **Command Code** | `/alpha` usage, credits and subscription, with `~/.commandcode/auth.json` | — | — | — |
+| **Devin** | `GetUserStatus`, with Devin Desktop's store or `devin auth login`'s credentials | — | — | — |
 
 On macOS, the folders under `~/.config` in this table are under `~/Library/Application Support`
 instead, such as `~/Library/Application Support/Claude` and `~/Library/Application Support/Cursor`.

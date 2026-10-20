@@ -26,6 +26,15 @@ impl ProviderId {
     /// The opencode TUI; whichever sub-provider it is signed in to shows in
     /// the chats' model labels.
     pub const OpenCode: Self = Self(Cow::Borrowed("opencode"));
+    pub const Kimi: Self = Self(Cow::Borrowed("kimi"));
+    pub const Grok: Self = Self(Cow::Borrowed("grok"));
+    pub const Amp: Self = Self(Cow::Borrowed("amp"));
+    pub const Apify: Self = Self(Cow::Borrowed("apify"));
+    pub const Kiro: Self = Self(Cow::Borrowed("kiro"));
+    pub const Kilo: Self = Self(Cow::Borrowed("kilo"));
+    pub const Glm: Self = Self(Cow::Borrowed("glm"));
+    pub const CommandCode: Self = Self(Cow::Borrowed("command_code"));
+    pub const Devin: Self = Self(Cow::Borrowed("devin"));
     /// Reserved for a future browser extension.
     pub const ClaudeWeb: Self = Self(Cow::Borrowed("claude_web"));
     pub const ChatgptWeb: Self = Self(Cow::Borrowed("chatgpt_web"));
@@ -48,6 +57,15 @@ impl ProviderId {
             "grok_bot" => "Grok Bot",
             "codex" => "Codex",
             "opencode" => "OpenCode",
+            "kimi" => "Kimi",
+            "grok" => "Grok",
+            "amp" => "Amp",
+            "apify" => "Apify",
+            "kiro" => "Kiro",
+            "kilo" => "Kilo",
+            "glm" => "GLM",
+            "command_code" => "Command Code",
+            "devin" => "Devin",
             "claude_web" => "Claude Web",
             "chatgpt_web" => "ChatGPT",
             "gemini_web" => "Gemini",

@@ -96,12 +96,21 @@
     "size": "medium",
     "accent": "plasma",
     "providers": {
+      "amp": true,
+      "apify": true,
       "claude_code": true,
       "claude_desktop": true,
       "codex": true,
+      "command_code": true,
       "copilot": true,
       "cursor": true,
+      "devin": true,
+      "glm": true,
+      "grok": true,
       "grok_bot": true,
+      "kilo": true,
+      "kimi": true,
+      "kiro": true,
       "opencode": true
     },
     "alerts": {

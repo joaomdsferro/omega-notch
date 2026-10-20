@@ -231,8 +231,10 @@ per-model price table (cache-aware) — never a bill.
 
 Ids are strings; the engine's registry currently fetches `cursor` ·
 `claude_code` · `claude_desktop` · `copilot` · `grok_bot` · `codex` ·
-`opencode`, with `claude_web` · `chatgpt_web` · `gemini_web` reserved for
-future shells. A shell reads the live list from a snapshot's `providers`.
+`opencode` · `kimi` · `grok` · `apify` · `devin` · `amp` · `kiro` · `kilo` ·
+`glm` · `command_code`, with `claude_web` · `chatgpt_web` · `gemini_web`
+reserved for future shells. A shell reads the live list from a snapshot's
+`providers`.
 
 ## Hook HTTP (localhost)
 

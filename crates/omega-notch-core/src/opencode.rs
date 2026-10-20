@@ -266,11 +266,13 @@ pub fn activity() -> (Vec<ChatSummary>, TokenStats) {
     let Some(conn) = connect() else {
         return (Vec::new(), empty_stats(Local::now().date_naive()));
     };
-    activity_from(&conn)
+    activity_from(&conn, Local::now())
 }
 
-fn activity_from(conn: &Connection) -> (Vec<ChatSummary>, TokenStats) {
-    let today = Local::now().date_naive();
+/// `now` is the clock the days are counted by; the tests pin it, so a turn
+/// that lands on the other side of midnight cannot make the day before it.
+fn activity_from(conn: &Connection, now: DateTime<Local>) -> (Vec<ChatSummary>, TokenStats) {
+    let today = now.date_naive();
     let first_day = today - ChronoDuration::days(HISTORY_DAYS - 1);
     let mut stats = empty_stats(today);
     let sessions = read_sessions(conn);
@@ -554,10 +556,6 @@ pub fn compact_tokens(n: u64) -> String {
 mod tests {
     use super::*;
 
-    fn now_ms() -> i64 {
-        Utc::now().timestamp_millis()
-    }
-
     fn fixture() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -581,14 +579,21 @@ mod tests {
         conn
     }
 
-    fn add_session(conn: &Connection, id: &str, parent: Option<&str>, title: &str, model: &str) {
+    fn add_session(
+        conn: &Connection,
+        id: &str,
+        parent: Option<&str>,
+        title: &str,
+        model: &str,
+        at: i64,
+    ) {
         conn.execute(
             "INSERT INTO session(id, parent_id, title, directory, model,
                 tokens_input, tokens_output, tokens_reasoning,
                 tokens_cache_read, tokens_cache_write, summary_additions, summary_deletions,
                 time_updated)
              VALUES (?1, ?2, ?3, '/home/me/app', ?4, 300, 100, 40, 5000, 0, 12, 3, ?5)",
-            rusqlite::params![id, parent, title, model, now_ms() - 60_000,],
+            rusqlite::params![id, parent, title, model, at - 60_000,],
         )
         .unwrap();
     }
@@ -600,16 +605,17 @@ mod tests {
         role: &str,
         provider: &str,
         model: &str,
+        at: i64,
     ) {
         let data = format!(
             r#"{{"role":"{role}","providerID":"{provider}","modelID":"{model}",
                 "time":{{"created":{}}},"tokens":{{"input":300,"output":100,"reasoning":40,
                 "cache":{{"read":5000,"write":0}}}}}}"#,
-            now_ms() - 30_000,
+            at,
         );
         conn.execute(
             "INSERT INTO message(id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![id, session, now_ms() - 30_000, data],
+            rusqlite::params![id, session, at, data],
         )
         .unwrap();
     }
@@ -641,12 +647,18 @@ mod tests {
     #[test]
     fn chats_fold_subagents_into_their_parent_and_keep_labels() {
         let conn = fixture();
+        // One clock for the fixture and the code under test: a turn written
+        // half a second before midnight belongs to the day before, and the
+        // test would fail for a day that never happened.
+        let now = Local::now();
+        let at = now.timestamp_millis();
         add_session(
             &conn,
             "ses_root",
             None,
             "New session - 2026-10-19T19:22:52.028Z",
             r#"{"id":"deepseek-v4.1-flash-free","providerID":"opencode"}"#,
+            at,
         );
         add_session(
             &conn,
@@ -654,6 +666,7 @@ mod tests {
             Some("ses_root"),
             "Explore the provider system (@explore subagent)",
             r#"{"id":"deepseek-v4.1-flash-free","providerID":"opencode"}"#,
+            at,
         );
         conn.execute(
             "UPDATE session SET tokens_input = 0, tokens_output = 0, tokens_reasoning = 0,
@@ -668,6 +681,7 @@ mod tests {
             "user",
             "opencode",
             "deepseek-v4.1-flash-free",
+            at,
         );
         add_turn(
             &conn,
@@ -676,6 +690,7 @@ mod tests {
             "assistant",
             "opencode",
             "deepseek-v4.1-flash-free",
+            at + 1,
         );
         add_turn(
             &conn,
@@ -684,9 +699,10 @@ mod tests {
             "assistant",
             "opencode",
             "deepseek-v4.1-flash-free",
+            at + 2,
         );
 
-        let (chats, stats) = activity_from(&conn);
+        let (chats, stats) = activity_from(&conn, now);
         // The subagent is no chat of its own…
         assert_eq!(chats.len(), 1);
         assert_eq!(chats[0].id, "ses_root");
@@ -717,12 +733,15 @@ mod tests {
     #[test]
     fn the_newest_turn_names_the_sub_provider() {
         let conn = fixture();
+        let now = Local::now();
+        let at = now.timestamp_millis();
         add_session(
             &conn,
             "ses_root",
             None,
             "A real title",
             r#"{"id":"claude-sonnet-4-5","providerID":"anthropic"}"#,
+            at,
         );
         add_turn(
             &conn,
@@ -731,6 +750,7 @@ mod tests {
             "assistant",
             "opencode",
             "big-pickle",
+            at,
         );
         add_turn(
             &conn,
@@ -739,6 +759,7 @@ mod tests {
             "assistant",
             "anthropic",
             "claude-sonnet-4-5",
+            at + 1,
         );
         conn.execute(
             "UPDATE message SET time_created = time_created - 60000 WHERE id = 'm1'",
@@ -755,16 +776,59 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_at_the_edge_of_midnight_belongs_to_its_own_day() {
+        let conn = fixture();
+        // The last second of a day: the turn belongs to that day, whatever
+        // the wall clock says when the test runs.
+        let naive = Local::now().date_naive().and_hms_opt(23, 59, 59).unwrap();
+        let now = Local.from_local_datetime(&naive).earliest().unwrap();
+        let at = now.timestamp_millis();
+        add_session(
+            &conn,
+            "ses_root",
+            None,
+            "A real title",
+            r#"{"id":"claude-sonnet-4-5","providerID":"anthropic"}"#,
+            at,
+        );
+        // Only an assistant turn counts towards the tokens.
+        add_turn(
+            &conn,
+            "m1",
+            "ses_root",
+            "assistant",
+            "anthropic",
+            "claude-sonnet-4-5",
+            at,
+        );
+
+        let (_, stats) = activity_from(&conn, now);
+        assert!(stats.today.total() > 0);
+        assert_eq!(stats.today.total(), stats.week.total());
+        assert_eq!(
+            stats.daily.last().map(|day| day.total),
+            Some(stats.today.total())
+        );
+    }
+
+    #[test]
     fn empty_sessions_are_not_chats() {
         let conn = fixture();
-        add_session(&conn, "ses_empty", None, "New session - 2026-10-19", "{}");
+        add_session(
+            &conn,
+            "ses_empty",
+            None,
+            "New session - 2026-10-19",
+            "{}",
+            Local::now().timestamp_millis(),
+        );
         conn.execute(
             "UPDATE session SET tokens_input = 0, tokens_output = 0, tokens_reasoning = 0,
                 tokens_cache_read = 0, tokens_cache_write = 0",
             [],
         )
         .unwrap();
-        let (chats, stats) = activity_from(&conn);
+        let (chats, stats) = activity_from(&conn, Local::now());
         assert!(chats.is_empty());
         assert_eq!(stats.today.total(), 0);
     }
