@@ -420,8 +420,13 @@ fn classify_latest(
     let fresh = now.timestamp_millis() - at < stale;
     if meta.role.as_deref() == Some("user") {
         // A prompt just sent: the turn has started even if the assistant
-        // message is not written yet.
-        return Some(SessionKind::Busy);
+        // message is not written yet. One that never got a reply is a turn
+        // the process took with it when it quit, however old the session.
+        return Some(if fresh {
+            SessionKind::Busy
+        } else {
+            SessionKind::Idle
+        });
     }
     if meta.time.as_ref().and_then(|t| t.completed).is_none() {
         return Some(if fresh {
@@ -946,6 +951,23 @@ mod tests {
             .find(|session| session.id == "ses_stale")
             .unwrap();
         assert_eq!(stale.kind, SessionKind::Idle);
+    }
+
+    #[test]
+    fn a_prompt_without_a_reply_stops_working_when_it_goes_stale() {
+        let conn = fixture();
+        let now = Utc::now();
+        let at = now.timestamp_millis();
+        add_session(&conn, "ses_prompt", None, "Prompt", "", at);
+        add_message(&conn, "msg_prompt", "ses_prompt", "user", None, None, at);
+        assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Busy);
+
+        conn.execute(
+            "UPDATE message SET time_created = ?1, time_updated = ?1 WHERE id = 'msg_prompt'",
+            rusqlite::params![at - 3_600_000],
+        )
+        .unwrap();
+        assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Idle);
     }
 
     #[test]
