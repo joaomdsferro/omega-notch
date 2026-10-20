@@ -282,8 +282,9 @@ pub struct Liveness {
 
 /// What every opencode session is doing right now, read from the messages the
 /// database already holds: an assistant turn without `time.completed` is still
-/// running, a tool waiting on approval is `pending`, and a completed `question`
-/// tool means the agent stopped to ask.
+/// running, and a `question` tool marks the agent stopped to ask. A tool part
+/// in `pending` is only queued to start, so it never means we are being waited
+/// on.
 pub fn live_sessions() -> Vec<Liveness> {
     connect()
         .map(|conn| live_sessions_from(&conn, Utc::now()))
@@ -450,7 +451,6 @@ fn classify_latest(
     };
 
     let mut newest = at;
-    let mut pending = false;
     let mut running = false;
     let mut asking = false;
     for part in parts.flatten() {
@@ -464,17 +464,16 @@ fn classify_latest(
         }
         let status = part.state.as_ref().and_then(|s| s.status.as_deref());
         match status {
-            // A tool waiting on permission, and a question waiting on an
-            // answer, block the agent on the user for as long as they last.
-            Some("pending") => pending = true,
+            // A question blocks the agent on the user for as long as it lasts.
+            // `pending` tools are merely queued, and permission asks do not
+            // reach the database at all.
             Some("running") if part.tool.as_deref() == Some("question") => asking = true,
             Some("running") => running = true,
             _ => {}
         }
     }
 
-    // Both wait for the user, and neither is a finished turn.
-    if pending || asking {
+    if asking {
         return Some((SessionKind::WaitingYou, false));
     }
     let fresh = now.timestamp_millis() - newest < stale;
@@ -1043,7 +1042,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_tool_works_and_a_pending_one_waits() {
+    fn a_queued_tool_does_not_mean_we_are_waited_on() {
         let conn = fixture();
         let now = Utc::now();
         let at = now.timestamp_millis();
@@ -1053,7 +1052,7 @@ mod tests {
             "msg_tool",
             "ses_tool",
             "assistant",
-            Some(at),
+            None,
             Some("tool-calls"),
             at,
         );
@@ -1078,11 +1077,10 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(
-            live_sessions_from(&conn, now)[0].kind,
-            SessionKind::WaitingYou
-        );
-        assert!(!live_sessions_from(&conn, now)[0].finished);
+        // A `pending` part is a queued tool, not an approval request.
+        let live = live_sessions_from(&conn, now);
+        assert_eq!(live[0].kind, SessionKind::Busy);
+        assert!(!live[0].finished);
     }
 
     #[test]
@@ -1093,7 +1091,7 @@ mod tests {
         );
         assert_eq!(
             model_label("deepseek-v4.1-flash-free", "opencode"),
-            "Deepseek V4.1 Flash Free · Zen"
+            "DeepSeek V4.1 Flash Free · Zen"
         );
         assert_eq!(model_label("big-pickle", ""), "Big Pickle");
         assert_eq!(sub_provider_label("github-copilot"), "GitHub Copilot");
@@ -1176,7 +1174,7 @@ mod tests {
         assert_eq!(chats[0].messages, 1);
         assert_eq!(
             chats[0].model.as_deref(),
-            Some("Deepseek V4.1 Flash Free · Zen")
+            Some("DeepSeek V4.1 Flash Free · Zen")
         );
         assert_eq!(chats[0].tokens.unwrap().total(), 300 + 140 + 5000);
 
@@ -1185,7 +1183,7 @@ mod tests {
         assert_eq!(stats.session_days[0].session_id, "ses_root");
         assert_eq!(
             stats.session_days[0].model,
-            "Deepseek V4.1 Flash Free · Zen"
+            "DeepSeek V4.1 Flash Free · Zen"
         );
         assert_eq!(stats.today.total(), stats.week.total());
         assert!(stats.today.total() > 0);
