@@ -127,7 +127,7 @@ To remove it, run `./uninstall.sh` from the same folder.
 | | Limits | Live sessions | Chats | Tokens |
 |---|---|---|---|---|
 | **Claude Code** | OAuth usage endpoint (sign-in from the login Keychain on macOS) | `~/.claude/sessions/*.json` | `~/.claude/projects/**/*.jsonl` | the same transcripts |
-| **Cursor** | usage summary endpoint | recent agent files (best effort) | `composerHeaders` + `composerData` model in `state.vscdb` | context % and lines changed only |
+| **Cursor** | usage summary endpoint | composer live flags + open agent transcripts (`turn_ended`) | `composerHeaders` + `composerData` model in `state.vscdb` | usage-events API (in/out/cache); context % and lines on chats |
 | **Claude Desktop** | `~/.config/Claude/plan-usage-history.json` (no reset times) | — | — | — |
 | **GitHub Copilot** | `copilot_internal/user` endpoint (premium requests, or chat/completions on Free) | VS Code Copilot Chat transcripts (best effort) | — | — |
 | **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 
 use chrono::Utc;
@@ -35,11 +35,12 @@ pub fn claude_registry_available() -> bool {
 pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
     let mut claude = ClaudeTracker::default();
     let mut opencode = OpenCodeTracker::default();
+    let mut cursor = CursorTracker::default();
 
     // Initial scan
     claude.publish(&store).await;
     opencode.publish(&store).await;
-    publish_cursor_best_effort(&store).await;
+    cursor.publish(&store).await;
     publish_copilot_best_effort(&store).await;
     store.refresh_activity().await;
 
@@ -97,7 +98,7 @@ pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
             _ = ticker.tick() => {
                 claude.publish(&store).await;
                 opencode.publish(&store).await;
-                publish_cursor_best_effort(&store).await;
+                cursor.publish(&store).await;
                 publish_copilot_best_effort(&store).await;
                 activity_dirty = true;
             }
@@ -291,9 +292,53 @@ fn summarize_claude(live: &[LiveSession], provider: &ProviderId) -> SessionState
     }
 }
 
-async fn publish_cursor_best_effort(store: &UsageStore) {
-    let state = detect_cursor_session();
-    store.apply_session(state).await;
+/// Remembers each Cursor composer so one finishing is announced even while
+/// another keeps the provider busy — same idea as Claude Code's registry.
+#[derive(Default)]
+struct CursorTracker {
+    known: HashMap<String, SessionKind>,
+    primed: bool,
+}
+
+impl CursorTracker {
+    async fn publish(&mut self, store: &UsageStore) {
+        let live = chats::cursor_composer_sessions();
+        if self.primed {
+            for session in &live {
+                let before = self.known.get(&session.id).copied();
+                if !cursor_composer_should_announce(before, session.kind) {
+                    continue;
+                }
+                store
+                    .announce(SessionState {
+                        provider: ProviderId::Cursor,
+                        kind: session.kind,
+                        label: Some(session.label.clone()),
+                        updated_at: Utc::now(),
+                    })
+                    .await;
+            }
+        }
+        self.known = live
+            .into_iter()
+            .map(|session| (session.id, session.kind))
+            .collect();
+        self.primed = true;
+
+        // Aggregate for the ring only — finishes were already announced above,
+        // so do not also fire on Busy→Idle here.
+        store.set_session(detect_cursor_session()).await;
+    }
+}
+
+fn cursor_composer_should_announce(before: Option<SessionKind>, now: SessionKind) -> bool {
+    match (before, now) {
+        (Some(SessionKind::Busy), SessionKind::Idle)
+        | (Some(SessionKind::WaitingYou), SessionKind::Idle) => true,
+        (Some(prev), SessionKind::WaitingYou) if prev != SessionKind::WaitingYou => true,
+        (None, SessionKind::WaitingYou) => true,
+        _ => false,
+    }
 }
 
 async fn publish_copilot_best_effort(store: &UsageStore) {
@@ -431,79 +476,81 @@ fn read_hook_state() -> Option<HookFile> {
 }
 
 fn detect_cursor_session() -> crate::protocol::SessionState {
-    // Best-effort: only agent transcripts and edit checkpoints. Walking all of
-    // `.cursor/projects` also picks up MCP metadata refreshes and keeps the
-    // ring busy long after the agent stopped.
-    let candidates = cursor_agent_dirs();
-    let now = SystemTime::now();
-    let mut newest: Option<SystemTime> = None;
-
-    for dir in candidates {
-        if !dir.exists() {
-            continue;
-        }
-        for entry in WalkDir::new(&dir).max_depth(6).into_iter().flatten() {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let path = entry.path();
-            if !cursor_activity_file(path) {
-                continue;
-            }
-            let Ok(meta) = entry.metadata() else { continue };
-            let Ok(modified) = meta.modified() else {
-                continue;
-            };
-            if now.duration_since(modified).unwrap_or_default() < BEST_EFFORT_RECENT {
-                newest = Some(newest.map_or(modified, |t| t.max(modified)));
-            }
+    // Prefer the editor's own composer flags (generating bubbles, waiting on
+    // you). File mtimes alone kept the ring Busy after turns that already
+    // wrote `turn_ended`, and checkpoints/MCP refreshes made it worse.
+    if let Some(state) = chats::cursor_db_session() {
+        if state.kind != SessionKind::Idle {
+            return state;
         }
     }
-
-    let kind = if newest.is_some() {
-        SessionKind::Busy
-    } else {
-        SessionKind::Idle
-    };
-
+    if cursor_open_transcript() {
+        return crate::protocol::SessionState {
+            provider: ProviderId::Cursor,
+            kind: SessionKind::Busy,
+            label: Some("Agent".into()),
+            updated_at: Utc::now(),
+        };
+    }
     crate::protocol::SessionState {
         provider: ProviderId::Cursor,
-        kind,
-        label: newest.map(|_| "Agent".to_string()),
+        kind: SessionKind::Idle,
+        label: None,
         updated_at: Utc::now(),
     }
 }
 
-fn cursor_activity_file(path: &Path) -> bool {
-    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-    // Live agent chat transcripts.
-    if path
-        .extension()
-        .and_then(|s| s.to_str())
-        .is_some_and(|ext| ext == "jsonl")
-        && path
+/// An agent transcript whose last event is not `turn_ended`, still within the
+/// open-turn grace. Cursor often leaves the file quiet for minutes while tools
+/// run, so the short 20s busy window used elsewhere is too tight here.
+fn cursor_open_transcript() -> bool {
+    let home = dirs::home_dir().unwrap_or_default();
+    let root = home.join(".cursor/projects");
+    if !root.is_dir() {
+        return false;
+    }
+    let now = SystemTime::now();
+    let grace = chats::CURSOR_OPEN_TURN_GRACE;
+    for entry in WalkDir::new(&root).max_depth(6).into_iter().flatten() {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+            continue;
+        }
+        if !path
             .components()
             .any(|c| c.as_os_str() == "agent-transcripts")
-    {
-        return true;
-    }
-    // Edit checkpoints written while the agent is applying diffs.
-    if path.components().any(|c| c.as_os_str() == "checkpoints")
-        && (name == "metadata.json" || path.components().any(|c| c.as_os_str() == "diffs"))
-    {
-        return true;
+        {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        if now.duration_since(modified).unwrap_or_default() >= grace {
+            continue;
+        }
+        if cursor_transcript_still_running(path) {
+            return true;
+        }
     }
     false
 }
 
-fn cursor_agent_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    let home = dirs::home_dir().unwrap_or_default();
-    dirs.push(home.join(".cursor/projects"));
-    dirs.push(paths::config_home().join("Cursor/User/globalStorage/anysphere.cursor-retrieval"));
-    // Not `Cursor/logs`: the editor writes there whenever it is open, which
-    // would read as an agent that never stops working.
-    dirs
+fn cursor_transcript_still_running(path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Some(last) = raw.lines().rev().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(last) else {
+        // Unparseable tail while the agent is mid-write → still working.
+        return true;
+    };
+    value.get("type").and_then(Value::as_str) != Some("turn_ended")
 }
 
 /// Fresh file mtime that counts as "still working" for Cursor / Copilot.
@@ -519,6 +566,7 @@ fn detect_copilot_session() -> SessionState {
     let now = SystemTime::now();
     let mut newest_activity: Option<SystemTime> = None;
     let mut open_tool = false;
+    let mut waiting_for_confirmation = false;
 
     for product in paths::vscode_product_dirs() {
         let workspace = product.join("User/workspaceStorage");
@@ -527,29 +575,62 @@ fn detect_copilot_session() -> SessionState {
                 continue;
             };
             for entry in entries.flatten() {
-                let chat = entry.path().join("GitHub.copilot-chat");
-                if !chat.is_dir() {
-                    continue;
+                let workspace_root = entry.path();
+                let chat = workspace_root.join("GitHub.copilot-chat");
+                if chat.is_dir() {
+                    scan_copilot_chat_dir(
+                        &chat,
+                        now,
+                        &mut newest_activity,
+                        &mut open_tool,
+                        &mut waiting_for_confirmation,
+                    );
                 }
-                scan_copilot_chat_dir(&chat, now, &mut newest_activity, &mut open_tool);
+                let sessions = workspace_root.join("chatSessions");
+                if sessions.is_dir() {
+                    scan_copilot_files(
+                        &sessions,
+                        1,
+                        now,
+                        &mut newest_activity,
+                        &mut open_tool,
+                        &mut waiting_for_confirmation,
+                    );
+                }
             }
         }
 
         let empty = product.join("User/globalStorage/emptyWindowChatSessions");
         if empty.is_dir() {
-            scan_copilot_files(&empty, 1, now, &mut newest_activity, &mut open_tool);
+            scan_copilot_files(
+                &empty,
+                1,
+                now,
+                &mut newest_activity,
+                &mut open_tool,
+                &mut waiting_for_confirmation,
+            );
         }
 
         let terminal = product.join("copilot-terminal-output");
         if terminal.is_dir() {
-            scan_copilot_files(&terminal, 1, now, &mut newest_activity, &mut open_tool);
+            scan_copilot_files(
+                &terminal,
+                1,
+                now,
+                &mut newest_activity,
+                &mut open_tool,
+                &mut waiting_for_confirmation,
+            );
         }
     }
 
     let recent = newest_activity
         .is_some_and(|t| now.duration_since(t).unwrap_or_default() < BEST_EFFORT_RECENT);
 
-    let kind = if recent || open_tool {
+    let kind = if waiting_for_confirmation {
+        SessionKind::WaitingYou
+    } else if recent || open_tool {
         SessionKind::Busy
     } else {
         SessionKind::Idle
@@ -558,7 +639,11 @@ fn detect_copilot_session() -> SessionState {
     SessionState {
         provider: ProviderId::Copilot,
         kind,
-        label: (recent || open_tool).then(|| "Agent".to_string()),
+        label: if waiting_for_confirmation {
+            Some("Confirmation pending".to_string())
+        } else {
+            (recent || open_tool).then(|| "Agent".to_string())
+        },
         updated_at: Utc::now(),
     }
 }
@@ -568,9 +653,10 @@ fn scan_copilot_chat_dir(
     now: SystemTime,
     newest: &mut Option<SystemTime>,
     open_tool: &mut bool,
+    waiting_for_confirmation: &mut bool,
 ) {
     // transcripts/*.jsonl, chat-session-resources/**/content.txt, debug-logs
-    scan_copilot_files(chat, 4, now, newest, open_tool);
+    scan_copilot_files(chat, 4, now, newest, open_tool, waiting_for_confirmation);
 }
 
 fn scan_copilot_files(
@@ -579,6 +665,7 @@ fn scan_copilot_files(
     now: SystemTime,
     newest: &mut Option<SystemTime>,
     open_tool: &mut bool,
+    waiting_for_confirmation: &mut bool,
 ) {
     for entry in WalkDir::new(root)
         .max_depth(max_depth)
@@ -618,6 +705,14 @@ fn scan_copilot_files(
                 *open_tool = true;
             }
         }
+        if path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .is_some_and(|name| name == "chatSessions")
+            && copilot_session_has_pending_confirmation(path)
+        {
+            *waiting_for_confirmation = true;
+        }
     }
 }
 
@@ -627,7 +722,7 @@ fn copilot_activity_file(path: &Path) -> bool {
     let parts: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
     if parts
         .iter()
-        .any(|p| *p == "transcripts" || *p == "emptyWindowChatSessions")
+        .any(|p| *p == "transcripts" || *p == "emptyWindowChatSessions" || *p == "chatSessions")
     {
         return path
             .extension()
@@ -647,6 +742,35 @@ fn copilot_activity_file(path: &Path) -> bool {
             .is_some_and(|ext| ext == "jsonl");
     }
     false
+}
+
+fn copilot_session_has_pending_confirmation(path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    raw.lines().any(|line| {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            return false;
+        };
+        pending_confirmation_value(&value)
+    })
+}
+
+fn pending_confirmation_value(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, value)| {
+            (matches!(
+                key.as_str(),
+                "pendingRequests" | "pendingConfirmations" | "requiresConfirmation"
+            ) && match value {
+                Value::Array(items) => !items.is_empty(),
+                Value::Bool(pending) => *pending,
+                _ => false,
+            }) || pending_confirmation_value(value)
+        }),
+        Value::Array(items) => items.iter().any(pending_confirmation_value),
+        _ => false,
+    }
 }
 
 /// True when the transcript has a tool.execution_start without its complete.
@@ -748,7 +872,50 @@ pub fn summarize_sessions() -> HashMap<ProviderId, SessionKind> {
 
 #[cfg(test)]
 mod tests {
-    use super::classify_copilot_open_tool;
+    use super::{
+        classify_copilot_open_tool, cursor_composer_should_announce,
+        cursor_transcript_still_running, pending_confirmation_value,
+    };
+    use crate::protocol::SessionKind;
+    use std::io::Write;
+
+    #[test]
+    fn cursor_announces_each_composer_finish_and_wait() {
+        assert!(cursor_composer_should_announce(
+            Some(SessionKind::Busy),
+            SessionKind::Idle
+        ));
+        assert!(cursor_composer_should_announce(
+            Some(SessionKind::WaitingYou),
+            SessionKind::Idle
+        ));
+        assert!(cursor_composer_should_announce(
+            Some(SessionKind::Busy),
+            SessionKind::WaitingYou
+        ));
+        assert!(cursor_composer_should_announce(None, SessionKind::WaitingYou));
+        assert!(!cursor_composer_should_announce(
+            Some(SessionKind::Idle),
+            SessionKind::Idle
+        ));
+        assert!(!cursor_composer_should_announce(
+            Some(SessionKind::Busy),
+            SessionKind::Busy
+        ));
+        assert!(!cursor_composer_should_announce(None, SessionKind::Idle));
+        assert!(!cursor_composer_should_announce(None, SessionKind::Busy));
+    }
+
+    #[test]
+    fn copilot_pending_request_needs_you() {
+        let pending = serde_json::json!({
+            "v": { "pendingRequests": [{ "toolCallId": "call_1" }] }
+        });
+        let clear = serde_json::json!({ "v": { "pendingRequests": [] } });
+
+        assert!(pending_confirmation_value(&pending));
+        assert!(!pending_confirmation_value(&clear));
+    }
 
     #[test]
     fn copilot_open_tool_counts_as_working() {
@@ -782,5 +949,33 @@ mod tests {
 {"type":"assistant.turn_end","data":{"turnId":"1"},"timestamp":"2026-09-30T18:00:02Z"}
 "#;
         assert!(!classify_copilot_open_tool(raw));
+    }
+
+    #[test]
+    fn cursor_transcript_with_turn_ended_is_not_running() {
+        let dir = std::env::temp_dir().join(format!(
+            "omega-notch-cursor-transcript-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("chat.jsonl");
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            r#"{{"role":"assistant","message":{{"content":[{{"type":"text","text":"hi"}}]}}}}"#
+        )
+        .unwrap();
+        writeln!(file, r#"{{"type":"turn_ended","status":"success"}}"#).unwrap();
+        assert!(!cursor_transcript_still_running(&path));
+
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            r#"{{"role":"assistant","message":{{"content":[{{"type":"tool_use","name":"Shell"}}]}}}}"#
+        )
+        .unwrap();
+        assert!(cursor_transcript_still_running(&path));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

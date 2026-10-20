@@ -4,7 +4,8 @@
 //! - Claude Code: `~/.claude/projects/**/*.jsonl` transcripts for titles and
 //!   token usage, `~/.claude/sessions/*.json` for which chats are live.
 //! - Cursor: the `composerHeaders` table of the editor's global state database,
-//!   with `composerData:<id>` for the model in use.
+//!   with `composerData:<id>` for the model, live flags, and context size.
+//!   Token totals come from Cursor's usage-events API (see `providers::cursor`).
 //! - Codex: `~/.codex/session_index.jsonl` for titles, rollout `session_meta`
 //!   under `~/.codex/sessions` for cwd and surface, and early `turn_context`
 //!   for the model.
@@ -582,6 +583,10 @@ impl ActivityIndex {
             activity.chats.extend(cursor_chats());
         }
 
+        if config.provider_enabled(&ProviderId::Copilot) {
+            activity.chats.extend(copilot_chats());
+        }
+
         if config.provider_enabled(&ProviderId::Codex) {
             for profile in profiles::codex_profiles() {
                 if !config.provider_enabled(&profile.id) {
@@ -806,18 +811,9 @@ fn claude_surface(entrypoint: &str) -> Option<&'static str> {
 // ---------------------------------------------------------------------------
 
 fn cursor_chats() -> Vec<ChatSummary> {
-    let path = paths::cursor_state_db();
-    if !path.exists() {
-        return Vec::new();
-    }
-    let uri = format!("file:{}?mode=ro", path.display());
-    let Ok(conn) = Connection::open_with_flags(
-        &uri,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    ) else {
+    let Some(conn) = open_cursor_state_db() else {
         return Vec::new();
     };
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(400));
 
     // Older Cursor builds have no such table; that is simply "no chats".
     let Ok(mut statement) = conn.prepare(
@@ -860,11 +856,22 @@ fn cursor_chats() -> Vec<ChatSummary> {
             .pointer("/workspaceIdentifier/uri/fsPath")
             .and_then(Value::as_str)
             .map(str::to_string);
-        let waiting = head
-            .get("hasBlockingPendingActions")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let model = cursor_composer_model(&conn, &id);
+        let data = cursor_composer_data(&conn, &id);
+        let state = cursor_composer_kind(&head, data.as_ref(), updated.or(created));
+        let model = data
+            .as_ref()
+            .and_then(cursor_model_from_data)
+            .or_else(|| cursor_composer_model(&conn, &id));
+        let context_tokens = data
+            .as_ref()
+            .and_then(|value| value.pointer("/promptTokenBreakdown/totalUsedTokens"))
+            .and_then(Value::as_u64)
+            .filter(|n| *n > 0);
+        let context_pct = head
+            .get("contextUsagePercent")
+            .or_else(|| data.as_ref().and_then(|v| v.get("contextUsagePercent")))
+            .and_then(Value::as_f64)
+            .map(|p| p.clamp(0.0, 100.0));
 
         chats.push(ChatSummary {
             provider: ProviderId::Cursor,
@@ -880,20 +887,13 @@ fn cursor_chats() -> Vec<ChatSummary> {
             preview: None,
             avatar_shape: None,
             avatar_color: None,
-            state: if waiting {
-                SessionKind::WaitingYou
-            } else {
-                SessionKind::Idle
-            },
-            live: waiting,
+            state,
+            live: state != SessionKind::Idle,
             updated_at,
             messages: 0,
             tokens: None,
-            context_tokens: None,
-            context_pct: head
-                .get("contextUsagePercent")
-                .and_then(Value::as_f64)
-                .map(|p| p.clamp(0.0, 100.0)),
+            context_tokens,
+            context_pct,
             lines_added: head.get("totalLinesAdded").and_then(Value::as_u64),
             lines_removed: head.get("totalLinesRemoved").and_then(Value::as_u64),
             // Cursor keeps no time for its last reply apart from your edits.
@@ -908,10 +908,186 @@ fn cursor_chats() -> Vec<ChatSummary> {
     chats
 }
 
-/// Model chosen for a Cursor composer, from `composerData:<id>` in the same DB.
-fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String> {
+/// One Cursor composer as the session watcher sees it: id, live kind, and a
+/// label for alerts when that composer finishes or asks.
+#[derive(Debug, Clone)]
+pub struct CursorComposerSession {
+    pub id: String,
+    pub kind: SessionKind,
+    pub label: String,
+}
+
+/// Every non-draft composer in Cursor's state DB, newest first. Used both for
+/// the ring's aggregate state and for announcing each chat on its own.
+pub fn cursor_composer_sessions() -> Vec<CursorComposerSession> {
+    let Some(conn) = open_cursor_state_db() else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = conn.prepare(
+        "SELECT composerId, lastUpdatedAt, value FROM composerHeaders \
+         WHERE isSubagent = 0 AND isArchived = 0 ORDER BY recency DESC LIMIT 40",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<i64>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for (id, updated, value) in rows.flatten() {
+        let head: Value = value
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or(Value::Null);
+        if head.get("isDraft").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        let data = cursor_composer_data(&conn, &id);
+        let kind = cursor_composer_kind(&head, data.as_ref(), updated);
+        let label = clean_title(head.get("name").and_then(Value::as_str))
+            .unwrap_or_else(|| "Agent".into());
+        out.push(CursorComposerSession { id, kind, label });
+    }
+    out
+}
+
+/// Ring state from Cursor's composer DB: waiting on you outranks busy.
+pub fn cursor_db_session() -> Option<crate::protocol::SessionState> {
+    // No database at all: let callers fall back to transcripts.
+    open_cursor_state_db()?;
+    let live = cursor_composer_sessions();
+    let rank = |kind: SessionKind| match kind {
+        SessionKind::WaitingYou => 2,
+        SessionKind::Busy => 1,
+        SessionKind::Idle => 0,
+    };
+    // Newest first: on a tie, keep the earlier (more recent) composer.
+    let lead = live.iter().enumerate().max_by_key(|(index, session)| {
+        (rank(session.kind), std::cmp::Reverse(*index))
+    });
+    match lead {
+        Some((_, session)) if session.kind != SessionKind::Idle => {
+            Some(crate::protocol::SessionState {
+                provider: ProviderId::Cursor,
+                kind: session.kind,
+                label: Some(session.label.clone()),
+                updated_at: Utc::now(),
+            })
+        }
+        _ => Some(crate::protocol::SessionState {
+            provider: ProviderId::Cursor,
+            kind: SessionKind::Idle,
+            label: None,
+            updated_at: Utc::now(),
+        }),
+    }
+}
+
+fn open_cursor_state_db() -> Option<Connection> {
+    let path = paths::cursor_state_db();
+    if !path.exists() {
+        return None;
+    }
+    let uri = format!("file:{}?mode=ro", path.display());
+    let conn = Connection::open_with_flags(
+        &uri,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )
+    .ok()?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(400));
+    Some(conn)
+}
+
+/// How long a Cursor turn may sit without new bubble flags before we still
+/// treat it as working. Agent transcripts often stay quiet for minutes while
+/// a tool runs; `status` can even say `aborted` mid-run.
+pub(crate) const CURSOR_OPEN_TURN_GRACE: std::time::Duration =
+    std::time::Duration::from_secs(15 * 60);
+
+pub(crate) fn cursor_composer_kind(
+    head: &Value,
+    data: Option<&Value>,
+    updated_ms: Option<i64>,
+) -> SessionKind {
+    if head
+        .get("hasBlockingPendingActions")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return SessionKind::WaitingYou;
+    }
+    let fresh = composer_recently_touched(head, data, updated_ms);
+    let Some(data) = data else {
+        return SessionKind::Idle;
+    };
+    if data
+        .get("isContinuationInProgress")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return SessionKind::Busy;
+    }
+    if data
+        .get("generatingBubbleIds")
+        .and_then(Value::as_array)
+        .is_some_and(|ids| !ids.is_empty())
+    {
+        return SessionKind::Busy;
+    }
+    match data.get("status").and_then(Value::as_str) {
+        Some("generating" | "streaming" | "in_progress" | "running") => {
+            return SessionKind::Busy;
+        }
+        _ => {}
+    }
+    // Live generation: Cursor sets this while a turn is open, and clears it
+    // when the composer completes. Sticky after a hard abort — only trust it
+    // while the composer was touched recently.
+    if fresh
+        && data
+            .get("chatGenerationUUID")
+            .is_some_and(|value| !value.is_null())
+    {
+        return SessionKind::Busy;
+    }
+    if fresh
+        && (head.get("unfinishedRunAt").is_some_and(|value| !value.is_null())
+            || data
+                .get("unfinishedRunAt")
+                .is_some_and(|value| !value.is_null()))
+    {
+        return SessionKind::Busy;
+    }
+    SessionKind::Idle
+}
+
+fn composer_recently_touched(
+    head: &Value,
+    data: Option<&Value>,
+    updated_ms: Option<i64>,
+) -> bool {
+    let now = Utc::now().timestamp_millis();
+    let grace = CURSOR_OPEN_TURN_GRACE.as_millis() as i64;
+    let candidates = [
+        updated_ms,
+        head.get("unfinishedRunAt").and_then(Value::as_i64),
+        data.and_then(|value| value.get("unfinishedRunAt").and_then(Value::as_i64)),
+        head.get("lastUpdatedAt").and_then(Value::as_i64),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .any(|ms| now.saturating_sub(ms) < grace)
+}
+
+fn cursor_composer_data(conn: &Connection, composer_id: &str) -> Option<Value> {
     let key = format!("composerData:{composer_id}");
-    // Cursor stores these rows as TEXT; accept BLOB too for older shapes.
     let raw = conn
         .query_row(
             "SELECT value FROM cursorDiskKV WHERE key = ?1",
@@ -928,7 +1104,15 @@ fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String>
             },
         )
         .ok()?;
-    let data: Value = serde_json::from_str(&raw).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Model chosen for a Cursor composer, from `composerData:<id>` in the same DB.
+fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String> {
+    cursor_model_from_data(&cursor_composer_data(conn, composer_id)?)
+}
+
+fn cursor_model_from_data(data: &Value) -> Option<String> {
     let config = data.get("modelConfig")?;
     let id = config
         .get("modelName")
@@ -946,6 +1130,280 @@ fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String>
     } else {
         Some(pretty_model(id))
     }
+}
+
+// ---------------------------------------------------------------------------
+// GitHub Copilot Chat
+// ---------------------------------------------------------------------------
+
+fn copilot_chats() -> Vec<ChatSummary> {
+    let mut chats = Vec::new();
+
+    for product in paths::vscode_product_dirs() {
+        let storage = product.join("User/workspaceStorage");
+        let Ok(entries) = std::fs::read_dir(storage) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let workspace = entry.path();
+            let sessions = workspace.join("chatSessions");
+            let cwd = workspace_path(&workspace);
+            let Ok(files) = std::fs::read_dir(sessions) else {
+                continue;
+            };
+            for file in files.flatten() {
+                if file.path().extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let Some(chat) = copilot_chat_file(&file.path(), cwd.as_deref()) else {
+                    continue;
+                };
+                chats.push(chat);
+            }
+        }
+    }
+
+    chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    chats.truncate(MAX_CHATS);
+    chats
+}
+
+fn workspace_path(storage: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(storage.join("workspace.json")).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    let folder = value.get("folder")?.as_str()?;
+    folder
+        .strip_prefix("file://")
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+}
+
+fn copilot_chat_file(path: &Path, cwd: Option<&str>) -> Option<ChatSummary> {
+    let state = copilot_read_session(path)?;
+    let id = state.get("sessionId")?.as_str()?.to_string();
+    let requests = state.get("requests").and_then(Value::as_array);
+    // VS Code persists a session as soon as the Chat panel is opened. Until
+    // the user sends something it is only editor state, not a real chat.
+    if requests.is_none_or(Vec::is_empty) {
+        return None;
+    }
+    let latest = requests.and_then(|items| items.last());
+    let title = state
+        .get("customTitle")
+        .and_then(Value::as_str)
+        .and_then(|text| clean_title(Some(text)))
+        .or_else(|| {
+            requests.and_then(|items| {
+                items.iter().find_map(|request| {
+                    request
+                        .pointer("/message/text")
+                        .and_then(Value::as_str)
+                        .or_else(|| {
+                            request
+                                .pointer("/message/parts/0/text")
+                                .and_then(Value::as_str)
+                        })
+                        .and_then(|text| clean_title(Some(text)))
+                })
+            })
+        })
+        .unwrap_or_else(|| "GitHub Copilot chat".to_string());
+    let updated_ms = latest
+        .and_then(|request| request.get("timestamp").and_then(Value::as_i64))
+        .or_else(|| state.get("lastMessageDate").and_then(Value::as_i64))
+        .or_else(|| state.get("creationDate").and_then(Value::as_i64))?;
+    let updated_at = Utc.timestamp_millis_opt(updated_ms).single()?;
+    let model = latest
+        .and_then(|request| request.get("modelId").and_then(Value::as_str))
+        .or_else(|| {
+            state
+                .pointer("/inputState/selectedModel/identifier")
+                .and_then(Value::as_str)
+        })
+        .map(|model| pretty_model(model.strip_prefix("copilot/").unwrap_or(model)));
+    let waiting = state
+        .get("pendingRequests")
+        .and_then(Value::as_array)
+        .is_some_and(|pending| !pending.is_empty());
+
+    Some(ChatSummary {
+        provider: ProviderId::Copilot,
+        id,
+        title,
+        project: cwd.map(folder_name),
+        cwd: cwd.map(str::to_string),
+        model,
+        surface: Some("VS Code".into()),
+        preview: None,
+        avatar_shape: None,
+        avatar_color: None,
+        state: if waiting {
+            SessionKind::WaitingYou
+        } else {
+            SessionKind::Idle
+        },
+        live: waiting,
+        updated_at,
+        messages: requests.map_or(0, Vec::len) as u32,
+        tokens: None,
+        context_tokens: None,
+        context_pct: None,
+        lines_added: None,
+        lines_removed: None,
+        unread: false,
+        prompted_at: None,
+        replied_at: None,
+    })
+}
+
+/// VS Code Copilot Chat sessions are a JSONL patch log: `kind` 0 is the
+/// initial state, `kind` 1 sets a path, `kind` 2 appends to an array path.
+/// Titles and requests live in later lines, so the first line alone is empty.
+fn copilot_read_session(path: &Path) -> Option<Value> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut state: Option<Value> = None;
+    for line in BufReader::new(file).lines() {
+        let line = line.ok()?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: Value = serde_json::from_str(&line).ok()?;
+        match row.get("kind").and_then(Value::as_i64) {
+            Some(0) => state = row.get("v").cloned(),
+            Some(1) | Some(2) => {
+                let Some(path) = row.get("k").and_then(Value::as_array) else {
+                    continue;
+                };
+                let Some(value) = row.get("v").cloned() else {
+                    continue;
+                };
+                let append = row.get("kind").and_then(Value::as_i64) == Some(2);
+                let root = state.get_or_insert_with(|| Value::Object(Default::default()));
+                copilot_set_path(root, path, value, append);
+            }
+            _ => {
+                // Older builds wrote the whole session as one JSON object.
+                if state.is_none() && row.get("sessionId").is_some() {
+                    state = Some(row);
+                }
+            }
+        }
+    }
+    state
+}
+
+fn copilot_set_path(root: &mut Value, path: &[Value], value: Value, append: bool) {
+    if path.is_empty() {
+        *root = value;
+        return;
+    }
+    let (last, lead) = path.split_last().expect("path is not empty");
+    let parent = copilot_ensure_path(root, lead);
+    match last.as_str() {
+        Some(name) => {
+            let obj = match parent {
+                Value::Object(map) => map,
+                _ => {
+                    *parent = Value::Object(Default::default());
+                    parent.as_object_mut().expect("object")
+                }
+            };
+            if append {
+                let entry = obj
+                    .entry(name.to_string())
+                    .or_insert_with(|| Value::Array(Vec::new()));
+                if !entry.is_array() {
+                    *entry = Value::Array(Vec::new());
+                }
+                let arr = entry.as_array_mut().expect("array");
+                match value {
+                    Value::Array(items) => arr.extend(items),
+                    other => arr.push(other),
+                }
+            } else {
+                obj.insert(name.to_string(), value);
+            }
+        }
+        None => {
+            let Some(idx) = last.as_u64().or_else(|| last.as_i64().map(|n| n as u64)) else {
+                return;
+            };
+            let idx = idx as usize;
+            let arr = match parent {
+                Value::Array(items) => items,
+                _ => {
+                    *parent = Value::Array(Vec::new());
+                    parent.as_array_mut().expect("array")
+                }
+            };
+            while arr.len() <= idx {
+                arr.push(Value::Null);
+            }
+            if append {
+                if !arr[idx].is_array() {
+                    arr[idx] = Value::Array(Vec::new());
+                }
+                let target = arr[idx].as_array_mut().expect("array");
+                match value {
+                    Value::Array(items) => target.extend(items),
+                    other => target.push(other),
+                }
+            } else {
+                arr[idx] = value;
+            }
+        }
+    }
+}
+
+fn copilot_ensure_path<'a>(root: &'a mut Value, path: &[Value]) -> &'a mut Value {
+    let mut cur = root;
+    for (i, key) in path.iter().enumerate() {
+        let next_is_index = path
+            .get(i + 1)
+            .is_some_and(|k| k.as_u64().is_some() || k.as_i64().is_some());
+        if let Some(name) = key.as_str() {
+            if !cur.is_object() {
+                *cur = Value::Object(Default::default());
+            }
+            let obj = cur.as_object_mut().expect("object");
+            obj.entry(name.to_string()).or_insert_with(|| {
+                if next_is_index {
+                    Value::Array(Vec::new())
+                } else {
+                    Value::Object(Default::default())
+                }
+            });
+            let next = obj.get_mut(name).expect("entry");
+            if next_is_index && !next.is_array() {
+                *next = Value::Array(Vec::new());
+            } else if !next_is_index && !next.is_object() {
+                *next = Value::Object(Default::default());
+            }
+            cur = obj.get_mut(name).expect("entry");
+        } else if let Some(idx) = key.as_u64().or_else(|| key.as_i64().map(|n| n as u64)) {
+            let idx = idx as usize;
+            if !cur.is_array() {
+                *cur = Value::Array(Vec::new());
+            }
+            let arr = cur.as_array_mut().expect("array");
+            while arr.len() <= idx {
+                arr.push(if next_is_index {
+                    Value::Array(Vec::new())
+                } else {
+                    Value::Object(Default::default())
+                });
+            }
+            if next_is_index && !arr[idx].is_array() {
+                arr[idx] = Value::Array(Vec::new());
+            } else if !next_is_index && !arr[idx].is_object() {
+                arr[idx] = Value::Object(Default::default());
+            }
+            cur = &mut arr[idx];
+        } else {
+            break;
+        }
+    }
+    cur
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,6 +2057,160 @@ mod tests {
             cursor_composer_model(&conn, named_id).as_deref(),
             Some("Opus 5.5")
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cursor_composer_kind_prefers_waiting_then_busy() {
+        let now_ms = Utc::now().timestamp_millis();
+        let waiting = serde_json::json!({"hasBlockingPendingActions": true});
+        assert_eq!(
+            cursor_composer_kind(&waiting, None, Some(now_ms)),
+            SessionKind::WaitingYou
+        );
+
+        let idle_head = serde_json::json!({"hasBlockingPendingActions": false});
+        let generating = serde_json::json!({
+            "generatingBubbleIds": ["bubble-1"],
+            "status": "completed"
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&generating), Some(now_ms)),
+            SessionKind::Busy
+        );
+
+        let continuing = serde_json::json!({
+            "isContinuationInProgress": true,
+            "generatingBubbleIds": []
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&continuing), Some(now_ms)),
+            SessionKind::Busy
+        );
+
+        let with_generation = serde_json::json!({
+            "status": "aborted",
+            "generatingBubbleIds": [],
+            "chatGenerationUUID": "33026c60-0919-4ff1-b1af-006cf545a177",
+            "unfinishedRunAt": now_ms
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&with_generation), Some(now_ms)),
+            SessionKind::Busy
+        );
+
+        let stale_ms = now_ms - 20 * 60 * 1000;
+        let stale_generation = serde_json::json!({
+            "status": "aborted",
+            "chatGenerationUUID": "33026c60-0919-4ff1-b1af-006cf545a177",
+            "unfinishedRunAt": stale_ms
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&stale_generation), Some(stale_ms)),
+            SessionKind::Idle
+        );
+
+        let done = serde_json::json!({
+            "status": "completed",
+            "generatingBubbleIds": [],
+            "isContinuationInProgress": false
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&done), Some(now_ms)),
+            SessionKind::Idle
+        );
+    }
+
+    #[test]
+    fn copilot_chats_read_titles_from_jsonl_patches() {
+        let root =
+            std::env::temp_dir().join(format!("omega-notch-copilot-chats-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("chatSessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let session_id = "b0231bf7-047d-4cbe-9872-0a3b43d3f6c5";
+        std::fs::write(
+            sessions.join(format!("{session_id}.jsonl")),
+            format!(
+                r#"{{"kind":0,"v":{{"version":3,"creationDate":1792503317985,"sessionId":"{session_id}","requests":[],"pendingRequests":[],"inputState":{{"selectedModel":{{"identifier":"copilot/auto"}}}}}}}}
+{{"kind":1,"k":["customTitle"],"v":"Resolve OS problems in .py"}}
+{{"kind":2,"k":["requests"],"v":[{{"requestId":"request_1","timestamp":1792503353191,"modelId":"copilot/auto","message":{{"text":"resolve os 4 problems deste .py","parts":[{{"text":"resolve os 4 problems deste .py"}}]}}}}]}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let chat = copilot_chat_file(
+            &sessions.join(format!("{session_id}.jsonl")),
+            Some("/home/me/omega-notch"),
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(chat.provider, ProviderId::Copilot);
+        assert_eq!(chat.id, session_id);
+        assert_eq!(chat.title, "Resolve OS problems in .py");
+        assert_eq!(chat.project.as_deref(), Some("omega-notch"));
+        assert_eq!(chat.model.as_deref(), Some("Auto"));
+        assert_eq!(chat.messages, 1);
+        assert!(!chat.live);
+    }
+
+    #[test]
+    fn copilot_chats_fall_back_to_first_prompt_without_custom_title() {
+        let root = std::env::temp_dir().join(format!(
+            "omega-notch-copilot-prompt-title-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("chatSessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        std::fs::write(
+            sessions.join(format!("{session_id}.jsonl")),
+            format!(
+                r#"{{"kind":0,"v":{{"version":3,"creationDate":1792503317985,"sessionId":"{session_id}","requests":[],"pendingRequests":[]}}}}
+{{"kind":2,"k":["requests"],"v":[{{"requestId":"request_1","timestamp":1792503353191,"modelId":"copilot/gpt-5","message":{{"text":"fix the notch title bug"}}}}]}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let chat = copilot_chat_file(
+            &sessions.join(format!("{session_id}.jsonl")),
+            Some("/home/me/app"),
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(chat.title, "fix the notch title bug");
+        assert_eq!(chat.model.as_deref(), Some("GPT 5"));
+    }
+
+    #[test]
+    fn copilot_chats_skip_empty_editor_sessions() {
+        let root = std::env::temp_dir().join(format!(
+            "omega-notch-copilot-empty-session-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("chatSessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let session_id = "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb";
+        let path = sessions.join(format!("{session_id}.jsonl"));
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"kind":0,"v":{{"version":3,"creationDate":1792503317985,"sessionId":"{session_id}","requests":[],"pendingRequests":[],"inputState":{{"selectedModel":{{"identifier":"copilot/auto"}}}}}}}}
+"#
+            ),
+        )
+        .unwrap();
+
+        assert!(copilot_chat_file(&path, Some("/home/me/app")).is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 }
