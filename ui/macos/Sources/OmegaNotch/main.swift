@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     client.onRaiseWindow = { request in WindowRaiser.raise(request) }
     client.start()
     focus.start()
+    trackTheme()
 
     notch.openSettings = { [weak self] in self?.windows.showSettings() }
     notch.openDashboard = { [weak self] in self?.windows.showDashboard() }
@@ -43,6 +44,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationWillTerminate(_ notification: Notification) {
     supervisor.stop()
+  }
+
+  /// Follows the theme in the engine's config, so Settings can change it and
+  /// the whole app follows.
+  private func trackTheme() {
+    withObservationTracking {
+      _ = client.config.theme
+    } onChange: { [weak self] in
+      Task { @MainActor in
+        guard let self else { return }
+        ThemeStore.shared.apply(self.client.config.theme)
+        self.trackTheme()
+      }
+    }
   }
 
   /// The notch shows the alert on its own; this adds the sound and, when

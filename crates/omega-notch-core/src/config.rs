@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::ProviderId;
@@ -50,6 +52,10 @@ pub struct AppConfig {
     /// one keeps the palette's. At most `DASHBOARD_SERIES`.
     #[serde(default)]
     pub dashboard_colors: Vec<String>,
+    /// The theme the shells paint with, by name (see `THEMES`); an unknown
+    /// name falls back to the default.
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 pub const MAX_PROVIDERS_LIMIT: u32 = 5;
@@ -63,6 +69,14 @@ pub const NUB_MOTIONS: [&str; 7] = [
 pub const DASHBOARD_PALETTES: [&str; 3] = ["mono", "vivid", "colorblind"];
 /// Series the dashboard tells apart by colour; later ones reuse the last.
 pub const DASHBOARD_SERIES: usize = 6;
+
+/// The themes the shells can paint with. The first is the default; the rest
+/// are chosen in Settings, under Appearance.
+pub const THEMES: [&str; 6] = ["noir", "classic", "vidro", "clube", "aurora", "terminal"];
+
+fn default_theme() -> String {
+    "noir".to_string()
+}
 
 fn default_dashboard_palette() -> String {
     "mono".to_string()
@@ -128,17 +142,32 @@ pub enum Accent {
     Fixed { hex: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderToggles {
-    pub cursor: bool,
-    pub claude_code: bool,
-    pub claude_desktop: bool,
-    #[serde(default = "default_true")]
-    pub copilot: bool,
-    #[serde(default = "default_true")]
-    pub grok_bot: bool,
-    #[serde(default = "default_true")]
-    pub codex: bool,
+/// Which providers are on. Kept as an open map so a provider added by a
+/// newer engine is not lost when an older shell writes the config back.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProviderToggles(BTreeMap<String, bool>);
+
+impl ProviderToggles {
+    /// Every provider this build knows, on. Explicit in the config so an
+    /// older shell sees the whole list, and a provider added later starts on.
+    pub fn defaults() -> Self {
+        let mut toggles = Self::default();
+        for provider in crate::providers::PROVIDERS {
+            toggles.0.insert(provider.id().as_str().to_string(), true);
+        }
+        toggles
+    }
+
+    /// A provider without an entry is on: new providers work without a
+    /// migration, and configs from before the setting stay enabled.
+    pub fn enabled(&self, id: &ProviderId) -> bool {
+        self.0.get(id.as_str()).copied().unwrap_or(true)
+    }
+
+    pub fn set(&mut self, id: &ProviderId, enabled: bool) {
+        self.0.insert(id.as_str().to_string(), enabled);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,15 +202,25 @@ pub struct AlertSettings {
     /// Whether to announce a provider's usage passing 80% and reaching 100%.
     #[serde(default = "default_true")]
     pub limits: bool,
+    /// Providers whose limit alerts are muted. Absent means not muted.
+    #[serde(default)]
+    pub muted: BTreeMap<String, bool>,
+    /// The pre-map switches, read once and folded into `muted`. Only read:
+    /// shells now use `muted`, and a config without these stays valid.
+    #[serde(default, skip_serializing)]
     pub mute_cursor: bool,
+    #[serde(default, skip_serializing)]
     pub mute_claude_code: bool,
+    #[serde(default, skip_serializing)]
     pub mute_claude_desktop: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub mute_copilot: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub mute_grok_bot: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub mute_codex: bool,
+    #[serde(default, skip_serializing)]
+    pub mute_opencode: bool,
 }
 
 impl Default for AppConfig {
@@ -196,14 +235,7 @@ impl Default for AppConfig {
             edge_position: 0.5,
             size: SizePreset::Medium,
             accent: Accent::Plasma,
-            providers: ProviderToggles {
-                cursor: true,
-                claude_code: true,
-                claude_desktop: true,
-                copilot: true,
-                grok_bot: true,
-                codex: true,
-            },
+            providers: ProviderToggles::defaults(),
             alerts: AlertSettings {
                 enabled: true,
                 sound: true,
@@ -216,12 +248,14 @@ impl Default for AppConfig {
                 open_notch_waiting: true,
                 open_notch_limits: true,
                 limits: true,
+                muted: BTreeMap::new(),
                 mute_cursor: false,
                 mute_claude_code: false,
                 mute_claude_desktop: false,
                 mute_copilot: false,
                 mute_grok_bot: false,
                 mute_codex: false,
+                mute_opencode: false,
             },
             peek_seconds: 5,
             auto_hide: default_auto_hide(),
@@ -235,36 +269,18 @@ impl Default for AppConfig {
             screen: String::new(),
             dashboard_palette: default_dashboard_palette(),
             dashboard_colors: Vec::new(),
+            theme: default_theme(),
         }
     }
 }
 
 impl AppConfig {
-    pub fn provider_enabled(&self, id: ProviderId) -> bool {
-        match id {
-            ProviderId::Cursor => self.providers.cursor,
-            ProviderId::ClaudeCode => self.providers.claude_code,
-            ProviderId::ClaudeDesktop => self.providers.claude_desktop,
-            ProviderId::Copilot => self.providers.copilot,
-            ProviderId::GrokBot => self.providers.grok_bot,
-            ProviderId::Codex => self.providers.codex,
-            _ => false,
-        }
+    pub fn provider_enabled(&self, id: &ProviderId) -> bool {
+        self.providers.enabled(id)
     }
 
-    pub fn alerts_muted(&self, id: ProviderId) -> bool {
-        if !self.alerts.enabled {
-            return true;
-        }
-        match id {
-            ProviderId::Cursor => self.alerts.mute_cursor,
-            ProviderId::ClaudeCode => self.alerts.mute_claude_code,
-            ProviderId::ClaudeDesktop => self.alerts.mute_claude_desktop,
-            ProviderId::Copilot => self.alerts.mute_copilot,
-            ProviderId::GrokBot => self.alerts.mute_grok_bot,
-            ProviderId::Codex => self.alerts.mute_codex,
-            _ => true,
-        }
+    pub fn alerts_muted(&self, id: &ProviderId) -> bool {
+        !self.alerts.enabled || self.alerts.muted.get(id.as_str()).copied().unwrap_or(false)
     }
 
     pub fn load() -> Self {
@@ -305,6 +321,22 @@ impl AppConfig {
         if !DASHBOARD_PALETTES.contains(&self.dashboard_palette.as_str()) {
             self.dashboard_palette = default_dashboard_palette();
         }
+        if !THEMES.contains(&self.theme.as_str()) {
+            self.theme = default_theme();
+        }
+        for (id, muted) in [
+            ("cursor", self.alerts.mute_cursor),
+            ("claude_code", self.alerts.mute_claude_code),
+            ("claude_desktop", self.alerts.mute_claude_desktop),
+            ("copilot", self.alerts.mute_copilot),
+            ("grok_bot", self.alerts.mute_grok_bot),
+            ("codex", self.alerts.mute_codex),
+            ("opencode", self.alerts.mute_opencode),
+        ] {
+            if muted {
+                self.alerts.muted.insert(id.to_string(), true);
+            }
+        }
         self.dashboard_colors.truncate(DASHBOARD_SERIES);
         for color in &mut self.dashboard_colors {
             *color = if is_hex_color(color) {
@@ -341,6 +373,7 @@ mod tests {
         map.remove("screen");
         map.remove("dashboard_palette");
         map.remove("dashboard_colors");
+        map.remove("theme");
         let extra: serde_json::Value = serde_json::from_str(extra).unwrap();
         for (k, v) in extra.as_object().unwrap() {
             map.insert(k.clone(), v.clone());
@@ -377,6 +410,30 @@ mod tests {
             "mute_cursor":false,"mute_claude_code":false,"mute_claude_desktop":false}}"#,
         );
         assert!(!off.alerts.open_notch);
+    }
+
+    #[test]
+    fn provider_toggles_keep_unknown_ids_and_default_to_on() {
+        let c = parse(r#"{"providers":{"cursor":false,"future_tool":false}}"#);
+        assert!(!c.provider_enabled(&ProviderId::Cursor));
+        // A provider the config does not name is on.
+        assert!(c.provider_enabled(&ProviderId::ClaudeCode));
+        assert!(!c.provider_enabled(&ProviderId::new("future_tool")));
+        let raw = serde_json::to_string(&c).unwrap();
+        assert!(raw.contains(r#""future_tool":false"#));
+    }
+
+    #[test]
+    fn old_mutes_migrate_to_the_muted_map() {
+        let c = parse(
+            r#"{"alerts":{"enabled":true,"sound":true,"mute_cursor":true,
+            "mute_claude_code":false}}"#,
+        );
+        assert!(c.alerts_muted(&ProviderId::Cursor));
+        assert!(!c.alerts_muted(&ProviderId::Codex));
+        let raw = serde_json::to_string(&c).unwrap();
+        assert!(!raw.contains("mute_cursor"));
+        assert!(raw.contains(r#""muted":{"cursor":true}"#));
     }
 
     #[test]
@@ -435,5 +492,19 @@ mod tests {
         let c = parse("{}");
         assert_eq!(c.dashboard_palette, "mono");
         assert!(c.dashboard_colors.is_empty());
+    }
+
+    #[test]
+    fn themes_keep_known_names_and_fall_back_to_the_default() {
+        let c = parse(r#"{"theme":"clube"}"#);
+        assert_eq!(c.theme, "clube");
+
+        let c = parse(r#"{"theme":"neon"}"#);
+        assert_eq!(c.theme, "noir");
+
+        // A config from before the setting has none at all.
+        let c = parse("{}");
+        assert_eq!(c.theme, "noir");
+        assert!(THEMES.contains(&c.theme.as_str()));
     }
 }

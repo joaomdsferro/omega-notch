@@ -1081,7 +1081,9 @@ Window {
                         spacing: 12
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: Engine.connected ? "No tools are switched on." : "Waiting for the engine…"
+                            text: Engine.dashboardLoading ? "Loading…"
+                                : Engine.connected ? "No tools are switched on."
+                                : "Waiting for the engine…"
                             color: Theme.textSecondary
                             font.pixelSize: 13
                         }
@@ -1119,7 +1121,8 @@ Window {
                         days: root.costChart.days
                         series: root.costChart.series
                         today: root.today
-                        emptyText: "No cost history yet — it fills in as you work."
+                        emptyText: Engine.dashboardLoading ? "Loading…"
+                            : "No cost history yet — it fills in as you work."
                     }
                     Legend {
                         width: parent.width
@@ -1339,6 +1342,134 @@ Window {
                             text: root.chatsNarrowed ? "No recent chat matches." : "No recent chats found."
                             color: Theme.textTertiary
                             font.pixelSize: 13
+                        }
+                    }
+                }
+            }
+
+            // Grok Bot's bots, busiest first. Grok Bot records no per-bot
+            // counters, so tokens are read off the local transcripts.
+            DashCard {
+                id: botsCard
+                width: parent.width
+                visible: root.matches("grok_bot") && Engine.dashboardBots.length > 0
+                heading: "Grok Bot bots"
+                caption: "By estimated usage in the last " + root.days + " days · estimated from local transcripts, never measured"
+
+                Column {
+                    id: botList
+                    width: parent.width
+
+                    Item {
+                        width: parent.width
+                        height: 20
+                        Text {
+                            x: 0
+                            text: "Bot"
+                            color: Theme.textTertiary
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+                        Row {
+                            anchors.right: parent.right
+                            Text { width: 76; horizontalAlignment: Text.AlignRight; text: "Messages"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                            Text { width: 84; horizontalAlignment: Text.AlignRight; text: "Est. tokens"; color: Theme.textTertiary; font.pixelSize: 11; font.weight: Font.Medium }
+                        }
+                    }
+
+                    Repeater {
+                        model: Engine.dashboardBots
+                        delegate: Item {
+                            id: botRow
+                            required property var modelData
+                            required property int index
+                            width: botList.width
+                            height: 44
+
+                            HoverHandler {
+                                id: rowHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            TapHandler {
+                                onTapped: Engine.openChat({ provider: "grok_bot", id: botRow.modelData.id, title: botRow.modelData.name })
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.leftMargin: -8
+                                anchors.rightMargin: -8
+                                radius: 8
+                                color: Theme.panelHover
+                                opacity: rowHover.hovered ? 1 : 0
+                            }
+                            Rectangle {
+                                width: parent.width
+                                height: 1
+                                color: Theme.hairline
+                                visible: botRow.index > 0 && !rowHover.hovered
+                            }
+
+                            // Every ranked bot gets its drawn avatar — a plain
+                            // disc when the roster never styled one — so the
+                            // names line up.
+                            BotAvatar {
+                                id: botAvatar
+                                x: 0
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 24
+                                height: 24
+                                shape: botRow.modelData.avatar_shape || ""
+                                colorName: botRow.modelData.avatar_color || ""
+                            }
+
+                            Column {
+                                anchors.left: botAvatar.right
+                                anchors.leftMargin: 10
+                                anchors.right: messagesCell.left
+                                anchors.rightMargin: 16
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+                                Text {
+                                    width: parent.width
+                                    text: botRow.modelData.name
+                                    color: Theme.text
+                                    font.pixelSize: 13
+                                    font.weight: Font.Medium
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                                Text {
+                                    width: parent.width
+                                    visible: botRow.modelData.routines !== undefined
+                                             && botRow.modelData.routines.length > 0
+                                    text: botRow.modelData.routines.join(", ")
+                                    color: Theme.textTertiary
+                                    font.pixelSize: 11
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                            }
+                            Text {
+                                id: messagesCell
+                                anchors.right: tokensCell.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 76
+                                horizontalAlignment: Text.AlignRight
+                                text: botRow.modelData.messages
+                                color: Theme.textSecondary
+                                font.pixelSize: 12
+                                font.features: { "tnum": 1 }
+                            }
+                            Text {
+                                id: tokensCell
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 84
+                                horizontalAlignment: Text.AlignRight
+                                text: "~" + Theme.tokens(botRow.modelData.tokens)
+                                color: Theme.text
+                                font.pixelSize: 12
+                                font.features: { "tnum": 1 }
+                            }
                         }
                     }
                 }

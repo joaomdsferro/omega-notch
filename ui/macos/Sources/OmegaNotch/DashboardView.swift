@@ -37,6 +37,13 @@ struct DashboardView: View {
   private func matches(_ provider: String) -> Bool { providerFilter == "all" || provider == providerFilter }
   private var activeReadings: [UsageReading] { client.activeReadings }
   private var shownReadings: [UsageReading] { activeReadings.filter { matches($0.provider) } }
+
+  /// What to say where the numbers are not here yet: the engine is still
+  /// sending them, it is not running, or there is nothing to show.
+  private var loadingHint: String {
+    if client.dashboardLoading { return "Loading…" }
+    return client.connected ? "No tools are switched on." : "Waiting for the engine…"
+  }
   private var dates: [String] { DashboardData.rangeDates(days: days, now: now) }
   private var today: String { DashboardData.isoDay(now) }
   private var points: [HistoryPoint] { client.dashboard.points.filter { matches($0.provider) } }
@@ -224,7 +231,9 @@ struct DashboardView: View {
             ModelTable(models: rows, totalCost: costs.total)
           }
           DashCard(heading: "Today", caption: "Estimated cost and token mix") {
-            CostBreakdown(costs: shownCosts, total: costToday, today: todayTotals)
+            CostBreakdown(
+              costs: shownCosts, total: costToday, today: todayTotals,
+              loading: client.dashboardLoading)
           }
           .frame(width: 360)
         }
@@ -232,6 +241,7 @@ struct DashboardView: View {
 
         sessions(models: rows, rangeCost: costs.total)
         chats
+        bots
       }
       .padding(.horizontal, 32)
       .padding(.top, 40)
@@ -391,7 +401,7 @@ struct DashboardView: View {
       }
       if shownReadings.isEmpty {
         VStack(spacing: 12) {
-          Text(client.connected ? "No tools are switched on." : "Waiting for the engine…")
+          Text(loadingHint)
             .font(.notch(13)).foregroundStyle(Theme.textSecondary)
           if client.connected { TextButton(label: "Open Settings", action: openSettings) }
         }
@@ -590,6 +600,79 @@ struct DashboardView: View {
       }
     }
   }
+
+  /// Grok Bot's bots, busiest first. Grok Bot records no per-bot counters,
+  /// so the tokens are read off the local transcripts, never measured.
+  @ViewBuilder private var bots: some View {
+    let all = client.dashboard.bots
+    if matches("grok_bot") && !all.isEmpty {
+      DashCard(
+        heading: "Grok Bot bots",
+        caption: "By estimated usage in the last \(days) days · estimated from local transcripts, never measured"
+      ) {
+        VStack(spacing: 0) {
+          HStack(spacing: 0) {
+            Text("Bot")
+            Spacer()
+            Text("Messages").frame(width: 76, alignment: .trailing)
+            Text("Est. tokens").frame(width: 84, alignment: .trailing)
+          }
+          .font(.notch(11, .medium)).foregroundStyle(Theme.textTertiary).frame(height: 20)
+          ForEach(Array(all.enumerated()), id: \.element.id) { index, bot in
+            BotRow(bot: bot, first: index == 0) { client.openChat(bot) }
+          }
+        }
+      }
+    }
+  }
+}
+
+/// One Grok Bot bot on the dashboard: its routines under its name, then how
+/// much it moved and what that roughly cost in tokens.
+private struct BotRow: View {
+  var bot: BotUsage
+  var first: Bool
+  var open: () -> Void
+
+  @State private var hovered = false
+
+  var body: some View {
+    HStack(spacing: 0) {
+      // Every ranked bot gets its drawn avatar — a plain disc when the
+      // roster never styled one — so the names line up.
+      BotAvatar(shape: bot.avatarShape ?? "", colorName: bot.avatarColor ?? "")
+        .frame(width: 24, height: 24)
+        .padding(.trailing, 10)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(bot.name).font(.notch(13, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+        if !bot.routines.isEmpty {
+          Text(bot.routines.joined(separator: ", "))
+            .font(.notch(11)).foregroundStyle(Theme.textTertiary).lineLimit(1)
+        }
+      }
+      Spacer(minLength: 16)
+      Text("\(bot.messages)")
+        .font(.notch(12, tabular: true)).foregroundStyle(Theme.textSecondary)
+        .frame(width: 76, alignment: .trailing)
+      Text("~" + Format.tokens(bot.tokens))
+        .font(.notch(12, tabular: true)).foregroundStyle(Theme.text)
+        .frame(width: 84, alignment: .trailing)
+    }
+    .frame(height: 44)
+    .padding(.horizontal, 8)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.panelHover).opacity(hovered ? 1 : 0))
+    .overlay(alignment: .top) {
+      if !first && !hovered { Rectangle().fill(Theme.hairline).frame(height: 1).padding(.horizontal, 8) }
+    }
+    .padding(.horizontal, -8)
+    .contentShape(Rectangle())
+    .onHover { hovered = $0 }
+    .clickable()
+    .onTapGesture(perform: open)
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(.isButton)
+    .accessibilityHint("Open Grok Bot")
+  }
 }
 
 private struct Stat: View {
@@ -684,16 +767,18 @@ private struct CostBreakdown: View {
   var costs: [CostEstimate]
   var total: Double
   var today: TokenTotals
+  var loading: Bool
 
   @Environment(\.seriesShades) private var shades
 
   var body: some View {
     let rows = Array(costs.sorted { $0.costUsd > $1.costUsd }.prefix(6))
-    let mix = [
+    let mix: [(String, Double)] = [
       ("Cache read", today.cacheRead), ("Cache write", today.cacheWrite), ("Input", today.input),
       ("Output", today.output),
     ]
     let mixTotal = today.total
+    let emptyLabel = loading ? "Loading…" : "Nothing spent yet today."
 
     VStack(alignment: .leading, spacing: 16) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -701,20 +786,11 @@ private struct CostBreakdown: View {
         Text("today").font(.notch(13)).foregroundStyle(Theme.textSecondary)
       }
       if rows.count > 1 {
-        GeometryReader { geo in
-          HStack(spacing: 2) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-              Rectangle().fill(shades[index % shades.count])
-                .frame(width: max(2, (geo.size.width - CGFloat(rows.count - 1) * 2) * row.costUsd / max(total, 0.0001)))
-            }
-          }
-        }
-        .frame(height: 8)
-        .background(Theme.track)
-        .clipShape(Capsule())
+        shareBar(rows: rows)
       }
       if rows.isEmpty {
-        Text("Nothing spent yet today.").font(.notch(13)).foregroundStyle(Theme.textTertiary)
+        Text(emptyLabel)
+          .font(.notch(13)).foregroundStyle(Theme.textTertiary)
       } else {
         VStack(spacing: 0) {
           ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
@@ -774,6 +850,23 @@ private struct CostBreakdown: View {
         .font(.notch(11)).foregroundStyle(Theme.textTertiary)
         .fixedSize(horizontal: false, vertical: true)
     }
+  }
+
+  @ViewBuilder
+  private func shareBar(rows: [CostEstimate]) -> some View {
+    GeometryReader { geo in
+      HStack(spacing: 2) {
+        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+          let width = max(
+            2,
+            (geo.size.width - CGFloat(rows.count - 1) * 2) * row.costUsd / max(total, 0.0001))
+          Rectangle().fill(shades[index % shades.count]).frame(width: width)
+        }
+      }
+    }
+    .frame(height: 8)
+    .background(Theme.track)
+    .clipShape(Capsule())
   }
 }
 
@@ -1021,16 +1114,25 @@ private struct DashChatRow: View {
     let added = chat.linesAdded ?? 0
     let removed = chat.linesRemoved ?? 0
     if added > 0 || removed > 0 { parts.append("+\(added) −\(removed)") }
-    return parts.joined(separator: "  ·  ")
+    let joined = parts.joined(separator: "  ·  ")
+    return joined.isEmpty ? (chat.preview ?? "") : joined
   }
 
   var body: some View {
     HStack(spacing: 0) {
       ZStack(alignment: .topTrailing) {
         RoundedRectangle(cornerRadius: 8).fill(Theme.controlFill).frame(width: 32, height: 32)
-          .overlay(
-            ProviderGlyph(provider: chat.provider, color: chat.state == .idle ? Theme.textSecondary : Theme.text)
-              .frame(width: 16, height: 16))
+          .overlay {
+            // A bot the roster styled gets its drawn avatar instead of the
+            // tool's mark.
+            if let shape = chat.avatarShape, !shape.isEmpty {
+              BotAvatar(shape: shape, colorName: chat.avatarColor ?? "").frame(width: 20, height: 20)
+            } else {
+              ProviderGlyph(
+                provider: chat.provider, color: chat.state == .idle ? Theme.textSecondary : Theme.text)
+                .frame(width: 16, height: 16)
+            }
+          }
         if chat.state != .idle || chat.isUnread {
           Circle().fill(chat.isUnread ? Theme.unread : Theme.stateColor(chat.state))
             .overlay(Circle().strokeBorder(Theme.panelRaised, lineWidth: 2))

@@ -31,50 +31,86 @@ impl CopilotProvider {
             ));
         }
 
-        let client = reqwest::Client::builder()
-            .user_agent("GitHubCopilotChat/0.26.7")
-            .timeout(std::time::Duration::from_secs(20))
-            .build()
-            .map_err(|e| ProviderError::Other(e.into()))?;
+        let client = client()?;
 
         // Several clients may be signed in; a revoked token in one should not
         // hide a good one in another.
         for token in &tokens {
-            let response = client
-                .get(USER_ENDPOINT)
-                .header("Authorization", format!("token {token}"))
-                .header("Accept", "application/json")
-                .header("Editor-Version", "vscode/1.99.0")
-                .header("Editor-Plugin-Version", "copilot-chat/0.26.7")
-                .header("X-GitHub-Api-Version", "2025-04-01")
-                .send()
-                .await
-                .map_err(|e| ProviderError::Other(e.into()))?;
-
-            let status = response.status();
-            if status == reqwest::StatusCode::UNAUTHORIZED
-                || status == reqwest::StatusCode::FORBIDDEN
-                || status == reqwest::StatusCode::NOT_FOUND
-            {
+            let Some(account) = fetch_account(&client, token).await? else {
                 continue;
-            }
-            if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
-                return Err(ProviderError::Message(format!(
-                    "Copilot usage HTTP {status}: {body}"
-                )));
-            }
-
-            let user: CopilotUser = response
-                .json()
-                .await
-                .map_err(|e| ProviderError::Other(e.into()))?;
-            return Ok(user.into_reading(Utc::now()));
+            };
+            return Ok(account.into_reading(Utc::now()));
         }
 
         Err(ProviderError::NeedsAuth(
             "Copilot sign-in expired or has no Copilot access — sign in again from Settings".into(),
         ))
+    }
+}
+
+/// A GitHub client, as the Copilot plugin endpoints expect it.
+pub(crate) fn client() -> Result<reqwest::Client, ProviderError> {
+    reqwest::Client::builder()
+        .user_agent("GitHubCopilotChat/0.26.7")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| ProviderError::Other(e.into()))
+}
+
+/// The token's quotas, or `None` when GitHub does not recognize it.
+pub(crate) async fn fetch_account(
+    client: &reqwest::Client,
+    token: &str,
+) -> Result<Option<CopilotAccount>, ProviderError> {
+    let response = client
+        .get(USER_ENDPOINT)
+        .header("Authorization", format!("token {token}"))
+        .header("Accept", "application/json")
+        .header("Editor-Version", "vscode/1.99.0")
+        .header("Editor-Plugin-Version", "copilot-chat/0.26.7")
+        .header("X-GitHub-Api-Version", "2025-04-01")
+        .send()
+        .await
+        .map_err(|e| ProviderError::Other(e.into()))?;
+
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED
+        || status == reqwest::StatusCode::FORBIDDEN
+        || status == reqwest::StatusCode::NOT_FOUND
+    {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(ProviderError::Message(format!(
+            "Copilot usage HTTP {status}: {body}"
+        )));
+    }
+
+    let user: CopilotUser = response
+        .json()
+        .await
+        .map_err(|e| ProviderError::Other(e.into()))?;
+    let (windows, plan) = user.parts();
+    Ok(Some(CopilotAccount { windows, plan }))
+}
+
+pub(crate) struct CopilotAccount {
+    pub windows: Vec<UsageWindow>,
+    pub plan: Option<String>,
+}
+
+impl CopilotAccount {
+    fn into_reading(self, now: DateTime<Utc>) -> UsageReading {
+        UsageReading {
+            provider: ProviderId::Copilot,
+            display_name: ProviderId::Copilot.display_name().to_string(),
+            fidelity: Fidelity::Official,
+            status: ReadingStatus::Ok,
+            windows: self.windows,
+            fetched_at: now,
+            message: self.plan.map(|plan| format!("Copilot {plan} plan")),
+        }
     }
 }
 
@@ -171,7 +207,8 @@ impl QuotaSnapshot {
 }
 
 impl CopilotUser {
-    fn into_reading(self, now: DateTime<Utc>) -> UsageReading {
+    /// The quota windows and the plan's name, for any reader of the API.
+    fn parts(self) -> (Vec<UsageWindow>, Option<String>) {
         let resets_at = self
             .quota_reset_date_utc
             .as_deref()
@@ -224,15 +261,7 @@ impl CopilotUser {
             });
         }
 
-        UsageReading {
-            provider: ProviderId::Copilot,
-            display_name: ProviderId::Copilot.display_name().to_string(),
-            fidelity: Fidelity::Official,
-            status: ReadingStatus::Ok,
-            windows,
-            fetched_at: now,
-            message: self.copilot_plan.map(|plan| format!("Copilot {plan} plan")),
-        }
+        (windows, self.copilot_plan)
     }
 }
 
@@ -254,9 +283,9 @@ mod tests {
     use super::*;
 
     fn reading(raw: &str) -> UsageReading {
-        serde_json::from_str::<CopilotUser>(raw)
-            .unwrap()
-            .into_reading(Utc::now())
+        let user: CopilotUser = serde_json::from_str(raw).unwrap();
+        let (windows, plan) = user.parts();
+        CopilotAccount { windows, plan }.into_reading(Utc::now())
     }
 
     #[test]

@@ -29,6 +29,8 @@ class EngineClient : public QObject
     Q_PROPERTY(QVariantList dashboardProjects READ dashboardProjects NOTIFY dashboardChanged)
     // What to change, from the engine's local rules; likeliest saving first.
     Q_PROPERTY(QVariantList dashboardSuggestions READ dashboardSuggestions NOTIFY dashboardChanged)
+    // Grok Bot's bots by estimated usage, busiest first.
+    Q_PROPERTY(QVariantList dashboardBots READ dashboardBots NOTIFY dashboardChanged)
     // Claude's latest advice on usage: { state, model, text }, empty until asked.
     Q_PROPERTY(QVariantMap analysis READ analysis NOTIFY analysisChanged)
     Q_PROPERTY(double dashboardTotalUsd READ dashboardTotalUsd NOTIFY dashboardChanged)
@@ -48,6 +50,11 @@ class EngineClient : public QObject
     // (an empty one keeps the palette's).
     Q_PROPERTY(QString dashboardPalette READ dashboardPalette NOTIFY configChanged)
     Q_PROPERTY(QStringList dashboardColors READ dashboardColors NOTIFY configChanged)
+    // The theme the app paints with, by name.
+    Q_PROPERTY(QString theme READ theme NOTIFY configChanged)
+    // Whether the dashboard is on its way: a request is out and no answer has
+    // come yet.
+    Q_PROPERTY(bool dashboardLoading READ dashboardLoading NOTIFY dashboardChanged)
     Q_PROPERTY(QString screenName READ screenName NOTIFY configChanged)
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool alertsEnabled READ alertsEnabled NOTIFY configChanged)
@@ -62,12 +69,9 @@ class EngineClient : public QObject
     // Sound names as saved; empty means the default for that alert.
     Q_PROPERTY(QString soundFinished READ soundFinished NOTIFY configChanged)
     Q_PROPERTY(QString soundWaiting READ soundWaiting NOTIFY configChanged)
-    Q_PROPERTY(bool providerCursor READ providerCursor NOTIFY configChanged)
-    Q_PROPERTY(bool providerClaudeCode READ providerClaudeCode NOTIFY configChanged)
-    Q_PROPERTY(bool providerClaudeDesktop READ providerClaudeDesktop NOTIFY configChanged)
-    Q_PROPERTY(bool providerCopilot READ providerCopilot NOTIFY configChanged)
-    Q_PROPERTY(bool providerGrokBot READ providerGrokBot NOTIFY configChanged)
-    Q_PROPERTY(bool providerCodex READ providerCodex NOTIFY configChanged)
+    // Every provider the engine can fetch: {id, name, enabled}, in display
+    // order. The engine's registry is the list; nothing here is hardcoded.
+    Q_PROPERTY(QVariantList providers READ providers NOTIFY configChanged)
     // {state: ""|starting|pending|signed_in|failed, user_code, verification_uri, message}
     Q_PROPERTY(QVariantMap copilotLogin READ copilotLogin NOTIFY copilotLoginChanged)
     Q_PROPERTY(bool peekOpen READ peekOpen NOTIFY peekOpenChanged)
@@ -93,6 +97,7 @@ public:
     QString dashboardSession() const { return m_dashboardSessionAnswered; }
     QVariantList dashboardProjects() const { return m_dashboardProjects; }
     QVariantList dashboardSuggestions() const { return m_dashboardSuggestions; }
+    QVariantList dashboardBots() const { return m_dashboardBots; }
     QVariantMap analysis() const { return m_analysis; }
     double dashboardTotalUsd() const { return m_dashboardTotalUsd; }
     QString edge() const { return m_edge; }
@@ -108,6 +113,8 @@ public:
     QString notchColor() const { return m_notchColor; }
     QString dashboardPalette() const { return m_dashboardPalette; }
     QStringList dashboardColors() const { return m_dashboardColors; }
+    QString theme() const { return m_theme; }
+    bool dashboardLoading() const { return m_dashboardLoading; }
     QString screenName() const { return m_screenName; }
     QVariantList screens() const;
     bool alertsEnabled() const { return m_alertsEnabled; }
@@ -121,12 +128,8 @@ public:
     bool limitAlerts() const { return m_limitAlerts; }
     QString soundFinished() const { return m_soundFinished; }
     QString soundWaiting() const { return m_soundWaiting; }
-    bool providerCursor() const { return m_providerCursor; }
-    bool providerClaudeCode() const { return m_providerClaudeCode; }
-    bool providerClaudeDesktop() const { return m_providerClaudeDesktop; }
-    bool providerCopilot() const { return m_providerCopilot; }
-    bool providerGrokBot() const { return m_providerGrokBot; }
-    bool providerCodex() const { return m_providerCodex; }
+    QVariantList providers() const;
+    Q_INVOKABLE bool providerEnabled(const QString &id) const;
     QVariantMap copilotLogin() const { return m_copilotLogin; }
     bool peekOpen() const { return m_peekOpen; }
     QString peekProvider() const { return m_peekProvider; }
@@ -160,6 +163,8 @@ public:
     Q_INVOKABLE void setIdleColor(const QString &color);
     Q_INVOKABLE void setNotchColor(const QString &color);
     Q_INVOKABLE void setDashboardPalette(const QString &name);
+    // The theme the app paints with; an unknown name is ignored.
+    Q_INVOKABLE void setTheme(const QString &name);
     // An empty colour gives the series the palette's back.
     Q_INVOKABLE void setDashboardColor(int index, const QString &color);
     Q_INVOKABLE void setScreenName(const QString &name);
@@ -255,6 +260,7 @@ private:
     QString m_dashboardSessionAnswered;
     QVariantList m_dashboardProjects;
     QVariantList m_dashboardSuggestions;
+    QVariantList m_dashboardBots;
     QVariantMap m_analysis;
     // The analysis this shell waits for; answers to anything else, or to a
     // scope since left, are dropped.
@@ -277,6 +283,8 @@ private:
     QString m_notchColor = QStringLiteral("#000000");
     QString m_dashboardPalette = QStringLiteral("mono");
     QStringList m_dashboardColors;
+    QString m_theme = QStringLiteral("noir");
+    bool m_dashboardLoading = false;
     QString m_screenName;
     bool m_alertsEnabled = true;
     bool m_soundEnabled = true;
@@ -289,12 +297,9 @@ private:
     bool m_limitAlerts = true;
     QString m_soundFinished;
     QString m_soundWaiting;
-    bool m_providerCursor = true;
-    bool m_providerClaudeCode = true;
-    bool m_providerClaudeDesktop = true;
-    bool m_providerCopilot = true;
-    bool m_providerGrokBot = true;
-    bool m_providerCodex = true;
+    // The engine's provider catalog, and the config's on/off map for it.
+    QVariantList m_providerCatalog;
+    QJsonObject m_providerStates;
     QVariantMap m_copilotLogin;
     QJsonObject m_rawConfig;
 };

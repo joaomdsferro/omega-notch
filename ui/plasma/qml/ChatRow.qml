@@ -11,6 +11,7 @@ Item {
 
     readonly property string kind: chat ? (chat.state || "idle") : "idle"
     readonly property bool unread: chat ? !!chat.unread : false
+    readonly property bool hasAvatar: chat ? !!chat.avatar_shape : false
 
     readonly property string detail: {
         if (!chat) return ""
@@ -49,27 +50,64 @@ Item {
         onClicked: if (root.chat) Engine.openChat(root.chat)
     }
 
-    Rectangle {
-        id: dot
+    // The mark column: a bot's drawn avatar when the roster styled one, a
+    // plain dot otherwise. The live state rides its corner when an avatar
+    // sits there, so the signal survives the drawing.
+    Item {
+        id: mark
         x: 0
-        anchors.verticalCenter: title.verticalCenter
-        width: 7 * root.scale_
+        width: 16 * root.scale_
         height: width
-        radius: width / 2
-        color: root.unread ? Theme.unread : Theme.stateColor(root.kind)
+        anchors.verticalCenter: title.verticalCenter
 
-        SequentialAnimation on opacity {
-            running: root.kind !== "idle" && root.visible
-            loops: Animation.Infinite
-            alwaysRunToEnd: true
-            NumberAnimation { from: 1; to: 0.35; duration: 700; easing.type: Easing.InOutSine }
-            NumberAnimation { from: 0.35; to: 1; duration: 700; easing.type: Easing.InOutSine }
+        BotAvatar {
+            anchors.fill: parent
+            visible: root.hasAvatar
+            shape: root.hasAvatar ? root.chat.avatar_shape : ""
+            colorName: root.chat && root.chat.avatar_color ? root.chat.avatar_color : ""
+        }
+
+        Rectangle {
+            id: dot
+            visible: !root.hasAvatar
+            anchors.centerIn: parent
+            width: 7 * root.scale_
+            height: width
+            radius: width / 2
+            color: root.unread ? Theme.unread : Theme.stateColor(root.kind)
+
+            SequentialAnimation on opacity {
+                running: root.kind !== "idle" && root.visible
+                loops: Animation.Infinite
+                alwaysRunToEnd: true
+                NumberAnimation { from: 1; to: 0.35; duration: 700; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 0.35; to: 1; duration: 700; easing.type: Easing.InOutSine }
+            }
+        }
+
+        Rectangle {
+            id: badge
+            visible: root.hasAvatar && (root.kind !== "idle" || root.unread)
+            x: parent.width - width / 2 - 1 * root.scale_
+            y: -height / 2 + 1 * root.scale_
+            width: 7 * root.scale_
+            height: width
+            radius: width / 2
+            color: root.unread ? Theme.unread : Theme.stateColor(root.kind)
+
+            SequentialAnimation on opacity {
+                running: root.kind !== "idle" && root.visible
+                loops: Animation.Infinite
+                alwaysRunToEnd: true
+                NumberAnimation { from: 1; to: 0.35; duration: 700; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 0.35; to: 1; duration: 700; easing.type: Easing.InOutSine }
+            }
         }
     }
 
     Text {
         id: title
-        anchors.left: dot.right
+        anchors.left: mark.right
         anchors.leftMargin: 9 * root.scale_
         anchors.right: when.left
         anchors.rightMargin: 8 * root.scale_
@@ -102,7 +140,7 @@ Item {
         anchors.right: parent.right
         anchors.top: title.bottom
         anchors.topMargin: 2 * root.scale_
-        text: root.detail
+        text: root.detail || (root.chat ? (root.chat.preview || "") : "")
         color: Theme.textSecondary
         font.pixelSize: 11 * root.scale_
         font.features: { "tnum": 1 }

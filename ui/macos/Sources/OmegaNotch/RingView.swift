@@ -2,10 +2,12 @@ import AppKit
 import OmegaNotchKit
 import SwiftUI
 
-/// One provider in the notch: a ring that fills with the headline limit, the
-/// provider's mark inside it, and the number underneath. A white arc turns
-/// inside the ring while a session works; it becomes a breathing amber ring
-/// when one is waiting on you. A green badge counts finished chats to read.
+/// One provider in the notch: a gauge of twenty segments that fills with the
+/// headline limit, the provider's mark inside it, and the number underneath.
+/// The last two segments are the danger zone, painted in the critical colour
+/// from the start, so the risk shows before the number does. A white arc turns
+/// inside the gauge while a session works; it becomes a breathing amber ring
+/// when one is waiting on you.
 struct RingView: View {
   var reading: UsageReading?
   var sessionKind: SessionKind
@@ -21,22 +23,27 @@ struct RingView: View {
   private var hasData: Bool { reading?.hasData ?? false }
   private var pct: Double { reading?.headlinePct ?? 0 }
   private var ringSize: CGFloat { 44 * s }
+  /// The gauge: twenty segments, the last two the danger zone.
+  private var segments: Int { 20 }
+  private var gaugeWidth: CGFloat { 4.6 * s }
+  private var segmentAngle: Double { 360 / Double(segments) }
+  private var segmentGap: Double { 3.4 }
+  private var radius: CGFloat { (ringSize - gaugeWidth) / 2 }
+  /// The colour of the used part, by how much is used.
+  private var accent: Color { Theme.usageColor(pct) }
+  /// Where the used part ends, for the cap that rides on it.
+  private var headAngle: Double { (-90 + 360 * min(1, max(0, pct / 100))) * .pi / 180 }
+
+  /// How much of a segment is used, from 0 to 1. The last used segment is cut
+  /// short, so a small percentage still reads as small.
+  private func covered(_ index: Int) -> Double {
+    max(0, min(1, pct / 100 * Double(segments) - Double(index)))
+  }
 
   var body: some View {
     VStack(spacing: 7 * s) {
       ZStack {
-        Circle()
-          .stroke(Theme.inkTrack(surface), lineWidth: 5.2 * s)
-          .padding(2.6 * s)
-        Circle()
-          .trim(from: 0, to: max(0, min(1, pct / 100)))
-          .stroke(
-            pct > 0.4 ? Theme.usageColor(pct) : .clear,
-            style: StrokeStyle(lineWidth: 3.4 * s, lineCap: .round)
-          )
-          .rotationEffect(.degrees(-90))
-          .padding(2.6 * s)
-          .animation(.easeOut(duration: 0.6), value: pct)
+        gauge
 
         // Working: a short arc orbiting between the mark and the ring.
         Circle()
@@ -60,6 +67,18 @@ struct RingView: View {
           color: hasData ? Theme.ink(surface) : Theme.inkSecondary(surface)
         )
         .frame(width: 17 * s, height: 17 * s)
+
+        // The cap that rides on the head of the used part: a speck of light
+        // on the glass.
+        if pct > 0 {
+          Circle()
+            .fill(Color.white.opacity(0.92))
+            .frame(width: 4.2 * s, height: 4.2 * s)
+            .offset(
+              x: CGFloat(cos(headAngle)) * radius,
+              y: CGFloat(sin(headAngle)) * radius
+            )
+        }
       }
       .frame(width: ringSize, height: ringSize)
       .overlay(alignment: .topTrailing) {
@@ -94,6 +113,29 @@ struct RingView: View {
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { refreshing = false }
     }
     .clickable()
+  }
+
+  /// The gauge: twenty segments, the last two the danger zone.
+  private var gauge: some View {
+    ZStack {
+      ForEach(0..<segments, id: \.self) { index in
+        let used = covered(index)
+        let zone = index >= Int(Double(segments) * 0.9)
+        Circle()
+          .trim(
+            from: (Double(index) * segmentAngle + segmentGap / 2) / 360,
+            to: (Double(index) * segmentAngle + segmentGap / 2
+              + used * (segmentAngle - segmentGap)) / 360
+          )
+          .stroke(
+            used > 0 ? accent : zone ? Theme.critical.opacity(0.5) : Theme.inkTrack(surface).opacity(0.75),
+            style: StrokeStyle(lineWidth: gaugeWidth, lineCap: .butt)
+          )
+          .rotationEffect(.degrees(-90))
+      }
+    }
+    .frame(width: ringSize, height: ringSize)
+    .animation(.easeOut(duration: 0.6), value: pct)
   }
 
   private var label: String {

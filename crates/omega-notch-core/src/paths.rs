@@ -111,6 +111,21 @@ pub fn grok_bot_dir() -> PathBuf {
         .join(".grokbot")
 }
 
+/// Grok Bot's local sand store, where its bots' roster and transcripts live
+/// as one blob per base32-encoded key.
+pub fn grok_bot_sand_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library/Application Support/Grok Bot/sand-client-persistence")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        config_home().join("Grok Bot/sand-client-persistence")
+    }
+}
+
 /// Codex's home (CLI, IDE extension and desktop app share it).
 pub fn codex_home() -> PathBuf {
     if let Some(home) = std::env::var_os("CODEX_HOME").filter(|p| !p.is_empty()) {
@@ -146,14 +161,85 @@ pub fn github_copilot_dir() -> PathBuf {
     config_home().join("github-copilot")
 }
 
+/// opencode's data directory: its credential store, its SQLite database of
+/// sessions and messages, and its logs.
+/// opencode uses `~/.local/share` on macOS too.
+pub fn opencode_dir() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return home().join(".local/share/opencode");
+    }
+    data_home().join("opencode")
+}
+
 /// opencode's credential store; its `github-copilot` entry holds the same
 /// GitHub OAuth token as its `refresh` field.
-/// opencode uses `~/.local/share` on macOS too.
 pub fn opencode_auth() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        return home().join(".local/share/opencode/auth.json");
+    opencode_dir().join("auth.json")
+}
+
+/// opencode's SQLite store: sessions, messages and their token counts,
+/// kept per provider and model.
+pub fn opencode_db() -> PathBuf {
+    opencode_dir().join("opencode.db")
+}
+
+/// Kimi Code CLI's OAuth session. `KIMI_CODE_HOME` moves the whole data root.
+pub fn kimi_credentials() -> PathBuf {
+    if let Some(root) = std::env::var_os("KIMI_CODE_HOME").filter(|p| !p.is_empty()) {
+        return PathBuf::from(root).join("credentials/kimi-code.json");
     }
-    data_home().join("opencode/auth.json")
+    home().join(".kimi-code/credentials/kimi-code.json")
+}
+
+/// Grok CLI's session: the access token, and the refresh token and client id
+/// it renews with.
+pub fn grok_auth() -> PathBuf {
+    home().join(".grok/auth.json")
+}
+
+/// Where the Amp CLI keeps its API key.
+pub fn amp_secrets() -> PathBuf {
+    home().join(".local/share/amp/secrets.json")
+}
+
+/// Where `apify login` keeps its session.
+pub fn apify_auth() -> PathBuf {
+    home().join(".apify/auth.json")
+}
+
+/// Devin Desktop's global-storage database, where its sign-in lives.
+pub fn devin_desktop_db() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home().join("Library/Application Support/Devin/User/globalStorage/state.vscdb")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        config_home().join("Devin/User/globalStorage/state.vscdb")
+    }
+}
+
+/// The credentials `devin auth login` writes, used when Devin Desktop is not
+/// installed. Devin keeps them under `~/.local/share` on macOS too.
+pub fn devin_cli_credentials() -> PathBuf {
+    home().join(".local/share/devin/credentials.toml")
+}
+
+/// The Command Code desktop app's sign-in.
+pub fn command_code_auth() -> PathBuf {
+    home().join(".commandcode/auth.json")
+}
+
+/// The Kilo CLI's account, shared by the VS Code extension and JetBrains
+/// plugin.
+pub fn kilo_auth() -> PathBuf {
+    home().join(".local/share/kilo/auth.json")
+}
+
+/// Claude Code's settings file, where a GLM Coding Plan key is often pointed
+/// at a Z.ai base URL.
+pub fn claude_settings() -> PathBuf {
+    claude_home().join("settings.json")
 }
 
 fn home() -> PathBuf {

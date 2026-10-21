@@ -7,11 +7,17 @@ import Observation
 @Observable
 public final class EngineClient {
   public private(set) var connected = false
+  /// The engine's provider registry, in display order; empty until the
+  /// first snapshot.
+  public private(set) var providers: [ProviderInfo] = []
   public private(set) var readings: [UsageReading] = []
   public private(set) var sessions: [SessionState] = []
   public private(set) var chats: [ChatSummary] = []
   public private(set) var tokens: [TokenStats] = []
   public private(set) var dashboard = Dashboard()
+  /// Whether the dashboard is on its way: a request is out and no answer has
+  /// come yet.
+  public private(set) var dashboardLoading = false
   public private(set) var copilotLogin: CopilotLogin?
   /// Claude's latest advice on usage, if one was asked for.
   public private(set) var analysis: UsageAnalysis?
@@ -102,6 +108,7 @@ public final class EngineClient {
     let days = min(90, max(7, days))
     if days != dashboardDays { clearAnalysis() }
     dashboardDays = days
+    dashboardLoading = connected && socket != nil
     var message: [String: JSONValue] = [
       "type": .string("get_dashboard"), "days": .number(Double(dashboardDays)),
     ]
@@ -173,6 +180,10 @@ public final class EngineClient {
       surface: session.surface)
   }
 
+  public func openChat(_ bot: BotUsage) {
+    openChat(provider: "grok_bot", id: bot.id, cwd: nil, title: bot.name, surface: nil)
+  }
+
   private func openChat(provider: String, id: String, cwd: String?, title: String?, surface: String?) {
     var message: [String: JSONValue] = [
       "type": .string("open_chat"), "provider": .string(provider), "id": .string(id),
@@ -223,6 +234,7 @@ public final class EngineClient {
   private func disconnected() {
     socket = nil
     connected = false
+    dashboardLoading = false
     // The answer would come on this connection; it will not now.
     if analysis?.state == "running" {
       analysis?.state = "failed"
@@ -244,7 +256,8 @@ public final class EngineClient {
   /// Applies one message from the engine. Public for tests.
   public func apply(_ message: ServerMessage) {
     switch message {
-    case .snapshot(let readings, let sessions, let chats, let tokens, let config):
+    case .snapshot(let providers, let readings, let sessions, let chats, let tokens, let config):
+      self.providers = providers
       self.readings = readings
       self.sessions = sessions
       self.chats = chats
@@ -281,6 +294,7 @@ public final class EngineClient {
     case .configUpdated(let config):
       applyConfig(config)
     case .dashboard(let dashboard):
+      dashboardLoading = false
       self.dashboard = dashboard
     case .copilotLogin(let login):
       copilotLogin = login

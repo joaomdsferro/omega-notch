@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 
+use super::profiles::Profile;
 use super::traits::{Provider, ProviderError};
 use crate::paths;
 use crate::protocol::{Fidelity, ProviderId, ReadingStatus, UsageReading, UsageWindow};
@@ -22,7 +25,17 @@ impl Provider for CodexProvider {
 
 impl CodexProvider {
     pub async fn fetch(&self) -> Result<UsageReading, ProviderError> {
-        let auth = read_auth()?;
+        let profile = Profile {
+            id: ProviderId::Codex,
+            base: ProviderId::Codex.as_str(),
+            slug: None,
+            dir: paths::codex_home(),
+        };
+        Self::fetch_profile(&profile).await
+    }
+
+    pub async fn fetch_profile(profile: &Profile) -> Result<UsageReading, ProviderError> {
+        let auth = read_auth(&profile.dir)?;
 
         let client = reqwest::Client::builder()
             .user_agent(crate::USER_AGENT)
@@ -58,7 +71,7 @@ impl CodexProvider {
             .await
             .map_err(|e| ProviderError::Message(format!("Codex usage: {e}")))?;
 
-        Ok(payload.into_reading())
+        Ok(payload.into_reading(&profile.id, &profile.display_name()))
     }
 }
 
@@ -67,9 +80,9 @@ struct CodexAuth {
     account_id: Option<String>,
 }
 
-/// Pulls the ChatGPT access token out of `~/.codex/auth.json`. Parse errors are
+/// Pulls the ChatGPT access token out of `<dir>/auth.json`. Parse errors are
 /// reported without serde's detail, which can quote the file's contents.
-fn read_auth() -> Result<CodexAuth, ProviderError> {
+fn read_auth(dir: &Path) -> Result<CodexAuth, ProviderError> {
     #[derive(Deserialize)]
     struct AuthFile {
         auth_mode: Option<String>,
@@ -81,12 +94,12 @@ fn read_auth() -> Result<CodexAuth, ProviderError> {
         account_id: Option<String>,
     }
 
-    let path = paths::codex_auth();
+    let path = dir.join("auth.json");
     let raw = std::fs::read_to_string(&path).map_err(|_| {
         ProviderError::NeedsAuth("Sign in to Codex with your ChatGPT account".into())
     })?;
     let file: AuthFile = serde_json::from_str(&raw)
-        .map_err(|_| ProviderError::Message("Could not parse ~/.codex/auth.json".into()))?;
+        .map_err(|_| ProviderError::Message("Could not parse the Codex auth.json".into()))?;
 
     if file
         .auth_mode
@@ -171,7 +184,7 @@ fn window_label(seconds: i64) -> String {
 }
 
 impl UsagePayload {
-    fn into_reading(self) -> UsageReading {
+    fn into_reading(self, provider: &ProviderId, display_name: &str) -> UsageReading {
         let now = Utc::now();
         let rate = self.rate_limit.unwrap_or_default();
         let windows: Vec<UsageWindow> = [
@@ -198,8 +211,8 @@ impl UsagePayload {
         };
 
         UsageReading {
-            provider: ProviderId::Codex,
-            display_name: ProviderId::Codex.display_name().to_string(),
+            provider: provider.clone(),
+            display_name: display_name.to_string(),
             fidelity: Fidelity::Official,
             status: ReadingStatus::Ok,
             windows,
@@ -228,7 +241,7 @@ mod tests {
             "secondary_window":{"used_percent":40.5,"limit_window_seconds":604800,"reset_after_seconds":9000,"reset_at":1791900000}}}"#;
         let reading = serde_json::from_str::<UsagePayload>(raw)
             .unwrap()
-            .into_reading();
+            .into_reading(&ProviderId::Codex, "Codex");
         assert_eq!(reading.windows.len(), 2);
         assert_eq!(reading.windows[0].label, "5h");
         assert_eq!(reading.windows[0].used_pct, 12.0);
@@ -245,7 +258,7 @@ mod tests {
     fn missing_rate_limit_has_no_windows() {
         let reading = serde_json::from_str::<UsagePayload>(r#"{"plan_type":"free"}"#)
             .unwrap()
-            .into_reading();
+            .into_reading(&ProviderId::Codex, "Codex");
         assert!(reading.windows.is_empty());
         assert_eq!(
             reading.message.as_deref(),

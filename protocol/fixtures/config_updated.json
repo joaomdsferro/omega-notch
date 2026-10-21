@@ -6,12 +6,22 @@
     "size": "medium",
     "accent": "plasma",
     "providers": {
-      "cursor": true,
+      "amp": true,
+      "apify": true,
       "claude_code": true,
       "claude_desktop": true,
+      "codex": true,
+      "command_code": true,
       "copilot": true,
+      "cursor": true,
+      "devin": true,
+      "glm": true,
+      "grok": true,
       "grok_bot": true,
-      "codex": true
+      "kilo": true,
+      "kimi": true,
+      "kiro": true,
+      "opencode": true
     },
     "alerts": {
       "enabled": true,
@@ -25,12 +35,7 @@
       "open_notch_waiting": true,
       "open_notch_limits": true,
       "limits": true,
-      "mute_cursor": false,
-      "mute_claude_code": false,
-      "mute_claude_desktop": false,
-      "mute_copilot": false,
-      "mute_grok_bot": false,
-      "mute_codex": false
+      "muted": {}
     },
     "peek_seconds": 5,
     "auto_hide": true,
@@ -42,6 +47,7 @@
     "notch_color": "#000000",
     "screen": "",
     "dashboard_palette": "mono",
-    "dashboard_colors": []
+    "dashboard_colors": [],
+    "theme": "noir"
   }
 }

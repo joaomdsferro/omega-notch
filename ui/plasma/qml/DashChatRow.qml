@@ -13,6 +13,7 @@ Item {
 
     readonly property string kind: chat ? (chat.state || "idle") : "idle"
     readonly property bool unread: chat ? !!chat.unread : false
+    readonly property bool hasAvatar: chat ? !!chat.avatar_shape : false
     readonly property real tokens: chat && chat.tokens ? Theme.totalTokens(chat.tokens) : 0
     readonly property real ctx: chat && chat.context_pct !== undefined && chat.context_pct !== null
                                 ? Number(chat.context_pct) : -1
@@ -62,7 +63,8 @@ Item {
         onTapped: if (root.chat) Engine.openChat(root.chat)
     }
 
-    // Tool mark with the live state as a dot on its corner.
+    // Tool mark with the live state as a dot on its corner. A bot the roster
+    // styled gets its drawn avatar instead of the tool's mark.
     Rectangle {
         id: tile
         width: 32
@@ -73,10 +75,19 @@ Item {
 
         ProviderGlyph {
             anchors.centerIn: parent
+            visible: !root.hasAvatar
             width: 16
             height: 16
             provider: root.chat ? root.chat.provider : ""
             color: root.kind === "idle" ? Theme.textSecondary : Theme.text
+        }
+        BotAvatar {
+            anchors.centerIn: parent
+            visible: root.hasAvatar
+            width: 20
+            height: 20
+            shape: root.hasAvatar ? root.chat.avatar_shape : ""
+            colorName: root.chat && root.chat.avatar_color ? root.chat.avatar_color : ""
         }
         Rectangle {
             visible: root.kind !== "idle" || root.unread
@@ -118,7 +129,7 @@ Item {
         }
         Text {
             width: parent.width
-            text: root.where
+            text: root.where || (root.chat ? (root.chat.preview || "") : "")
             color: Theme.textTertiary
             font.pixelSize: 11
             font.features: { "tnum": 1 }

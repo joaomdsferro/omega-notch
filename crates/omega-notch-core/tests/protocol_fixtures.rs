@@ -65,6 +65,9 @@ fn chat() -> ChatSummary {
         cwd: Some("/home/me/omega-zap".into()),
         model: Some("Opus 5.5".into()),
         surface: Some("VS Code".into()),
+        preview: Some("Resize the sidebar on drag end".into()),
+        avatar_shape: None,
+        avatar_color: None,
         state: SessionKind::Busy,
         live: true,
         updated_at: at(14, 42),
@@ -119,6 +122,10 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
         (
             "snapshot",
             ServerMessage::Snapshot {
+                providers: vec![ProviderInfo {
+                    id: ProviderId::ClaudeCode,
+                    display_name: "Claude Code".into(),
+                }],
                 readings: vec![reading()],
                 sessions: vec![session(SessionKind::Busy)],
                 chats: vec![chat()],
@@ -225,6 +232,15 @@ fn messages() -> Vec<(&'static str, ServerMessage)> {
                         total: 3514805,
                         cost_usd: 1.27,
                     }],
+                }],
+                bots: vec![BotUsage {
+                    id: "5f1c2d3e-0000-4000-8000-000000000009".into(),
+                    name: "Ops Bot - General usage".into(),
+                    messages: 214,
+                    tokens: 38_400,
+                    routines: vec!["Weekly digest".into()],
+                    avatar_shape: Some("cloud".into()),
+                    avatar_color: Some("orange".into()),
                 }],
                 // What the engine sends for this session's own words.
                 search: "sidebar".into(),

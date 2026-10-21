@@ -19,7 +19,18 @@ Rectangle {
     radius: 12
     color: Theme.panelRaised
     border.width: 1
-    border.color: Theme.hairline
+    border.color: Theme.cardStroke
+
+    // The top edge catches the light: the card has a lip, and does not look
+    // like a flat sticker on the page.
+    Rectangle {
+        anchors.fill: parent
+        radius: root.radius
+        gradient: Gradient {
+            GradientStop { position: 0; color: Theme.withAlpha("#FFFFFF", 0.09) }
+            GradientStop { position: 0.16; color: "transparent" }
+        }
+    }
 
     Item {
         id: headRow

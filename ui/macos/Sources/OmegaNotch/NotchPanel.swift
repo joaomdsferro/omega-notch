@@ -80,6 +80,9 @@ final class NotchPanelController {
     guard !presented else { return }
     presented = true
     place()
+    // The theme in the config, before the first frame: the notch should not
+    // open in one theme and change to another.
+    ThemeStore.shared.apply(model.config.theme)
     let view = NotchView(
       model: model,
       openSettings: { [weak self] in self?.openSettings() },

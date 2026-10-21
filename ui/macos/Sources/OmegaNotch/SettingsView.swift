@@ -26,6 +26,7 @@ struct SettingsView: View {
     case notch = "Notch"
     case providers = "Providers"
     case alerts = "Alerts"
+    case appearance = "Appearance"
     case general = "General"
 
     var id: Self { self }
@@ -36,15 +37,24 @@ struct SettingsView: View {
       case .notch: "rectangle.topthird.inset.filled"
       case .providers: "square.grid.2x2"
       case .alerts: "bell"
+      case .appearance: "circle.lefthalf.filled"
       case .general: "gearshape"
       }
     }
   }
 
-  private static let providers = [
+  /// Used until the engine's first snapshot arrives; the registry in it wins.
+  private static let fallbackProviders = [
     ("cursor", "Cursor"), ("claude_code", "Claude Code"), ("claude_desktop", "Claude Desktop"),
     ("copilot", "GitHub Copilot"), ("grok_bot", "Grok Bot"), ("codex", "Codex"),
+    ("opencode", "OpenCode"),
   ]
+
+  private var providerList: [(String, String)] {
+    let announced = client.providers
+    if announced.isEmpty { return Self.fallbackProviders }
+    return announced.map { ($0.id, $0.displayName) }
+  }
 
   private var config: NotchConfig { client.config }
 
@@ -59,6 +69,7 @@ struct SettingsView: View {
           case .notch: notch
           case .providers: providers
           case .alerts: alerts
+          case .appearance: appearance
           case .general:
             windows
             startup
@@ -307,7 +318,7 @@ struct SettingsView: View {
 
   private var providers: some View {
     SettingsSection(heading: "Providers") {
-      ForEach(Self.providers, id: \.0) { id, name in
+      ForEach(providerList, id: \.0) { id, name in
         let enabled = config.providerEnabled(id)
         SettingsSwitch(
           title: name, subtitle: summary(id, enabled: enabled), provider: id,
@@ -395,6 +406,20 @@ struct SettingsView: View {
           open: $openSound
         ) { name in update { $0.soundWaiting = name } }
       }
+    }
+  }
+
+  // MARK: Appearance
+
+  @ViewBuilder private var appearance: some View {
+    SettingsSection(heading: "Theme") {
+      ThemePicker(value: config.theme) { name in
+        update { $0.theme = name }
+      }
+      Hint(
+        text:
+          "The theme paints the notch, the card and the dashboard. Noir is the default; Classic is the look the app had before."
+      )
     }
   }
 

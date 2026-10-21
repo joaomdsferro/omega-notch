@@ -106,7 +106,7 @@ fn model_choice(sessions: &[SessionCost]) -> Option<Suggestion> {
             usd(saving)
         ),
         saving_usd: Some(saving),
-        provider: small[0].0.provider,
+        provider: small[0].0.provider.clone(),
         sessions: small.iter().map(|(s, _)| s.id.clone()).collect(),
     })
 }
@@ -160,7 +160,7 @@ fn cache_churn(sessions: &[SessionCost]) -> Option<Suggestion> {
             usd(saving)
         ),
         saving_usd: Some(saving),
-        provider: churned[0].0.provider,
+        provider: churned[0].0.provider.clone(),
         sessions: churned.iter().map(|(s, _)| s.id.clone()).collect(),
     })
 }
@@ -188,7 +188,7 @@ fn long_session(sessions: &[SessionCost]) -> Option<Suggestion> {
             "Every turn sends the whole chat again{more}. A fresh chat per task, or /compact once a task is done, keeps each turn cheaper and the model focused on what matters now."
         ),
         saving_usd: None,
-        provider: first.provider,
+        provider: first.provider.clone(),
         sessions: long.iter().map(|s| s.id.clone()).collect(),
     })
 }
@@ -207,7 +207,7 @@ fn context_full(chats: &[ChatSummary]) -> Vec<Suggestion> {
             ),
             detail: "Near the limit, answers lose track of earlier detail and each turn costs more. Run /compact now, or start a new chat from a short summary.".into(),
             saving_usd: None,
-            provider: c.provider,
+            provider: c.provider.clone(),
             sessions: vec![c.id.clone()],
         })
         .collect()

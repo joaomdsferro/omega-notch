@@ -1,6 +1,7 @@
 //! What the engine asks of the operating system about other processes: whether
-//! one is still running, its parent, its terminal and, on macOS, its app.
-//! Everything else stays in the modules that use it.
+//! one is still running, its parent, its terminal, the ones running a named
+//! program and, on macOS, its app. Everything else stays in the modules that
+//! use it.
 
 use std::path::PathBuf;
 
@@ -40,6 +41,12 @@ pub fn parent(pid: u32) -> Option<u32> {
 /// The terminal `pid` is attached to, such as `/dev/pts/3` or `/dev/ttys003`.
 pub fn tty(pid: u32) -> Option<PathBuf> {
     imp::tty(pid)
+}
+
+/// Every running process whose executable is named `name`, with its working
+/// directory: which of several instances of a tool is on a given folder.
+pub fn processes_named(name: &str) -> Vec<(u32, PathBuf)> {
+    imp::processes_named(name)
 }
 
 /// The program that opens a file or URL with its default app.

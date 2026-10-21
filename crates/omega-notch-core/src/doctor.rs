@@ -2,7 +2,6 @@ use std::fmt::Write as _;
 
 use crate::config::AppConfig;
 use crate::paths;
-use crate::protocol::ProviderId;
 use crate::providers;
 use crate::sessions;
 
@@ -23,11 +22,12 @@ pub async fn run_doctor() -> String {
     );
     let _ = writeln!(out);
 
-    for id in ProviderId::mvp_providers() {
-        let enabled = config.provider_enabled(*id);
-        let _ = writeln!(out, "[{}] enabled={enabled}", id.display_name());
-        match id {
-            ProviderId::Cursor => {
+    for provider in providers::catalog() {
+        let id = provider.id();
+        let enabled = config.provider_enabled(id);
+        let _ = writeln!(out, "[{}] enabled={enabled}", provider.display_name());
+        match id.as_str() {
+            "cursor" => {
                 let db = paths::cursor_state_db();
                 let _ = writeln!(
                     out,
@@ -36,7 +36,7 @@ pub async fn run_doctor() -> String {
                     db.exists()
                 );
             }
-            ProviderId::ClaudeCode => {
+            "claude_code" => {
                 let creds = paths::claude_credentials();
                 let _ = writeln!(
                     out,
@@ -59,11 +59,11 @@ pub async fn run_doctor() -> String {
                     projects.exists()
                 );
             }
-            ProviderId::ClaudeDesktop => {
+            "claude_desktop" => {
                 let dir = paths::claude_desktop_dir();
                 let _ = writeln!(out, "  desktop: {} exists={}", dir.display(), dir.exists());
             }
-            ProviderId::Copilot => {
+            "copilot" => {
                 let dir = paths::github_copilot_dir();
                 let _ = writeln!(
                     out,
@@ -79,7 +79,7 @@ pub async fn run_doctor() -> String {
                     opencode.exists()
                 );
             }
-            ProviderId::GrokBot => {
+            "grok_bot" => {
                 let dir = paths::grok_bot_dir();
                 let _ = writeln!(out, "  grokbot: {} exists={}", dir.display(), dir.exists());
                 let db = paths::cursor_state_db();
@@ -90,7 +90,7 @@ pub async fn run_doctor() -> String {
                     db.exists()
                 );
             }
-            ProviderId::Codex => {
+            "codex" => {
                 let auth = paths::codex_auth();
                 let _ = writeln!(
                     out,
@@ -99,11 +99,17 @@ pub async fn run_doctor() -> String {
                     auth.exists()
                 );
             }
+            "opencode" => {
+                let db = paths::opencode_db();
+                let _ = writeln!(out, "  database: {} exists={}", db.display(), db.exists());
+                let auth = paths::opencode_auth();
+                let _ = writeln!(out, "  auth: {} exists={}", auth.display(), auth.exists());
+            }
             _ => {}
         }
 
         if enabled {
-            let reading = providers::fetch_provider(*id, &config).await;
+            let reading = providers::fetch_provider(id.clone(), &config).await;
             let headline = reading
                 .headline_pct()
                 .map(|p| format!("{p:.1}%"))

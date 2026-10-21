@@ -270,13 +270,21 @@ pub fn record_tokens(all: &[TokenStats]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Whether the one-off Claude Code backfill has already run.
-pub fn backfill_done() -> anyhow::Result<bool> {
+fn backfill_key(provider: &ProviderId) -> String {
+    format!("{BACKFILL_KEY}:{}", provider.as_str())
+}
+
+/// Whether the one-off backfill for this account has already run. Accounts
+/// are backfilled separately: a profile added later still gets its history.
+pub fn backfill_done(provider: &ProviderId) -> anyhow::Result<bool> {
     let conn = connect()?;
+    // Pre-profile installs recorded the default Claude Code backfill under
+    // BACKFILL_KEY alone; treat that as done so we do not rewrite history.
+    let legacy = provider == &ProviderId::ClaudeCode;
     let found: Option<String> = conn
         .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            params![BACKFILL_KEY],
+            "SELECT value FROM meta WHERE key = ?1 OR (?2 AND key = ?3)",
+            params![backfill_key(provider), legacy, BACKFILL_KEY],
             |r| r.get(0),
         )
         .optional()?;
@@ -297,24 +305,17 @@ pub fn record_backfill(
     let tx = conn.transaction()?;
     write_days(&tx, provider.as_str(), &dates, rows)?;
     write_session_days(&tx, provider.as_str(), &dates, sessions, meta)?;
+    let key = backfill_key(&provider);
     tx.execute(
         "INSERT OR REPLACE INTO meta(key, value) VALUES(?1, ?2)",
-        params![BACKFILL_KEY, chrono::Utc::now().to_rfc3339()],
+        params![key, chrono::Utc::now().to_rfc3339()],
     )?;
     tx.commit()?;
     Ok(())
 }
 
 fn parse_provider(raw: &str) -> ProviderId {
-    match raw {
-        "cursor" => ProviderId::Cursor,
-        "claude_code" => ProviderId::ClaudeCode,
-        "claude_desktop" => ProviderId::ClaudeDesktop,
-        "copilot" => ProviderId::Copilot,
-        "grok_bot" => ProviderId::GrokBot,
-        "codex" => ProviderId::Codex,
-        _ => ProviderId::ClaudeCode,
-    }
+    ProviderId::new(raw)
 }
 
 fn cutoff(days: u32) -> String {
@@ -574,9 +575,9 @@ fn scoped_since(
             continue;
         };
         let project = projects
-            .entry((s.provider, name.clone()))
+            .entry((s.provider.clone(), name.clone()))
             .or_insert_with(|| ProjectCost {
-                provider: s.provider,
+                provider: s.provider.clone(),
                 project: name.clone(),
                 sessions: 0,
                 total: 0,
@@ -608,14 +609,14 @@ fn scoped_since(
         if !session_matches(&session, &words) {
             continue;
         }
-        let provider = session.provider;
+        let provider = session.provider.clone();
         let counted = picked.is_empty() || session.id == picked;
         for (date, model, t) in spent.days.iter().filter(|_| counted) {
             let cost = pricing::estimate_cost_usd(model, t);
             let point = points
-                .entry((provider, date.clone()))
+                .entry((provider.clone(), date.clone()))
                 .or_insert_with(|| HistoryPoint {
-                    provider,
+                    provider: provider.clone(),
                     date: date.clone(),
                     input: 0,
                     output: 0,
@@ -629,9 +630,9 @@ fn scoped_since(
             point.cache_write += t.cache_write;
             point.total += t.total();
             let day = models
-                .entry((provider, date.clone(), model.clone()))
+                .entry((provider.clone(), date.clone(), model.clone()))
                 .or_insert_with(|| ModelDayPoint {
-                    provider,
+                    provider: provider.clone(),
                     date: date.clone(),
                     model: model.clone(),
                     input: 0,
@@ -649,9 +650,9 @@ fn scoped_since(
             day.cost_usd += cost;
             if date == today {
                 let now = spent_today
-                    .entry((provider, model.clone()))
+                    .entry((provider.clone(), model.clone()))
                     .or_insert_with(|| CostEstimate {
-                        provider,
+                        provider: provider.clone(),
                         model: model.clone(),
                         total: 0,
                         cost_usd: 0.0,
@@ -782,6 +783,16 @@ mod tests {
         let tx = conn.transaction().unwrap();
         write_session_days(&tx, "claude_code", &dates, rows, meta).unwrap();
         tx.commit().unwrap();
+    }
+
+    #[test]
+    fn a_provider_id_survives_the_read_as_itself() {
+        // History rows are only ever written by this engine, but a newer
+        // engine may write an id this build does not know; it must not be
+        // folded into another provider's numbers.
+        assert_eq!(parse_provider("claude_code"), ProviderId::ClaudeCode);
+        assert_eq!(parse_provider("opencode").as_str(), "opencode");
+        assert_eq!(parse_provider("future_tool").as_str(), "future_tool");
     }
 
     #[test]

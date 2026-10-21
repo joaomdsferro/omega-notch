@@ -37,7 +37,7 @@ impl LimitWatch {
         let reached = level(pct);
 
         let Some(announced) = self.announced.get_mut(&reading.provider) else {
-            self.announced.insert(reading.provider, reached);
+            self.announced.insert(reading.provider.clone(), reached);
             return None;
         };
         while *announced > 0 && pct < f64::from(*announced) - REARM_POINTS {
@@ -48,7 +48,7 @@ impl LimitWatch {
         }
         *announced = reached;
         Some(LimitAlert {
-            provider: reading.provider,
+            provider: reading.provider.clone(),
             display_name: reading.display_name.clone(),
             label: window.label.clone(),
             used_pct: pct,

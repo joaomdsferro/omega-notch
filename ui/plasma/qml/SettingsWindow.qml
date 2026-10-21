@@ -30,17 +30,21 @@ Window {
         { id: "placement", label: "Placement", icon: "monitor" },
         { id: "notch", label: "Notch", icon: "notch" },
         { id: "providers", label: "Providers", icon: "grid" },
-        { id: "alerts", label: "Alerts", icon: "bell" }
+        { id: "alerts", label: "Alerts", icon: "bell" },
+        { id: "appearance", label: "Appearance", icon: "appearance" }
     ]
 
-    readonly property var providers: [
-        { id: "cursor", name: "Cursor", enabled: Engine.providerCursor },
-        { id: "claude_code", name: "Claude Code", enabled: Engine.providerClaudeCode },
-        { id: "claude_desktop", name: "Claude Desktop", enabled: Engine.providerClaudeDesktop },
-        { id: "copilot", name: "GitHub Copilot", enabled: Engine.providerCopilot },
-        { id: "grok_bot", name: "Grok Bot", enabled: Engine.providerGrokBot },
-        { id: "codex", name: "Codex", enabled: Engine.providerCodex }
-    ]
+    // The engine's registry, with each provider's on/off state.
+    readonly property var providers: Engine.providers
+
+    function providerEnabled(id) {
+        const list = Engine.providers
+        for (let i = 0; i < list.length; ++i) {
+            if (list[i].id === id)
+                return list[i].enabled
+        }
+        return true
+    }
 
     // Swatches offered for the notch; any other colour goes in the field.
     readonly property var idleColors: ["#000000", "#FFFFFF", "#3DDC97", "#F5C542",
@@ -144,6 +148,19 @@ Window {
         height: body.implicitHeight + (heading.length > 0 ? headingText.implicitHeight + 8 : 0) + 16
         radius: 14
         color: Theme.panelRaised
+        border.width: 1
+        border.color: Theme.cardStroke
+
+        // The top edge catches the light: the card has a lip, and does not
+        // look like a flat sticker on the page.
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            gradient: Gradient {
+                GradientStop { position: 0; color: Theme.withAlpha("#FFFFFF", 0.09) }
+                GradientStop { position: 0.16; color: "transparent" }
+            }
+        }
 
         Text {
             id: headingText
@@ -1676,6 +1693,118 @@ Window {
                         enabled_: Engine.alertsEnabled && Engine.soundEnabled
                         value: root.effectiveSound(Engine.soundWaiting, "message-attention")
                         onPicked: (name) => Engine.setSoundWaiting(name)
+                    }
+                }
+            }
+
+            // Appearance
+            Card {
+                visible: root.tab === "appearance"
+                heading: "Theme"
+
+                Column {
+                    width: parent.width
+                    spacing: 0
+
+                    Repeater {
+                        model: Theme.themeList
+                        delegate: Rectangle {
+                            id: themeRow
+                            required property var modelData
+                            readonly property bool chosen: modelData.id === Engine.theme
+
+                            width: parent.width
+                            height: 56
+                            radius: 10
+                            color: themeHover.hovered ? Theme.panelHover : "transparent"
+                            Behavior on color { ColorAnimation { duration: 120 } }
+
+                            // Reachable by keyboard, like every control.
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.RadioButton
+                            Accessible.name: modelData.label
+                            Accessible.description: modelData.blurb
+                            Accessible.checked: chosen
+
+                            // The focus ring, for the keyboard.
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -2
+                                radius: parent.radius + 2
+                                color: "transparent"
+                                border.width: 2
+                                border.color: Theme.accent
+                                visible: themeRow.activeFocus
+                            }
+
+                            HoverHandler {
+                                id: themeHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            TapHandler {
+                                onTapped: Engine.setTheme(themeRow.modelData.id)
+                            }
+                            Keys.onReturnPressed: Engine.setTheme(themeRow.modelData.id)
+                            Keys.onSpacePressed: Engine.setTheme(themeRow.modelData.id)
+
+                            // The theme's own colours, as a small preview.
+                            Row {
+                                id: preview
+                                anchors.left: parent.left
+                                anchors.leftMargin: 6
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 3
+                                Repeater {
+                                    model: themeRow.modelData.swatches
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: 14
+                                        height: 28
+                                        radius: 4
+                                        color: modelData
+                                        border.width: 1
+                                        border.color: Theme.cardStroke
+                                    }
+                                }
+                            }
+                            Column {
+                                anchors.left: preview.right
+                                anchors.leftMargin: 14
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 1
+                                Text {
+                                    text: themeRow.modelData.label
+                                    color: Theme.text
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    text: themeRow.modelData.blurb
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 12
+                                }
+                            }
+                            // The chosen one wears a ring.
+                            Rectangle {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 16
+                                height: 16
+                                radius: 8
+                                border.width: 1.5
+                                border.color: themeRow.chosen ? Theme.accent : Theme.track
+                                color: "transparent"
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: 8
+                                    height: 8
+                                    radius: 4
+                                    color: Theme.accent
+                                    visible: themeRow.chosen
+                                }
+                            }
+                        }
                     }
                 }
             }

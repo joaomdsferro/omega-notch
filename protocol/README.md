@@ -40,7 +40,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | type | fields |
 |---|---|
 | `hello` | `server`, `version`, `protocol` |
-| `snapshot` | `readings`, `sessions`, `chats`, `tokens`, `config` |
+| `snapshot` | `providers`, `readings`, `sessions`, `chats`, `tokens`, `config` |
 | `activity_updated` | `chats`, `tokens` |
 | `usage_updated` | `reading` |
 | `dashboard` | `points`, `costs`, `total_usd`, `models`, `sessions`, `search?`, `project?`, `session?`, `projects`, `suggestions` |
@@ -69,6 +69,17 @@ threshold is sent once, and again only after usage falls 10 points below it
 point without one. Muted providers, and `alerts.limits` off, send none. Older
 clients ignore it.
 
+`snapshot` carries `providers`: every provider the engine can fetch, in
+display order, each `{ "id": "claude_code", "display_name": "Claude Code" }`.
+Shells build their provider lists from it instead of hardcoding ids, and a
+newer engine can add one without an older shell failing to read it.
+
+Provider ids are open strings (`provider_id`); the engine's registry decides
+which ones it can fetch, and an unknown id reads as disabled rather than an
+error. `config.providers` is the same open map (`{ "<id>": true }`), a
+missing id meaning on; `config.alerts.muted` is the same map for muted limit
+alerts, a missing id meaning not muted.
+
 `session_updated` carries a provider's overall state (waiting outranks busy,
 busy outranks idle). `session_finished` and `session_waiting` are about one
 session and are there to be announced; they do not replace that state.
@@ -87,8 +98,15 @@ session and are there to be announced; they do not replace that state.
 ```
 
 Optional per provider: `tokens`, `context_tokens`, `context_pct`,
-`lines_added`, `lines_removed`. Chats arrive newest first, at most 8 per
+`lines_added`, `lines_removed`, and `preview` (v6, additive): the opening
+words of the chat's latest message, one line, when the provider keeps a
+local log (Grok Bot's bots). Chats arrive newest first, at most 8 per
 provider.
+
+`avatar_shape` and `avatar_color` (v6, additive) carry the bot avatar Grok
+Bot's roster names: `blob`, `cloud`, `teardrop`… in `orange`, `blue`,
+`violet`… The shell draws the shape in the colour; bots and groups the
+roster has not styled carry neither. Older clients ignore the fields.
 
 `unread` (v6) is true for a chat that stopped with a reply newer than both
 your latest prompt in it and the last time you looked at it. Looking means
@@ -159,6 +177,14 @@ in the range with tokens. `title`, `project`, `cwd` and `surface` come from
 rows hold chat titles, so the engine drops them once they are older than the
 history (90 days). Older clients ignore the field.
 
+`bots` (v6) is Grok Bot's own ranking, for the unscoped dashboard only: one
+entry per bot with a local transcript, busiest first. Grok Bot records no
+per-bot counters, so an entry's `messages` counts the transcript's entries
+over the range and `tokens` estimates a quarter of their text's characters;
+`routines` lists the bot's automations as last changed, and an entry carries
+the same `avatar_shape`/`avatar_color` its chats do. Older clients ignore
+the field.
+
 `get_dashboard` can narrow the whole dashboard. With a `search`, only the
 sessions that carry every word of it (case aside) in their title, project,
 folder, id or a model's name count; with a `project` (a name from
@@ -203,7 +229,18 @@ per-model price table (cache-aware) — never a bill.
 
 ## Provider ids
 
-`cursor` · `claude_code` · `claude_desktop` · `copilot` · `grok_bot` · `codex` · (reserved) `claude_web` · `chatgpt_web` · `gemini_web`
+Ids are strings; the engine's registry currently fetches `cursor` ·
+`claude_code` · `claude_desktop` · `copilot` · `grok_bot` · `codex` ·
+`opencode` · `kimi` · `grok` · `apify` · `devin` · `amp` · `kiro` · `kilo` ·
+`glm` · `command_code`, with `claude_web` · `chatgpt_web` · `gemini_web`
+reserved for future shells. A shell reads the live list from a snapshot's
+`providers`.
+
+A Claude Code or Codex account kept in `~/.claude-<slug>` or `~/.codex-<slug>`
+is listed after its base provider with the id `<base>-<slug>` (`claude_code-work`,
+`codex-client`) and a display name such as `Claude Code (work)`. Its usage,
+chats, sessions and token history carry that id; switching the base id off
+disables the accounts too.
 
 ## Hook HTTP (localhost)
 

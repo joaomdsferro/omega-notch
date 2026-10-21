@@ -6,7 +6,7 @@
 
 ### Your AI coding tools' limits and live sessions, in a notch on your Mac or on KDE Plasma.
 
-**Claude Code, Cursor, Claude Desktop, GitHub Copilot, Codex and Grok Bot. Read from your own computer.**
+**Claude Code, Cursor, Claude Desktop, GitHub Copilot, Codex, OpenCode and Grok Bot. Read from your own computer.**
 
 [![Release](https://img.shields.io/github/v/release/joaomdsferro/omega-notch?include_prereleases&style=flat-square&label=release&color=e59a1c)](https://github.com/joaomdsferro/omega-notch/releases)
 [![Release build](https://img.shields.io/github/actions/workflow/status/joaomdsferro/omega-notch/release.yml?style=flat-square&label=build)](https://github.com/joaomdsferro/omega-notch/actions/workflows/release.yml)
@@ -131,7 +131,23 @@ To remove it, run `./uninstall.sh` from the same folder.
 | **Claude Desktop** | `~/.config/Claude/plan-usage-history.json` (no reset times) | — | — | — |
 | **GitHub Copilot** | `copilot_internal/user` endpoint (premium requests, or chat/completions on Free) | VS Code Copilot Chat transcripts (best effort) | — | — |
 | **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |
-| **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | — | — |
+| **OpenCode** | the sub-provider's own limits when known (Anthropic, GitHub Copilot); its local data otherwise | — | `~/.local/share/opencode/opencode.db` (model per session) | the same database, last 7 days |
+| **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | the sand store's bot roster (`~/.config/Grok Bot/sand-client-persistence`), name and last message per bot | — |
+| **Kimi** | `api.kimi.com/coding/v1/usages` with the Kimi Code CLI's OAuth session (`~/.kimi-code/credentials/kimi-code.json`) | — | — | — |
+| **Grok** | `cli-chat-proxy.grok.com` credits, with Grok CLI's `~/.grok/auth.json` (renewed in memory) | — | — | — |
+| **Amp** | `ampcode.com/api/internal` balance, with the Amp CLI's key (`~/.local/share/amp/secrets.json`) | — | — | — |
+| **Apify** | `api.apify.com/v2/users/me/limits` (monthly spend against the account cap), with `APIFY_TOKEN` or `~/.apify/auth.json` | — | — | — |
+| **Kiro** | `kiro-cli chat --no-interactive /usage`, parsed from its card | — | — | — |
+| **Kilo** | `api.kilo.ai` coding-plan windows and credit balance, with the Kilo CLI's sign-in (`~/.local/share/kilo/auth.json`) | — | — | — |
+| **GLM** | Z.ai's quota monitor, with a GLM Coding Plan key from `~/.claude/settings.json` or opencode's sign-in | — | — | — |
+| **Command Code** | `/alpha` usage, credits and subscription, with `~/.commandcode/auth.json` | — | — | — |
+| **Devin** | `GetUserStatus`, with Devin Desktop's store or `devin auth login`'s credentials | — | — | — |
+
+Claude Code and Codex accounts kept apart in `~/.claude-<name>` and `~/.codex-<name>` get their own
+ring, their own chats and their own token totals: the id is `claude_code-<name>` or `codex-<name>`,
+and switching the base provider off switches its accounts off too. On macOS a Claude Code profile
+signed in through Keychain storage is not found; sign it in with `CLAUDE_CONFIG_DIR=~/.claude-<name>`
+so Claude Code writes `.credentials.json` there.
 
 On macOS, the folders under `~/.config` in this table are under `~/Library/Application Support`
 instead, such as `~/Library/Application Support/Claude` and `~/Library/Application Support/Cursor`.
@@ -146,6 +162,12 @@ client already saved is picked up as well: `~/.config/github-copilot/apps.json` 
 
 Codex's ring uses the ChatGPT sign-in Codex already saved in `~/.codex/auth.json` (or `$CODEX_HOME`),
 read-only. Codex refreshes that token itself; if it has expired, opening Codex once brings the ring back.
+
+OpenCode's data lives in `~/.local/share/opencode/opencode.db`, read-only: its sessions, the model each
+turn ran on, and token counts. The ring follows the sub-provider of your latest session — Anthropic and
+GitHub Copilot limits come from their own endpoints using the sign-ins OpenCode saved in `auth.json`,
+while every other sub-provider (opencode zen, OpenRouter, …) falls back to the local usage of the last
+7 days, labelled with the model and who it bills.
 
 ## How it works
 

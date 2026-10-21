@@ -55,9 +55,13 @@ struct NotchView: View {
         .fill(Color(hex: model.config.idleColor).opacity(pose.fade))
         .frame(width: frame.width, height: frame.height)
         .overlay {
-          // Finished chats to read: a green dot on the nub.
+          // Finished chats to read: a dot on the nub, in a colour that reads
+          // on whatever colour the nub is, breathing so the eye finds it.
           if unreadCount > 0 {
-            Circle().fill(Theme.unread).frame(width: depth * 0.7, height: depth * 0.7)
+            Circle()
+              .fill(Theme.markColor(model.config.idleColor))
+              .frame(width: depth * 0.7, height: depth * 0.7)
+              .breathing(true, period: 2.2)
           }
         }
         .offset(x: frame.minX, y: frame.minY)
@@ -78,8 +82,13 @@ struct NotchView: View {
   @ViewBuilder private var unreadDot: some View {
     if model.onHousing && !model.revealed && unreadCount > 0 {
       let size = 7 * s
-      Circle().fill(Theme.unread)
+      Circle()
+        .fill(Theme.unread)
         .frame(width: size, height: size)
+        // Over the desktop, where the colour is anyone's: a dark ring and a
+        // light one, so the dot reads on any wallpaper.
+        .overlay(Circle().strokeBorder(Color.black.opacity(0.55), lineWidth: 1.4 * s))
+        .overlay(Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1.2 * s))
         .offset(x: (model.panelSize.width - size) / 2, y: model.housing.height + 3 * s)
         .transition(.opacity)
         .allowsHitTesting(false)
@@ -262,7 +271,8 @@ struct NotchView: View {
       .onGeometryChange(for: CGSize.self, of: \.size) { model.cardSize = $0 }
       .offset(x: frame.minX + offset.width, y: frame.minY + offset.height)
       .opacity(model.cardActive ? 1 : 0)
-      .animation(.easeOut(duration: 0.15), value: model.cardActive)
+      .scaleEffect(model.cardActive ? 1 : 0.985)
+      .animation(.easeOut(duration: 0.2), value: model.cardActive)
       .allowsHitTesting(model.cardActive)
     }
   }

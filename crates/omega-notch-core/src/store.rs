@@ -12,8 +12,8 @@ use crate::config::AppConfig;
 use crate::copilot_auth;
 use crate::limits::LimitWatch;
 use crate::protocol::{
-    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ReadingStatus,
-    ServerMessage, SessionKind, SessionState, UsageReading,
+    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ProviderInfo,
+    ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
 };
 use crate::providers;
 use crate::seen::Seen;
@@ -87,9 +87,19 @@ impl UsageStore {
         // Moving the notch or muting a sound is no reason to spend a vendor's
         // rate limit; only providers that were switched need a new reading.
         let mut toggled = false;
-        for id in ProviderId::mvp_providers() {
-            if previous.provider_enabled(*id) != config.provider_enabled(*id) {
-                self.refresh_one(*id).await;
+        let catalog = providers::catalog();
+        for provider in &catalog {
+            let id = provider.id();
+            if previous.provider_enabled(id) != config.provider_enabled(id) {
+                self.refresh_one(id.clone()).await;
+                // A base switch carries its accounts: switching Claude Code
+                // off must blank `claude_code-work` too.
+                for account in catalog.iter().filter(|other| {
+                    providers::profiles::from_id(other.id())
+                        .is_some_and(|profile| profile.base == id.as_str())
+                }) {
+                    self.refresh_one(account.id().clone()).await;
+                }
                 toggled = true;
             }
         }
@@ -100,20 +110,29 @@ impl UsageStore {
     }
 
     pub async fn snapshot(&self) -> ServerMessage {
+        let catalog = providers::catalog();
         let readings = {
             let guard = self.inner.readings.read().await;
-            ProviderId::mvp_providers()
+            catalog
                 .iter()
-                .filter_map(|id| guard.get(id).cloned())
+                .filter_map(|provider| guard.get(provider.id()).cloned())
                 .collect()
         };
         let sessions = {
             let guard = self.inner.sessions.read().await;
             guard.values().cloned().collect()
         };
+        let providers = catalog
+            .iter()
+            .map(|provider| ProviderInfo {
+                id: provider.id().clone(),
+                display_name: provider.display_name().to_string(),
+            })
+            .collect();
         let config = self.config().await;
         let activity = self.inner.activity.read().await.clone();
         ServerMessage::Snapshot {
+            providers,
             readings,
             sessions,
             chats: activity.chats,
@@ -171,8 +190,8 @@ impl UsageStore {
 
     pub async fn refresh_all(&self) {
         let config = self.config().await;
-        for id in ProviderId::mvp_providers() {
-            let reading = providers::fetch_provider(*id, &config).await;
+        for provider in providers::catalog() {
+            let reading = providers::fetch_provider(provider.id().clone(), &config).await;
             self.publish_reading(reading).await;
         }
     }
@@ -194,7 +213,7 @@ impl UsageStore {
                     }
                 }
             }
-            guard.insert(reading.provider, reading.clone());
+            guard.insert(reading.provider.clone(), reading.clone());
         }
         // Followed even while muted, so unmuting does not announce a
         // threshold passed long ago.
@@ -211,7 +230,7 @@ impl UsageStore {
 
         if let Some(limit) = limit {
             let config = self.config().await;
-            if config.alerts.limits && !config.alerts_muted(limit.provider) {
+            if config.alerts.limits && !config.alerts_muted(&limit.provider) {
                 info!(provider = ?limit.provider, threshold = limit.threshold, "usage limit");
                 let _ = self
                     .inner
@@ -227,7 +246,7 @@ impl UsageStore {
             return;
         };
         let config = self.config().await;
-        if config.provider_enabled(ProviderId::ClaudeCode)
+        if config.provider_enabled(&ProviderId::ClaudeCode)
             && !self.inner.backfill_checked.swap(true, Ordering::SeqCst)
         {
             tokio::task::spawn_blocking(backfill_history);
@@ -263,7 +282,7 @@ impl UsageStore {
     /// Marks a chat read now, and tells the shells when that changes it.
     pub async fn mark_seen(&self, provider: ProviderId, id: &str) {
         let changed = match self.inner.seen.lock() {
-            Ok(mut seen) => seen.mark(provider, id, Utc::now()),
+            Ok(mut seen) => seen.mark(&provider, id, Utc::now()),
             Err(_) => false,
         };
         if !changed {
@@ -306,7 +325,7 @@ impl UsageStore {
                 guard
                     .chats
                     .iter()
-                    .filter(|c| c.provider == ProviderId::ClaudeCode)
+                    .filter(|c| providers::profiles::is_claude(&c.provider))
             };
             let unread: std::collections::HashSet<String> = claude()
                 .filter(|c| c.unread && c.live)
@@ -326,7 +345,17 @@ impl UsageStore {
         .ok()
         .flatten();
         if let Some(id) = found {
-            self.mark_seen(ProviderId::ClaudeCode, &id).await;
+            // The chat says which account it belongs to; a profile's unread
+            // mark must not be filed under the default account's id.
+            let provider = {
+                let guard = self.inner.activity.read().await;
+                guard
+                    .chats
+                    .iter()
+                    .find(|c| c.id == id)
+                    .map_or(ProviderId::ClaudeCode, |c| c.provider.clone())
+            };
+            self.mark_seen(provider, &id).await;
         }
     }
 
@@ -381,7 +410,7 @@ impl UsageStore {
                     cache_write: (stats.today.cache_write as f64 * share).round() as u64,
                 };
                 costs.push(CostEstimate {
-                    provider: stats.provider,
+                    provider: stats.provider.clone(),
                     model: model.model.clone(),
                     total: model.total,
                     cost_usd: pricing::estimate_cost_usd(&model.model, &bucket),
@@ -415,12 +444,22 @@ impl UsageStore {
             .cloned()
             .collect();
         let suggestions = crate::advice::suggest(&advised, &chats);
+        // Grok Bot's bots are ranked by their own transcripts; a narrowed
+        // dashboard is about sessions, so they answer the unscoped one only.
+        let bots = if scope.is_empty() {
+            tokio::task::spawn_blocking(move || crate::grok_bot::activity(days))
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         ServerMessage::Dashboard {
             points,
             costs,
             total_usd,
             models,
             sessions: scoped.sessions,
+            bots,
             search: scope.search,
             project: scope.project,
             session: scope.session,
@@ -477,10 +516,10 @@ impl UsageStore {
                     // not Anthropic's to see.
                     scoped
                         .matched
-                        .retain(|s| s.provider == ProviderId::ClaudeCode);
+                        .retain(|s| providers::profiles::is_claude(&s.provider));
                     scoped
                         .models
-                        .retain(|m| m.provider == ProviderId::ClaudeCode);
+                        .retain(|m| providers::profiles::is_claude(&m.provider));
                     if !scope.session.trim().is_empty() {
                         scoped.matched.retain(|s| s.id == scope.session.trim());
                     }
@@ -523,7 +562,7 @@ impl UsageStore {
         if let (true, Some(previous)) = (unchanged, guard.get(&session.provider)) {
             session.updated_at = previous.updated_at;
         }
-        let previous = guard.insert(session.provider, session.clone());
+        let previous = guard.insert(session.provider.clone(), session.clone());
         drop(guard);
         if !unchanged {
             let _ = self
@@ -537,7 +576,7 @@ impl UsageStore {
     /// Announces one session finishing or stopping to ask, for providers that
     /// report each session on its own.
     pub async fn announce(&self, session: SessionState) {
-        if self.config().await.alerts_muted(session.provider) {
+        if self.config().await.alerts_muted(&session.provider) {
             return;
         }
         let message = match session.kind {
@@ -552,7 +591,7 @@ impl UsageStore {
         let config = self.config().await;
         let previous = self.set_session(session.clone()).await;
 
-        if config.alerts_muted(session.provider) {
+        if config.alerts_muted(&session.provider) {
             return;
         }
 
@@ -657,31 +696,34 @@ impl UsageStore {
 /// on disk, up to the days the live scan already covers. Runs in the
 /// background; a failure only means a shorter history.
 fn backfill_history() {
-    match history::backfill_done() {
-        Ok(true) => return,
-        Ok(false) => {}
-        Err(err) => {
-            warn!(error = %err, "could not read token history");
-            return;
-        }
-    }
     let today = chrono::Local::now().date_naive();
     let first_day = today - chrono::Duration::days(history::MAX_HISTORY_DAYS as i64 - 1);
     let live_from = today - chrono::Duration::days(chats::HISTORY_DAYS - 1);
-    let started = std::time::Instant::now();
-    let found = chats::backfill_claude(first_day, live_from);
-    match history::record_backfill(
-        ProviderId::ClaudeCode,
-        &found.days,
-        &found.sessions,
-        &found.meta,
-    ) {
-        Ok(()) => info!(
-            rows = found.days.len(),
-            sessions = found.meta.len(),
-            took = ?started.elapsed(),
-            "token history backfilled"
-        ),
-        Err(err) => warn!(error = %err, "could not backfill token history"),
+    for profile in providers::profiles::claude_profiles() {
+        match history::backfill_done(&profile.id) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(err) => {
+                warn!(error = %err, "could not read token history");
+                return;
+            }
+        }
+        let started = std::time::Instant::now();
+        let found = chats::backfill_claude(&profile.dir, first_day, live_from);
+        match history::record_backfill(
+            profile.id.clone(),
+            &found.days,
+            &found.sessions,
+            &found.meta,
+        ) {
+            Ok(()) => info!(
+                provider = profile.id.as_str(),
+                rows = found.days.len(),
+                sessions = found.meta.len(),
+                took = ?started.elapsed(),
+                "token history backfilled"
+            ),
+            Err(err) => warn!(error = %err, "could not backfill token history"),
+        }
     }
 }

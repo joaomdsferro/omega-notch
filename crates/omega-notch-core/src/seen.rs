@@ -33,7 +33,7 @@ pub fn seen_path() -> PathBuf {
     paths::app_data_dir().join("seen.json")
 }
 
-fn key(provider: ProviderId, id: &str) -> String {
+fn key(provider: &ProviderId, id: &str) -> String {
     format!("{}:{id}", provider.as_str())
 }
 
@@ -80,7 +80,7 @@ impl Seen {
         Ok(())
     }
 
-    fn seen_at(&self, provider: ProviderId, id: &str) -> DateTime<Utc> {
+    fn seen_at(&self, provider: &ProviderId, id: &str) -> DateTime<Utc> {
         self.chats
             .get(&key(provider, id))
             .copied()
@@ -88,7 +88,7 @@ impl Seen {
     }
 
     /// Records a look at `at`; false when it changes nothing.
-    pub fn mark(&mut self, provider: ProviderId, id: &str, at: DateTime<Utc>) -> bool {
+    pub fn mark(&mut self, provider: &ProviderId, id: &str, at: DateTime<Utc>) -> bool {
         if at <= self.seen_at(provider, id) {
             return false;
         }
@@ -105,7 +105,7 @@ impl Seen {
         };
         chat.state == SessionKind::Idle
             && chat.prompted_at.is_none_or(|prompted| replied > prompted)
-            && replied > self.seen_at(chat.provider, &chat.id)
+            && replied > self.seen_at(&chat.provider, &chat.id)
     }
 
     /// Sets every chat's `unread` from the marks.
@@ -133,6 +133,9 @@ mod tests {
             cwd: None,
             model: None,
             surface: None,
+            preview: None,
+            avatar_shape: None,
+            avatar_color: None,
             state,
             live: true,
             updated_at: at(0),
@@ -153,7 +156,7 @@ mod tests {
         let mut seen = Seen::new(at(0));
         let done = chat(SessionKind::Idle, Some(5), Some(9));
         assert!(seen.is_unread(&done));
-        assert!(seen.mark(ProviderId::ClaudeCode, "abc", at(10)));
+        assert!(seen.mark(&ProviderId::ClaudeCode, "abc", at(10)));
         assert!(!seen.is_unread(&done));
         // The next reply is news again.
         assert!(seen.is_unread(&chat(SessionKind::Idle, Some(11), Some(12))));
@@ -180,10 +183,10 @@ mod tests {
     #[test]
     fn an_older_look_changes_nothing_and_old_marks_are_dropped() {
         let mut seen = Seen::new(at(0));
-        assert!(seen.mark(ProviderId::ClaudeCode, "old", at(1)));
-        assert!(!seen.mark(ProviderId::ClaudeCode, "old", at(1)));
+        assert!(seen.mark(&ProviderId::ClaudeCode, "old", at(1)));
+        assert!(!seen.mark(&ProviderId::ClaudeCode, "old", at(1)));
         assert!(seen.mark(
-            ProviderId::ClaudeCode,
+            &ProviderId::ClaudeCode,
             "new",
             at(1) + Duration::days(KEEP_DAYS + 1)
         ));
@@ -194,7 +197,7 @@ mod tests {
     #[test]
     fn round_trips_through_json() {
         let mut seen = Seen::new(at(0));
-        seen.mark(ProviderId::Cursor, "x", at(3));
+        seen.mark(&ProviderId::Cursor, "x", at(3));
         let back: Seen = serde_json::from_str(&serde_json::to_string(&seen).unwrap()).unwrap();
         assert_eq!(back, seen);
     }

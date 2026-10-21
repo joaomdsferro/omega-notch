@@ -255,10 +255,7 @@ struct ChatRow: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 2 * s) {
       HStack(alignment: .firstTextBaseline, spacing: 9 * s) {
-        Circle()
-          .fill(chat.isUnread ? Theme.unread : Theme.stateColor(chat.state))
-          .frame(width: 7 * s, height: 7 * s)
-          .breathing(chat.state != .idle)
+        mark
           .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 * s }
         Text(chat.title)
           .font(.notch(12.5 * s, chat.isUnread ? .semibold : .regular))
@@ -273,17 +270,50 @@ struct ChatRow: View {
               : chat.state == .waitingYou
                 ? Theme.waiting : chat.state == .busy ? Theme.text : Theme.textSecondary)
       }
-      Text(Format.chatDetail(chat))
+      Text(detail)
         .font(.notch(11 * s, tabular: true))
         .foregroundStyle(Theme.textSecondary)
         .lineLimit(1)
-        .padding(.leading, 16 * s)
+        .padding(.leading, 25 * s)
     }
     .padding(4 * s)
     .background(RoundedRectangle(cornerRadius: 6 * s).fill(hovered ? Theme.panelHover : .clear))
     .padding(-4 * s)
     .contentShape(Rectangle())
     .onTapGesture(perform: open)
+  }
+
+  /// The mark column: the bot's drawn avatar when the roster styled one, a
+  /// plain dot otherwise. The live state rides the avatar's corner, so the
+  /// signal survives the drawing.
+  private var mark: some View {
+    ZStack(alignment: .topTrailing) {
+      if let shape = chat.avatarShape, !shape.isEmpty {
+        BotAvatar(shape: shape, colorName: chat.avatarColor ?? "")
+          .frame(width: 16 * s, height: 16 * s)
+        if chat.state != .idle || chat.isUnread {
+          Circle()
+            .fill(chat.isUnread ? Theme.unread : Theme.stateColor(chat.state))
+            .frame(width: 7 * s, height: 7 * s)
+            .offset(x: 2 * s, y: -2 * s)
+            .breathing(chat.state != .idle)
+        }
+      } else {
+        Circle()
+          .fill(chat.isUnread ? Theme.unread : Theme.stateColor(chat.state))
+          .frame(width: 7 * s, height: 7 * s)
+          .breathing(chat.state != .idle)
+          .frame(width: 16 * s, height: 16 * s)
+      }
+    }
+    .frame(width: 16 * s, height: 16 * s)
+  }
+
+  /// The folder, model and spend when the tool records them; what the chat
+  /// last said when it does not (Grok Bot's bots).
+  private var detail: String {
+    let parts = Format.chatDetail(chat)
+    return parts.isEmpty ? (chat.preview ?? "") : parts
   }
 
   private var when: String {

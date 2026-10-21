@@ -33,7 +33,7 @@ Item {
     readonly property string status: reading ? (reading.status || "ok") : "offline"
     readonly property bool stale: status === "stale"
 
-    width: 320 * scale_
+    width: Theme.px(320 * scale_)
     height: content.implicitHeight + 2 * pad
 
     function tailPoint(a, b) {
