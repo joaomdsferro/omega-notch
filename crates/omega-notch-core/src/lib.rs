@@ -10,6 +10,7 @@ pub mod grok_bot;
 pub mod history;
 pub mod jump;
 pub mod limits;
+mod memo;
 pub mod opencode;
 pub mod paths;
 pub mod platform;
