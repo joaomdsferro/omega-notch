@@ -265,16 +265,10 @@ pub async fn token_activity() -> Option<(TokenStats, HashMap<String, TokenTotals
         return Some((stats, by_chat));
     }
 
-    match fetch_token_activity().await {
-        Ok(result) => {
-            store_token_cache(&result);
-            Some(result)
-        }
-        Err(err) => {
-            tracing::warn!(error = %err, "could not fetch Cursor token usage");
-            None
-        }
-    }
+    // Cold cache: never await the network from the activity/session loop —
+    // a multi-page fetch can stall busy/idle detection for seconds.
+    spawn_token_refresh();
+    None
 }
 
 fn store_token_cache(result: &(TokenStats, HashMap<String, TokenTotals>)) {

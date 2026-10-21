@@ -192,4 +192,22 @@ final class ProtocolTests: XCTestCase {
     let encoded = String(decoding: try JSONEncoder().encode(config.raw), as: UTF8.self)
     XCTAssertTrue(encoded.contains(#""max_providers":5"#), encoded)
   }
+
+  func testFavoritesAndNotchOrderRoundTrip() throws {
+    let raw = try JSONDecoder().decode(
+      JSONValue.self,
+      from: Data(#"{"favorites":["codex","codex","Bad Id"],"notch_order":["cursor","codex"]}"#.utf8))
+    var config = NotchConfig(raw: raw)
+    XCTAssertEqual(config.favorites, ["codex"])
+    XCTAssertEqual(config.notchOrder, ["cursor", "codex"])
+    XCTAssertTrue(config.isFavorite("codex"))
+    XCTAssertFalse(config.isFavorite("cursor"))
+
+    config.setFavorite("claude_code", favorite: true)
+    config.setFavorite("codex", favorite: false)
+    XCTAssertEqual(config.favorites, ["claude_code"])
+
+    config.moveInNotch("codex", by: -1, among: ["cursor", "codex", "opencode"])
+    XCTAssertEqual(config.notchOrder, ["codex", "cursor", "opencode"])
+  }
 }

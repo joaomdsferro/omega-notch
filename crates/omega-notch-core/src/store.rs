@@ -202,20 +202,32 @@ impl UsageStore {
     /// comes on without a visit to Settings. Fetched with the rest by the
     /// caller, so not refreshed here.
     async fn adopt_found_providers(&self) {
-        let config = {
-            let mut guard = self.inner.config.write().await;
+        // Detect outside the write lock: walking disks must not stall
+        // set_config / config readers for the whole scan.
+        let snapshot = {
+            let guard = self.inner.config.read().await;
             if guard.undetected.is_empty() {
                 return;
             }
-            let mut next = guard.clone();
-            let found = tokio::task::spawn_blocking(move || {
-                let adopted = next.adopt_found_providers(providers::detected);
-                (next, adopted)
-            })
-            .await;
-            let Ok((next, true)) = found else {
+            guard.clone()
+        };
+        let prior_undetected = snapshot.undetected.clone();
+        let found = tokio::task::spawn_blocking(move || {
+            let mut next = snapshot;
+            let adopted = next.adopt_found_providers(providers::detected);
+            (next, adopted)
+        })
+        .await;
+        let Ok((next, true)) = found else {
+            return;
+        };
+        let config = {
+            let mut guard = self.inner.config.write().await;
+            // A concurrent set_config changed who we were hunting for — skip
+            // this tick; the next refresh_all will try again.
+            if guard.undetected != prior_undetected {
                 return;
-            };
+            }
             *guard = next.clone();
             next
         };

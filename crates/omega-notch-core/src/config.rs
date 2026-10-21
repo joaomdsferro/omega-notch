@@ -670,7 +670,10 @@ mod tests {
         assert_eq!(c.notch_order, vec!["cursor", "codex"]);
 
         let many: Vec<String> = (0..200).map(|n| format!("p{n}")).collect();
-        let c = parse(&format!(r#"{{"favorites":{}}}"#, serde_json::to_string(&many).unwrap()));
+        let c = parse(&format!(
+            r#"{{"favorites":{}}}"#,
+            serde_json::to_string(&many).unwrap()
+        ));
         assert_eq!(c.favorites.len(), PROVIDER_LIST_MAX);
 
         // Older configs have neither.
