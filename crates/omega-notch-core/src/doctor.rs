@@ -2,6 +2,7 @@ use std::fmt::Write as _;
 
 use crate::config::AppConfig;
 use crate::paths;
+use crate::protocol::ProviderId;
 use crate::providers;
 use crate::sessions;
 
@@ -143,7 +144,19 @@ pub async fn run_doctor() -> String {
         let _ = writeln!(out, "  {} -> {:?}", id.display_name(), kind);
     }
 
-    let activity = crate::chats::ActivityIndex::new().scan(&config);
+    let mut activity = crate::chats::ActivityIndex::new().scan(&config);
+    if config.provider_enabled(&ProviderId::Cursor) {
+        if let Some((stats, by_chat)) = crate::providers::cursor_token_activity().await {
+            for chat in &mut activity.chats {
+                if chat.provider == ProviderId::Cursor {
+                    if let Some(tokens) = by_chat.get(&chat.id) {
+                        chat.tokens = Some(*tokens);
+                    }
+                }
+            }
+            activity.tokens.push(stats);
+        }
+    }
     let _ = writeln!(out);
     let _ = writeln!(out, "Tokens");
     for stats in &activity.tokens {

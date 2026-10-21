@@ -4,7 +4,8 @@
 //! - Claude Code: `~/.claude/projects/**/*.jsonl` transcripts for titles and
 //!   token usage, `~/.claude/sessions/*.json` for which chats are live.
 //! - Cursor: the `composerHeaders` table of the editor's global state database,
-//!   with `composerData:<id>` for the model in use.
+//!   with `composerData:<id>` for the model, live flags, and context size.
+//!   Token totals come from Cursor's usage-events API (see `providers::cursor`).
 //! - Codex: `~/.codex/session_index.jsonl` for titles, rollout `session_meta`
 //!   under `~/.codex/sessions` for cwd and surface, and early `turn_context`
 //!   for the model.
@@ -806,18 +807,9 @@ fn claude_surface(entrypoint: &str) -> Option<&'static str> {
 // ---------------------------------------------------------------------------
 
 fn cursor_chats() -> Vec<ChatSummary> {
-    let path = paths::cursor_state_db();
-    if !path.exists() {
-        return Vec::new();
-    }
-    let uri = format!("file:{}?mode=ro", path.display());
-    let Ok(conn) = Connection::open_with_flags(
-        &uri,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    ) else {
+    let Some(conn) = open_cursor_state_db() else {
         return Vec::new();
     };
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(400));
 
     // Older Cursor builds have no such table; that is simply "no chats".
     let Ok(mut statement) = conn.prepare(
@@ -860,11 +852,22 @@ fn cursor_chats() -> Vec<ChatSummary> {
             .pointer("/workspaceIdentifier/uri/fsPath")
             .and_then(Value::as_str)
             .map(str::to_string);
-        let waiting = head
-            .get("hasBlockingPendingActions")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let model = cursor_composer_model(&conn, &id);
+        let data = cursor_composer_data(&conn, &id);
+        let (state, _) = cursor_composer_kind(&head, data.as_ref(), updated.or(created));
+        let model = data
+            .as_ref()
+            .and_then(cursor_model_from_data)
+            .or_else(|| cursor_composer_model(&conn, &id));
+        let context_tokens = data
+            .as_ref()
+            .and_then(|value| value.pointer("/promptTokenBreakdown/totalUsedTokens"))
+            .and_then(Value::as_u64)
+            .filter(|n| *n > 0);
+        let context_pct = head
+            .get("contextUsagePercent")
+            .or_else(|| data.as_ref().and_then(|v| v.get("contextUsagePercent")))
+            .and_then(Value::as_f64)
+            .map(|p| p.clamp(0.0, 100.0));
 
         chats.push(ChatSummary {
             provider: ProviderId::Cursor,
@@ -880,20 +883,13 @@ fn cursor_chats() -> Vec<ChatSummary> {
             preview: None,
             avatar_shape: None,
             avatar_color: None,
-            state: if waiting {
-                SessionKind::WaitingYou
-            } else {
-                SessionKind::Idle
-            },
-            live: waiting,
+            state,
+            live: state != SessionKind::Idle,
             updated_at,
             messages: 0,
             tokens: None,
-            context_tokens: None,
-            context_pct: head
-                .get("contextUsagePercent")
-                .and_then(Value::as_f64)
-                .map(|p| p.clamp(0.0, 100.0)),
+            context_tokens,
+            context_pct,
             lines_added: head.get("totalLinesAdded").and_then(Value::as_u64),
             lines_removed: head.get("totalLinesRemoved").and_then(Value::as_u64),
             // Cursor keeps no time for its last reply apart from your edits.
@@ -908,10 +904,195 @@ fn cursor_chats() -> Vec<ChatSummary> {
     chats
 }
 
-/// Model chosen for a Cursor composer, from `composerData:<id>` in the same DB.
-fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String> {
+/// One Cursor composer as the session watcher sees it: id, live kind, and a
+/// label for alerts when that composer finishes or asks.
+#[derive(Debug, Clone)]
+pub struct CursorComposerSession {
+    pub id: String,
+    pub kind: SessionKind,
+    /// The composer cleared its live flags itself. Idle from a sticky
+    /// `unfinishedRunAt` after the grace window is not a finish to announce.
+    pub finished: bool,
+    pub label: String,
+}
+
+/// Every non-draft composer in Cursor's state DB, newest first. Used both for
+/// the ring's aggregate state and for announcing each chat on its own.
+pub fn cursor_composer_sessions() -> Vec<CursorComposerSession> {
+    let Some(conn) = open_cursor_state_db() else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = conn.prepare(
+        "SELECT composerId, lastUpdatedAt, value FROM composerHeaders \
+         WHERE isSubagent = 0 AND isArchived = 0 ORDER BY recency DESC LIMIT 40",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<i64>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for (id, updated, value) in rows.flatten() {
+        let head: Value = value
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or(Value::Null);
+        if head.get("isDraft").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        let data = cursor_composer_data(&conn, &id);
+        let (kind, finished) = cursor_composer_kind(&head, data.as_ref(), updated);
+        let label =
+            clean_title(head.get("name").and_then(Value::as_str)).unwrap_or_else(|| "Agent".into());
+        out.push(CursorComposerSession {
+            id,
+            kind,
+            finished,
+            label,
+        });
+    }
+    out
+}
+
+/// Ring state from Cursor's composer DB: waiting on you outranks busy.
+pub fn cursor_db_session() -> Option<crate::protocol::SessionState> {
+    // No database at all: let callers fall back to transcripts.
+    open_cursor_state_db()?;
+    let live = cursor_composer_sessions();
+    let rank = |kind: SessionKind| match kind {
+        SessionKind::WaitingYou => 2,
+        SessionKind::Busy => 1,
+        SessionKind::Idle => 0,
+    };
+    // Newest first: on a tie, keep the earlier (more recent) composer.
+    let lead = live
+        .iter()
+        .enumerate()
+        .max_by_key(|(index, session)| (rank(session.kind), std::cmp::Reverse(*index)));
+    match lead {
+        Some((_, session)) if session.kind != SessionKind::Idle => {
+            Some(crate::protocol::SessionState {
+                provider: ProviderId::Cursor,
+                kind: session.kind,
+                label: Some(session.label.clone()),
+                updated_at: Utc::now(),
+            })
+        }
+        _ => Some(crate::protocol::SessionState {
+            provider: ProviderId::Cursor,
+            kind: SessionKind::Idle,
+            label: None,
+            updated_at: Utc::now(),
+        }),
+    }
+}
+
+fn open_cursor_state_db() -> Option<Connection> {
+    let path = paths::cursor_state_db();
+    if !path.exists() {
+        return None;
+    }
+    let uri = format!("file:{}?mode=ro", path.display());
+    let conn = Connection::open_with_flags(
+        &uri,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )
+    .ok()?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(400));
+    Some(conn)
+}
+
+/// How long a Cursor turn may sit without new bubble flags before we still
+/// treat it as working. Agent transcripts often stay quiet for minutes while
+/// a tool runs; `status` can even say `aborted` mid-run.
+pub(crate) const CURSOR_OPEN_TURN_GRACE: std::time::Duration =
+    std::time::Duration::from_secs(15 * 60);
+
+/// Kind plus whether an Idle reading is a real finish (vs sticky abandoned
+/// flags that only look idle after the grace window).
+pub(crate) fn cursor_composer_kind(
+    head: &Value,
+    data: Option<&Value>,
+    updated_ms: Option<i64>,
+) -> (SessionKind, bool) {
+    if head
+        .get("hasBlockingPendingActions")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return (SessionKind::WaitingYou, false);
+    }
+    let fresh = composer_recently_touched(head, data, updated_ms);
+    let Some(data) = data else {
+        return (SessionKind::Idle, true);
+    };
+    if data
+        .get("isContinuationInProgress")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return (SessionKind::Busy, false);
+    }
+    if data
+        .get("generatingBubbleIds")
+        .and_then(Value::as_array)
+        .is_some_and(|ids| !ids.is_empty())
+    {
+        return (SessionKind::Busy, false);
+    }
+    match data.get("status").and_then(Value::as_str) {
+        Some("generating" | "streaming" | "in_progress" | "running") => {
+            return (SessionKind::Busy, false);
+        }
+        _ => {}
+    }
+    // Live generation: Cursor sets this while a turn is open, and clears it
+    // when the composer completes. Sticky after a hard abort — only trust it
+    // while the composer was touched recently.
+    let sticky_generation = data
+        .get("chatGenerationUUID")
+        .is_some_and(|value| !value.is_null());
+    let sticky_unfinished = head
+        .get("unfinishedRunAt")
+        .is_some_and(|value| !value.is_null())
+        || data
+            .get("unfinishedRunAt")
+            .is_some_and(|value| !value.is_null());
+    if sticky_generation || sticky_unfinished {
+        if fresh {
+            return (SessionKind::Busy, false);
+        }
+        // Grace expired with sticky flags still set: idle for the ring, but
+        // not a finish to announce.
+        return (SessionKind::Idle, false);
+    }
+    (SessionKind::Idle, true)
+}
+
+fn composer_recently_touched(head: &Value, data: Option<&Value>, updated_ms: Option<i64>) -> bool {
+    let now = Utc::now().timestamp_millis();
+    let grace = CURSOR_OPEN_TURN_GRACE.as_millis() as i64;
+    let candidates = [
+        updated_ms,
+        head.get("unfinishedRunAt").and_then(Value::as_i64),
+        data.and_then(|value| value.get("unfinishedRunAt").and_then(Value::as_i64)),
+        head.get("lastUpdatedAt").and_then(Value::as_i64),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .any(|ms| now.saturating_sub(ms) < grace)
+}
+
+fn cursor_composer_data(conn: &Connection, composer_id: &str) -> Option<Value> {
     let key = format!("composerData:{composer_id}");
-    // Cursor stores these rows as TEXT; accept BLOB too for older shapes.
     let raw = conn
         .query_row(
             "SELECT value FROM cursorDiskKV WHERE key = ?1",
@@ -928,7 +1109,15 @@ fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String>
             },
         )
         .ok()?;
-    let data: Value = serde_json::from_str(&raw).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Model chosen for a Cursor composer, from `composerData:<id>` in the same DB.
+fn cursor_composer_model(conn: &Connection, composer_id: &str) -> Option<String> {
+    cursor_model_from_data(&cursor_composer_data(conn, composer_id)?)
+}
+
+fn cursor_model_from_data(data: &Value) -> Option<String> {
     let config = data.get("modelConfig")?;
     let id = config
         .get("modelName")
@@ -1600,5 +1789,66 @@ mod tests {
             Some("Opus 5.5")
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cursor_composer_kind_prefers_waiting_then_busy() {
+        let now_ms = Utc::now().timestamp_millis();
+        let waiting = serde_json::json!({"hasBlockingPendingActions": true});
+        assert_eq!(
+            cursor_composer_kind(&waiting, None, Some(now_ms)),
+            (SessionKind::WaitingYou, false)
+        );
+
+        let idle_head = serde_json::json!({"hasBlockingPendingActions": false});
+        let generating = serde_json::json!({
+            "generatingBubbleIds": ["bubble-1"],
+            "status": "completed"
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&generating), Some(now_ms)),
+            (SessionKind::Busy, false)
+        );
+
+        let continuing = serde_json::json!({
+            "isContinuationInProgress": true,
+            "generatingBubbleIds": []
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&continuing), Some(now_ms)),
+            (SessionKind::Busy, false)
+        );
+
+        let with_generation = serde_json::json!({
+            "status": "aborted",
+            "generatingBubbleIds": [],
+            "chatGenerationUUID": "33026c60-0919-4ff1-b1af-006cf545a177",
+            "unfinishedRunAt": now_ms
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&with_generation), Some(now_ms)),
+            (SessionKind::Busy, false)
+        );
+
+        let stale_ms = now_ms - 20 * 60 * 1000;
+        let stale_generation = serde_json::json!({
+            "status": "aborted",
+            "chatGenerationUUID": "33026c60-0919-4ff1-b1af-006cf545a177",
+            "unfinishedRunAt": stale_ms
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&stale_generation), Some(stale_ms)),
+            (SessionKind::Idle, false)
+        );
+
+        let done = serde_json::json!({
+            "status": "completed",
+            "generatingBubbleIds": [],
+            "isContinuationInProgress": false
+        });
+        assert_eq!(
+            cursor_composer_kind(&idle_head, Some(&done), Some(now_ms)),
+            (SessionKind::Idle, true)
+        );
     }
 }

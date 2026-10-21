@@ -24,7 +24,7 @@ pub use claude_desktop::ClaudeDesktopProvider;
 pub use codex::CodexProvider;
 pub use command_code::CommandCodeProvider;
 pub use copilot::CopilotProvider;
-pub use cursor::CursorProvider;
+pub use cursor::{token_activity as cursor_token_activity, CursorProvider};
 pub use devin::DevinProvider;
 pub use glm::GlmProvider;
 pub use grok::GrokProvider;
