@@ -362,28 +362,51 @@ pub fn query_history(days: u32) -> anyhow::Result<Vec<HistoryPoint>> {
 
 /// Per-model days over the same range, each with its estimated cost.
 pub fn query_models(days: u32) -> anyhow::Result<Vec<ModelDayPoint>> {
-    let conn = connect()?;
+    query_models_from(&connect()?, days)
+}
+
+fn query_models_from(conn: &Connection, days: u32) -> anyhow::Result<Vec<ModelDayPoint>> {
     let mut stmt = conn.prepare(
         "SELECT provider, date, model, input, output, cache_read, cache_write
          FROM daily_model_tokens WHERE date >= ?1 ORDER BY date ASC, model ASC",
     )?;
     let rows = stmt.query_map(params![cutoff(days)], |row| {
-        let provider: String = row.get(0)?;
-        let model: String = row.get(2)?;
-        let t = totals_from(row, 3)?;
-        Ok(ModelDayPoint {
-            provider: parse_provider(&provider),
-            date: row.get(1)?,
-            cost_usd: pricing::estimate_cost_usd(&model, &t),
-            model,
-            input: t.input,
-            output: t.output,
-            cache_read: t.cache_read,
-            cache_write: t.cache_write,
-            total: t.total(),
-        })
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            crate::chats::normalize_model_label(&row.get::<_, String>(2)?),
+            totals_from(row, 3)?,
+        ))
     })?;
-    Ok(rows.flatten().collect())
+    // Legacy and new spellings of the same brand (Deepseek / DeepSeek) must
+    // become one point after normalize_model_label, or the chart double-counts.
+    let mut combined: HashMap<(ProviderId, String, String), ModelDayPoint> = HashMap::new();
+    for (provider, date, model, t) in rows.flatten() {
+        let provider = parse_provider(&provider);
+        let cost = pricing::estimate_cost_usd(&model, &t);
+        let day = combined
+            .entry((provider.clone(), date.clone(), model.clone()))
+            .or_insert_with(|| ModelDayPoint {
+                provider,
+                date,
+                model,
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                total: 0,
+                cost_usd: 0.0,
+            });
+        day.input += t.input;
+        day.output += t.output;
+        day.cache_read += t.cache_read;
+        day.cache_write += t.cache_write;
+        day.total += t.total();
+        day.cost_usd += cost;
+    }
+    let mut points: Vec<ModelDayPoint> = combined.into_values().collect();
+    points.sort_by(|a, b| a.date.cmp(&b.date).then(a.model.cmp(&b.model)));
+    Ok(points)
 }
 
 /// What the dashboard narrows to: words a session must carry, the project
@@ -499,7 +522,7 @@ fn scoped_since(
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
+            crate::chats::normalize_model_label(&row.get::<_, String>(2)?),
             row.get::<_, String>(3)?,
             totals_from(row, 4)?,
             row.get::<_, Option<String>>(8)?,
@@ -1059,5 +1082,32 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM daily_tokens", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 0);
+    }
+
+    #[test]
+    fn legacy_and_new_model_labels_combine_on_read() {
+        let mut conn = memory();
+        let date = ago(0);
+        let dates = vec![date.clone()];
+        let tx = conn.transaction().unwrap();
+        write_days(
+            &tx,
+            "opencode",
+            &dates,
+            &[
+                day(&date, "Deepseek V4.1 Flash Free", 100),
+                day(&date, "DeepSeek V4.1 Flash Free", 50),
+            ],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let points = query_models_from(&conn, 7).unwrap();
+        let deepseek: Vec<_> = points
+            .iter()
+            .filter(|p| p.model == "DeepSeek V4.1 Flash Free")
+            .collect();
+        assert_eq!(deepseek.len(), 1);
+        assert_eq!(deepseek[0].output, 150);
     }
 }

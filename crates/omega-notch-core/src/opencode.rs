@@ -274,13 +274,17 @@ pub struct Liveness {
     pub id: String,
     pub title: String,
     pub kind: SessionKind,
+    /// The turn wrote its own completion. A session that only looks idle
+    /// because its last message went stale is not a finish to announce.
+    pub finished: bool,
     pub updated_at: DateTime<Utc>,
 }
 
 /// What every opencode session is doing right now, read from the messages the
 /// database already holds: an assistant turn without `time.completed` is still
-/// running, a tool waiting on approval is `pending`, and a completed `question`
-/// tool means the agent stopped to ask.
+/// running, and a `question` tool marks the agent stopped to ask. A tool part
+/// in `pending` is only queued to start, so it never means we are being waited
+/// on.
 pub fn live_sessions() -> Vec<Liveness> {
     connect()
         .map(|conn| live_sessions_from(&conn, Utc::now()))
@@ -388,7 +392,7 @@ fn live_sessions_from(conn: &Connection, now: DateTime<Utc>) -> Vec<Liveness> {
         let Some(session) = by_id.get(root.as_str()) else {
             continue;
         };
-        let Some(kind) = classify_latest(
+        let Some((kind, finished)) = classify_latest(
             conn,
             &latest.message,
             &latest.meta,
@@ -402,6 +406,7 @@ fn live_sessions_from(conn: &Connection, now: DateTime<Utc>) -> Vec<Liveness> {
             id: root,
             title: chat_title(session).unwrap_or_else(|| "Untitled".into()),
             kind,
+            finished,
             updated_at: utc_from_ms(latest.touched).unwrap_or(now),
         });
     }
@@ -416,43 +421,41 @@ fn classify_latest(
     at: i64,
     now: DateTime<Utc>,
     stale: i64,
-) -> Option<SessionKind> {
-    let fresh = now.timestamp_millis() - at < stale;
+) -> Option<(SessionKind, bool)> {
+    let completed = meta.time.as_ref().and_then(|t| t.completed).is_some();
     if meta.role.as_deref() == Some("user") {
         // A prompt just sent: the turn has started even if the assistant
         // message is not written yet. One that never got a reply is a turn
         // the process took with it when it quit, however old the session.
-        return Some(if fresh {
-            SessionKind::Busy
-        } else {
-            SessionKind::Idle
-        });
-    }
-    if meta.time.as_ref().and_then(|t| t.completed).is_none() {
-        return Some(if fresh {
-            SessionKind::Busy
-        } else {
-            SessionKind::Idle
-        });
+        let fresh = now.timestamp_millis() - at < stale;
+        return Some((
+            if fresh {
+                SessionKind::Busy
+            } else {
+                SessionKind::Idle
+            },
+            false,
+        ));
     }
 
     let Ok(mut statement) = conn
         .prepare("SELECT data, time_updated FROM part WHERE message_id = ?1 ORDER BY time_created")
     else {
-        return Some(SessionKind::Idle);
+        return Some((SessionKind::Idle, completed));
     };
     let parts = statement.query_map([message], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     });
-
-    let mut last_tool: Option<(String, i64)> = None;
-    let mut pending = false;
-    let mut running = false;
     let Ok(parts) = parts else {
-        return Some(SessionKind::Idle);
+        return Some((SessionKind::Idle, completed));
     };
+
+    let mut newest = at;
+    let mut running = false;
+    let mut asking = false;
     for part in parts.flatten() {
         let (raw, part_at) = part;
+        newest = newest.max(part_at);
         let Ok(part) = serde_json::from_str::<PartMeta>(&raw) else {
             continue;
         };
@@ -460,29 +463,36 @@ fn classify_latest(
             continue;
         }
         let status = part.state.as_ref().and_then(|s| s.status.as_deref());
-        let recent = now.timestamp_millis() - part_at < stale;
         match status {
-            Some("pending") if recent => pending = true,
-            Some("running") if recent => running = true,
+            // A question blocks the agent on the user for as long as it lasts.
+            // `pending` tools are merely queued, and permission asks do not
+            // reach the database at all.
+            Some("running") if part.tool.as_deref() == Some("question") => asking = true,
+            Some("running") => running = true,
             _ => {}
-        }
-        if let Some(tool) = part.tool {
-            last_tool = Some((tool, part_at));
         }
     }
 
-    // A tool waiting on permission outranks work that is running.
-    if pending {
-        return Some(SessionKind::WaitingYou);
+    if asking {
+        return Some((SessionKind::WaitingYou, false));
     }
-    if running {
-        return Some(SessionKind::Busy);
+    let fresh = now.timestamp_millis() - newest < stale;
+    if !completed {
+        // A turn whose last write went stale is taken for a session that died
+        // mid-turn: idle, but not a finish to announce.
+        return Some((
+            if fresh {
+                SessionKind::Busy
+            } else {
+                SessionKind::Idle
+            },
+            false,
+        ));
     }
-    // The turn ended on a question: it is the user's reply that resumes it.
-    if last_tool.is_some_and(|(tool, _)| tool == "question") {
-        return Some(SessionKind::WaitingYou);
+    if running && fresh {
+        return Some((SessionKind::Busy, false));
     }
-    Some(SessionKind::Idle)
+    Some((SessionKind::Idle, true))
 }
 
 /// Recent chats and the last `HISTORY_DAYS` of tokens, as the dashboard and
@@ -915,6 +925,7 @@ mod tests {
         let live = live_sessions_from(&conn, now);
         assert_eq!(live.len(), 1);
         assert_eq!(live[0].kind, SessionKind::Busy);
+        assert!(!live[0].finished);
         assert_eq!(live[0].title, "Refactor");
     }
 
@@ -934,6 +945,7 @@ mod tests {
             at,
         );
         assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Idle);
+        assert!(live_sessions_from(&conn, now)[0].finished);
 
         add_session(&conn, "ses_stale", None, "Stale", "", at - 3_600_000);
         add_message(
@@ -951,6 +963,7 @@ mod tests {
             .find(|session| session.id == "ses_stale")
             .unwrap();
         assert_eq!(stale.kind, SessionKind::Idle);
+        assert!(!stale.finished);
     }
 
     #[test]
@@ -961,6 +974,7 @@ mod tests {
         add_session(&conn, "ses_prompt", None, "Prompt", "", at);
         add_message(&conn, "msg_prompt", "ses_prompt", "user", None, None, at);
         assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Busy);
+        assert!(!live_sessions_from(&conn, now)[0].finished);
 
         conn.execute(
             "UPDATE message SET time_created = ?1, time_updated = ?1 WHERE id = 'msg_prompt'",
@@ -968,10 +982,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Idle);
+        assert!(!live_sessions_from(&conn, now)[0].finished);
     }
 
     #[test]
-    fn a_question_waits_until_the_reply_arrives() {
+    fn a_running_question_waits_until_the_reply_arrives() {
         let conn = fixture();
         let now = Utc::now();
         let at = now.timestamp_millis();
@@ -981,7 +996,7 @@ mod tests {
             "msg_ask",
             "ses_ask",
             "assistant",
-            Some(at),
+            None,
             Some("tool-calls"),
             at,
         );
@@ -992,13 +1007,12 @@ mod tests {
             "ses_ask",
             "tool",
             Some("question"),
-            Some("completed"),
+            Some("running"),
             at,
         );
-        assert_eq!(
-            live_sessions_from(&conn, now)[0].kind,
-            SessionKind::WaitingYou
-        );
+        let live = live_sessions_from(&conn, now);
+        assert_eq!(live[0].kind, SessionKind::WaitingYou);
+        assert!(!live[0].finished);
 
         // The answer is a newer user message: the session is working again.
         add_message(
@@ -1011,10 +1025,24 @@ mod tests {
             at + 1_000,
         );
         assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Busy);
+
+        // The turn then completes: that is the finish to announce.
+        add_message(
+            &conn,
+            "msg_done",
+            "ses_ask",
+            "assistant",
+            Some(at + 2_000),
+            Some("stop"),
+            at + 2_000,
+        );
+        let live = live_sessions_from(&conn, now);
+        assert_eq!(live[0].kind, SessionKind::Idle);
+        assert!(live[0].finished);
     }
 
     #[test]
-    fn a_running_tool_works_and_a_pending_one_waits() {
+    fn a_queued_tool_does_not_mean_we_are_waited_on() {
         let conn = fixture();
         let now = Utc::now();
         let at = now.timestamp_millis();
@@ -1024,7 +1052,7 @@ mod tests {
             "msg_tool",
             "ses_tool",
             "assistant",
-            Some(at),
+            None,
             Some("tool-calls"),
             at,
         );
@@ -1039,6 +1067,7 @@ mod tests {
             at,
         );
         assert_eq!(live_sessions_from(&conn, now)[0].kind, SessionKind::Busy);
+        assert!(!live_sessions_from(&conn, now)[0].finished);
 
         conn.execute(
             "UPDATE part SET data = ?1 WHERE id = 'prt_tool'",
@@ -1048,10 +1077,10 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(
-            live_sessions_from(&conn, now)[0].kind,
-            SessionKind::WaitingYou
-        );
+        // A `pending` part is a queued tool, not an approval request.
+        let live = live_sessions_from(&conn, now);
+        assert_eq!(live[0].kind, SessionKind::Busy);
+        assert!(!live[0].finished);
     }
 
     #[test]
@@ -1062,7 +1091,7 @@ mod tests {
         );
         assert_eq!(
             model_label("deepseek-v4.1-flash-free", "opencode"),
-            "Deepseek V4.1 Flash Free · Zen"
+            "DeepSeek V4.1 Flash Free · Zen"
         );
         assert_eq!(model_label("big-pickle", ""), "Big Pickle");
         assert_eq!(sub_provider_label("github-copilot"), "GitHub Copilot");
@@ -1145,7 +1174,7 @@ mod tests {
         assert_eq!(chats[0].messages, 1);
         assert_eq!(
             chats[0].model.as_deref(),
-            Some("Deepseek V4.1 Flash Free · Zen")
+            Some("DeepSeek V4.1 Flash Free · Zen")
         );
         assert_eq!(chats[0].tokens.unwrap().total(), 300 + 140 + 5000);
 
@@ -1154,7 +1183,7 @@ mod tests {
         assert_eq!(stats.session_days[0].session_id, "ses_root");
         assert_eq!(
             stats.session_days[0].model,
-            "Deepseek V4.1 Flash Free · Zen"
+            "DeepSeek V4.1 Flash Free · Zen"
         );
         assert_eq!(stats.today.total(), stats.week.total());
         assert!(stats.today.total() > 0);

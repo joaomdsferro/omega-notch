@@ -582,6 +582,24 @@ Window {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
+        // The default Flickable step is tiny on this long page, so a wheel
+        // notch moves a comfortable chunk instead.
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            blocking: true
+            onWheel: (event) => {
+                // Touchpads send pixel deltas; mouse wheels often send only
+                // angle deltas (QML WheelEvent has no scroll phase). Prefer
+                // pixels when present, otherwise one notch = 110 px.
+                const step = event.pixelDelta.y !== 0
+                           ? event.pixelDelta.y
+                           : event.angleDelta.y / 120 * 110
+                const maxY = Math.max(0, flick.contentHeight - flick.height)
+                flick.contentY = Math.max(0, Math.min(maxY, flick.contentY - step))
+                event.accepted = true
+            }
+        }
+
         Column {
             id: page
             x: 32

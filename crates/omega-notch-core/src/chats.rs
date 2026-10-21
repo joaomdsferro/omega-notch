@@ -1267,7 +1267,7 @@ pub fn pretty_model(id: &str) -> String {
             version.push(part);
         } else {
             flush(&mut version, &mut words);
-            words.push(capitalize(part));
+            words.push(model_word(part));
         }
     }
     flush(&mut version, &mut words);
@@ -1277,6 +1277,28 @@ pub fn pretty_model(id: &str) -> String {
     } else {
         words.join(" ")
     }
+}
+
+/// Brands keep the casing their vendor uses; everything else is capitalised.
+fn model_word(word: &str) -> String {
+    match word.to_ascii_lowercase().as_str() {
+        "gpt" => "GPT".into(),
+        "glm" => "GLM".into(),
+        "deepseek" => "DeepSeek".into(),
+        "minimax" => "MiniMax".into(),
+        "openai" => "OpenAI".into(),
+        _ => capitalize(word),
+    }
+}
+
+/// Repairs labels already written to history before the brands were known,
+/// so old dashboard rows read like new ones.
+pub fn normalize_model_label(label: &str) -> String {
+    label
+        .split(' ')
+        .map(model_word)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -1304,7 +1326,30 @@ mod tests {
         assert_eq!(pretty_model("claude-opus-5-5"), "Opus 5.5");
         assert_eq!(pretty_model("claude-haiku-4-5-20251001"), "Haiku 4.5");
         assert_eq!(pretty_model("claude-3-5-sonnet-20241022"), "3.5 Sonnet");
-        assert_eq!(pretty_model("gpt"), "Gpt");
+        assert_eq!(pretty_model("gpt"), "GPT");
+        assert_eq!(pretty_model("gpt-6-astra"), "GPT 6 Astra");
+        assert_eq!(pretty_model("glm-4.6"), "GLM 4.6");
+        assert_eq!(
+            pretty_model("deepseek-v4.1-flash-free"),
+            "DeepSeek V4.1 Flash Free"
+        );
+        assert_eq!(
+            pretty_model("minimax-m3.1-flash-free"),
+            "MiniMax M3.1 Flash Free"
+        );
+    }
+
+    #[test]
+    fn old_labels_are_repaired_on_read() {
+        assert_eq!(
+            normalize_model_label("Deepseek V4.1 Flash Free · Zen"),
+            "DeepSeek V4.1 Flash Free · Zen"
+        );
+        assert_eq!(
+            normalize_model_label("Minimax M3.1 Flash Free · Zen"),
+            "MiniMax M3.1 Flash Free · Zen"
+        );
+        assert_eq!(normalize_model_label("Opus 5.5"), "Opus 5.5");
     }
 
     #[test]
@@ -1472,7 +1517,7 @@ mod tests {
         assert_eq!(chats[0].project.as_deref(), Some("app"));
         assert_eq!(chats[0].cwd.as_deref(), Some("/home/me/app"));
         assert_eq!(chats[0].surface.as_deref(), Some("Desktop"));
-        assert_eq!(chats[0].model.as_deref(), Some("Gpt 6 Luna"));
+        assert_eq!(chats[0].model.as_deref(), Some("GPT 6 Luna"));
         assert!(!chats[0].live);
     }
 
