@@ -78,7 +78,8 @@ public struct NotchConfig: Equatable, Sendable {
     guard let from = order.firstIndex(of: id) else { return }
     let to = min(max(0, from + by), order.count - 1)
     guard to != from else { return }
-    order.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+    let item = order.remove(at: from)
+    order.insert(item, at: to)
     notchOrder = order
   }
 
