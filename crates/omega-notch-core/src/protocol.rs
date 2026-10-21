@@ -527,7 +527,7 @@ pub enum ClientMessage {
     GetSnapshot,
     GetConfig,
     SetConfig {
-        config: crate::config::AppConfig,
+        config: Box<crate::config::AppConfig>,
     },
     /// Start GitHub's device flow; progress comes back as `copilot_login`.
     CopilotSignIn,

@@ -21,7 +21,16 @@ Requirements: Rust (stable), CMake, Ninja, Qt 6.5+ (Base, Declarative, Wayland),
 KDE Plasma 6 / Wayland.
 
 ```sh
-make run
+# Arch / CachyOS
+sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-wayland layer-shell-qt kidletime
+
+# Fedora
+sudo dnf install rust cargo cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel \
+  qt6-qtwayland-devel layer-shell-qt-devel kf6-kidletime-devel
+
+make run       # build and run from the repository
+make install   # build and install to ~/.local/bin, with Plasma autostart
+make doctor    # check what each provider can see
 ```
 
 To run a second instance next to an installed one, give it its own socket:
@@ -39,6 +48,7 @@ Before sending changes:
 
 ```sh
 cargo test -p omega-notch-core
+cargo clippy --workspace --all-targets -- -D warnings
 make engine ui
 ```
 

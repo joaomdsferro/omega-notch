@@ -11,7 +11,8 @@ use tokio::sync::mpsc;
 use tracing::info;
 use walkdir::WalkDir;
 
-use crate::chats::{self, LiveSession};
+use crate::chats::{self, CursorComposerSession, LiveSession};
+use crate::memo::FileMemo;
 use crate::paths;
 use crate::protocol::{ProviderId, SessionKind, SessionState};
 use crate::providers::profiles;
@@ -35,14 +36,11 @@ pub fn claude_registry_available() -> bool {
 
 pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
     let mut claude = ClaudeTracker::default();
-    let mut opencode = OpenCodeTracker::default();
-    let mut cursor = CursorTracker::default();
+    let mut polled = PolledTrackers::default();
 
     // Initial scan
     claude.publish(&store).await;
-    opencode.publish(&store).await;
-    cursor.publish(&store).await;
-    publish_copilot_best_effort(&store).await;
+    polled.publish(&store).await;
     store.refresh_activity().await;
 
     let (tx, mut rx) = mpsc::unbounded_channel::<()>();
@@ -98,9 +96,7 @@ pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
             }
             _ = ticker.tick() => {
                 claude.publish(&store).await;
-                opencode.publish(&store).await;
-                cursor.publish(&store).await;
-                publish_copilot_best_effort(&store).await;
+                polled.publish(&store).await;
                 activity_dirty = true;
             }
             _ = activity_ticker.tick() => {}
@@ -112,6 +108,51 @@ pub async fn watch_sessions(store: UsageStore) -> anyhow::Result<()> {
             activity_at = Instant::now();
         }
     }
+}
+
+/// Providers with no filesystem event to wait on, read on every tick while
+/// they are switched on. A switched-off one is Idle and starts over unprimed,
+/// so switching it back on does not announce what happened meanwhile.
+#[derive(Default)]
+struct PolledTrackers {
+    opencode: OpenCodeTracker,
+    cursor: CursorTracker,
+    copilot: CopilotTracker,
+}
+
+impl PolledTrackers {
+    async fn publish(&mut self, store: &UsageStore) {
+        let config = store.config().await;
+        if config.provider_enabled(&ProviderId::OpenCode) {
+            self.opencode.publish(store).await;
+        } else {
+            self.opencode = OpenCodeTracker::default();
+            set_idle(store, ProviderId::OpenCode).await;
+        }
+        if config.provider_enabled(&ProviderId::Cursor) {
+            self.cursor.publish(store).await;
+        } else {
+            self.cursor = CursorTracker::default();
+            set_idle(store, ProviderId::Cursor).await;
+        }
+        if config.provider_enabled(&ProviderId::Copilot) {
+            self.copilot.publish(store).await;
+        } else {
+            self.copilot = CopilotTracker::default();
+            set_idle(store, ProviderId::Copilot).await;
+        }
+    }
+}
+
+async fn set_idle(store: &UsageStore, provider: ProviderId) {
+    store
+        .set_session(SessionState {
+            provider,
+            kind: SessionKind::Idle,
+            label: None,
+            updated_at: Utc::now(),
+        })
+        .await;
 }
 
 /// Remembers each live Claude Code session so that one finishing is announced
@@ -321,14 +362,14 @@ impl CursorTracker {
             }
         }
         self.known = live
-            .into_iter()
-            .map(|session| (session.id, (session.kind, session.finished)))
+            .iter()
+            .map(|session| (session.id.clone(), (session.kind, session.finished)))
             .collect();
         self.primed = true;
 
         // Aggregate for the ring only — finishes were already announced above,
         // so do not also fire on Busy→Idle here.
-        store.set_session(detect_cursor_session()).await;
+        store.set_session(detect_cursor_session(&live)).await;
     }
 }
 
@@ -347,9 +388,19 @@ fn cursor_composer_should_announce(
     }
 }
 
-async fn publish_copilot_best_effort(store: &UsageStore) {
-    let state = detect_copilot_session();
-    store.apply_session(state).await;
+/// Copilot transcripts and sessions are only re-read when they change: a
+/// workspace can hold hundreds of megabytes of them.
+#[derive(Default)]
+struct CopilotTracker {
+    open_tool: FileMemo<bool>,
+    pending: FileMemo<bool>,
+}
+
+impl CopilotTracker {
+    async fn publish(&mut self, store: &UsageStore) {
+        let state = detect_copilot_session(self);
+        store.apply_session(state).await;
+    }
 }
 
 /// Fallback for Claude Code builds without a session registry: guess from
@@ -481,14 +532,13 @@ fn read_hook_state() -> Option<HookFile> {
     serde_json::from_str(&raw).ok()
 }
 
-fn detect_cursor_session() -> crate::protocol::SessionState {
+fn detect_cursor_session(live: &[CursorComposerSession]) -> crate::protocol::SessionState {
     // Prefer the editor's own composer flags (generating bubbles, waiting on
     // you). File mtimes alone kept the ring Busy after turns that already
     // wrote `turn_ended`, and checkpoints/MCP refreshes made it worse.
-    if let Some(state) = chats::cursor_db_session() {
-        if state.kind != SessionKind::Idle {
-            return state;
-        }
+    let state = chats::cursor_db_session(live);
+    if state.kind != SessionKind::Idle {
+        return state;
     }
     if cursor_open_transcript() {
         return crate::protocol::SessionState {
@@ -587,7 +637,7 @@ const BEST_EFFORT_RECENT: Duration = Duration::from_secs(20);
 /// new jsonl lines until the tool finishes).
 const COPILOT_OPEN_TOOL_GRACE: Duration = Duration::from_secs(90);
 
-fn detect_copilot_session() -> SessionState {
+fn detect_copilot_session(memo: &mut CopilotTracker) -> SessionState {
     // Best-effort: VS Code Copilot Chat leaves agent transcripts and tool
     // spill files under each product's config dir. There is no official
     // busy flag — same class of signal as Cursor's agent folders.
@@ -608,6 +658,7 @@ fn detect_copilot_session() -> SessionState {
                 if chat.is_dir() {
                     scan_copilot_chat_dir(
                         &chat,
+                        memo,
                         now,
                         &mut newest_activity,
                         &mut open_tool,
@@ -619,6 +670,7 @@ fn detect_copilot_session() -> SessionState {
                     scan_copilot_files(
                         &sessions,
                         1,
+                        memo,
                         now,
                         &mut newest_activity,
                         &mut open_tool,
@@ -633,6 +685,7 @@ fn detect_copilot_session() -> SessionState {
             scan_copilot_files(
                 &empty,
                 1,
+                memo,
                 now,
                 &mut newest_activity,
                 &mut open_tool,
@@ -645,6 +698,7 @@ fn detect_copilot_session() -> SessionState {
             scan_copilot_files(
                 &terminal,
                 1,
+                memo,
                 now,
                 &mut newest_activity,
                 &mut open_tool,
@@ -652,6 +706,9 @@ fn detect_copilot_session() -> SessionState {
             );
         }
     }
+
+    memo.open_tool.finish_pass();
+    memo.pending.finish_pass();
 
     let recent = newest_activity
         .is_some_and(|t| now.duration_since(t).unwrap_or_default() < BEST_EFFORT_RECENT);
@@ -678,18 +735,28 @@ fn detect_copilot_session() -> SessionState {
 
 fn scan_copilot_chat_dir(
     chat: &Path,
+    memo: &mut CopilotTracker,
     now: SystemTime,
     newest: &mut Option<SystemTime>,
     open_tool: &mut bool,
     waiting_for_confirmation: &mut bool,
 ) {
     // transcripts/*.jsonl, chat-session-resources/**/content.txt, debug-logs
-    scan_copilot_files(chat, 4, now, newest, open_tool, waiting_for_confirmation);
+    scan_copilot_files(
+        chat,
+        4,
+        memo,
+        now,
+        newest,
+        open_tool,
+        waiting_for_confirmation,
+    );
 }
 
 fn scan_copilot_files(
     root: &Path,
     max_depth: usize,
+    memo: &mut CopilotTracker,
     now: SystemTime,
     newest: &mut Option<SystemTime>,
     open_tool: &mut bool,
@@ -728,16 +795,26 @@ fn scan_copilot_files(
 
         // Finished chats often end on a dangling turn_start — only an open
         // tool call is a reliable "still working" signal past RECENT.
-        if is_transcript && age < COPILOT_OPEN_TOOL_GRACE && !*open_tool {
-            if copilot_transcript_has_open_tool(path) {
-                *open_tool = true;
-            }
+        if is_transcript
+            && age < COPILOT_OPEN_TOOL_GRACE
+            && !*open_tool
+            && memo
+                .open_tool
+                .get(path, &meta, || copilot_transcript_has_open_tool(path))
+                .unwrap_or(false)
+        {
+            *open_tool = true;
         }
         if path
             .parent()
             .and_then(|parent| parent.file_name())
             .is_some_and(|name| name == "chatSessions")
-            && copilot_session_has_pending_confirmation(path)
+            && memo
+                .pending
+                .get(path, &meta, || {
+                    copilot_session_has_pending_confirmation(path)
+                })
+                .unwrap_or(false)
         {
             *waiting_for_confirmation = true;
         }
@@ -772,16 +849,15 @@ fn copilot_activity_file(path: &Path) -> bool {
     false
 }
 
-fn copilot_session_has_pending_confirmation(path: &Path) -> bool {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    raw.lines().any(|line| {
+/// `None` when the file could not be read.
+fn copilot_session_has_pending_confirmation(path: &Path) -> Option<bool> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    Some(raw.lines().any(|line| {
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             return false;
         };
         pending_confirmation_value(&value)
-    })
+    }))
 }
 
 fn pending_confirmation_value(value: &Value) -> bool {
@@ -801,12 +877,11 @@ fn pending_confirmation_value(value: &Value) -> bool {
     }
 }
 
-/// True when the transcript has a tool.execution_start without its complete.
-fn copilot_transcript_has_open_tool(path: &Path) -> bool {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    classify_copilot_open_tool(&raw)
+/// True when the transcript has a tool.execution_start without its complete;
+/// `None` when the file could not be read.
+fn copilot_transcript_has_open_tool(path: &Path) -> Option<bool> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    Some(classify_copilot_open_tool(&raw))
 }
 
 fn classify_copilot_open_tool(raw: &str) -> bool {
@@ -893,8 +968,14 @@ pub fn summarize_sessions() -> HashMap<ProviderId, SessionKind> {
         })
         .unwrap_or(SessionKind::Idle);
     map.insert(ProviderId::OpenCode, kind);
-    map.insert(ProviderId::Cursor, detect_cursor_session().kind);
-    map.insert(ProviderId::Copilot, detect_copilot_session().kind);
+    map.insert(
+        ProviderId::Cursor,
+        detect_cursor_session(&chats::cursor_composer_sessions()).kind,
+    );
+    map.insert(
+        ProviderId::Copilot,
+        detect_copilot_session(&mut CopilotTracker::default()).kind,
+    );
     map
 }
 

@@ -1,4 +1,4 @@
-# Checks the Rust formatting and runs the engine's tests on Linux and macOS, and the macOS shell's tests,
+# Checks the Rust formatting and lints, runs the engine's tests on Linux and macOS, and the macOS shell's tests,
 # for every pull request.
 name: CI
 
@@ -24,6 +24,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - run: cargo fmt --all --check
+
+      # Linux only until the macOS-only code has been checked clean too.
+      - if: runner.os == 'Linux'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - run: cargo test --workspace --locked
 

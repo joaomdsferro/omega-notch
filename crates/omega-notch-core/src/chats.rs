@@ -24,6 +24,7 @@ use serde_json::Value;
 use walkdir::WalkDir;
 
 use crate::config::AppConfig;
+use crate::memo::FileMemo;
 use crate::paths;
 use crate::platform;
 use crate::protocol::{
@@ -552,6 +553,9 @@ struct Candidate {
 #[derive(Default)]
 pub struct ActivityIndex {
     claude: HashMap<PathBuf, Transcript>,
+    /// Copilot sessions are rewritten whole, so they are re-read only when
+    /// they change.
+    copilot: FileMemo<Option<ChatSummary>>,
 }
 
 impl ActivityIndex {
@@ -586,7 +590,9 @@ impl ActivityIndex {
         }
 
         if config.provider_enabled(&ProviderId::Copilot) {
-            activity.chats.extend(copilot_chats());
+            activity.chats.extend(copilot_chats(&mut self.copilot));
+        } else {
+            self.copilot = FileMemo::default();
         }
 
         if config.provider_enabled(&ProviderId::Codex) {
@@ -645,7 +651,7 @@ impl ActivityIndex {
                 });
             }
         }
-        candidates.sort_by(|a, b| b.modified.cmp(&a.modified));
+        candidates.sort_by_key(|c| std::cmp::Reverse(c.modified));
 
         // Parse what feeds the token history, plus the newest chats even when
         // they are older than that.
@@ -791,7 +797,7 @@ impl ActivityIndex {
                 replied_at: transcript.replied_at,
             });
         }
-        chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        chats.sort_by_key(|c| std::cmp::Reverse(c.updated_at));
 
         (chats, stats)
     }
@@ -968,10 +974,8 @@ pub fn cursor_composer_sessions() -> Vec<CursorComposerSession> {
 }
 
 /// Ring state from Cursor's composer DB: waiting on you outranks busy.
-pub fn cursor_db_session() -> Option<crate::protocol::SessionState> {
-    // No database at all: let callers fall back to transcripts.
-    open_cursor_state_db()?;
-    let live = cursor_composer_sessions();
+/// The ring's state from composers already read by `cursor_composer_sessions`.
+pub fn cursor_db_session(live: &[CursorComposerSession]) -> crate::protocol::SessionState {
     let rank = |kind: SessionKind| match kind {
         SessionKind::WaitingYou => 2,
         SessionKind::Busy => 1,
@@ -983,20 +987,18 @@ pub fn cursor_db_session() -> Option<crate::protocol::SessionState> {
         .enumerate()
         .max_by_key(|(index, session)| (rank(session.kind), std::cmp::Reverse(*index)));
     match lead {
-        Some((_, session)) if session.kind != SessionKind::Idle => {
-            Some(crate::protocol::SessionState {
-                provider: ProviderId::Cursor,
-                kind: session.kind,
-                label: Some(session.label.clone()),
-                updated_at: Utc::now(),
-            })
-        }
-        _ => Some(crate::protocol::SessionState {
+        Some((_, session)) if session.kind != SessionKind::Idle => crate::protocol::SessionState {
+            provider: ProviderId::Cursor,
+            kind: session.kind,
+            label: Some(session.label.clone()),
+            updated_at: Utc::now(),
+        },
+        _ => crate::protocol::SessionState {
             provider: ProviderId::Cursor,
             kind: SessionKind::Idle,
             label: None,
             updated_at: Utc::now(),
-        }),
+        },
     }
 }
 
@@ -1053,11 +1055,10 @@ pub(crate) fn cursor_composer_kind(
     {
         return (SessionKind::Busy, false);
     }
-    match data.get("status").and_then(Value::as_str) {
-        Some("generating" | "streaming" | "in_progress" | "running") => {
-            return (SessionKind::Busy, false);
-        }
-        _ => {}
+    if let Some("generating" | "streaming" | "in_progress" | "running") =
+        data.get("status").and_then(Value::as_str)
+    {
+        return (SessionKind::Busy, false);
     }
     // Live generation: Cursor sets this while a turn is open, and clears it
     // when the composer completes. Sticky after a hard abort — only trust it
@@ -1147,7 +1148,7 @@ fn cursor_model_from_data(data: &Value) -> Option<String> {
 // GitHub Copilot Chat
 // ---------------------------------------------------------------------------
 
-fn copilot_chats() -> Vec<ChatSummary> {
+fn copilot_chats(memo: &mut FileMemo<Option<ChatSummary>>) -> Vec<ChatSummary> {
     let mut chats = Vec::new();
 
     for product in paths::vscode_product_dirs() {
@@ -1163,18 +1164,30 @@ fn copilot_chats() -> Vec<ChatSummary> {
                 continue;
             };
             for file in files.flatten() {
-                if file.path().extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                let path = file.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
                     continue;
                 }
-                let Some(chat) = copilot_chat_file(&file.path(), cwd.as_deref()) else {
+                let Ok(meta) = std::fs::metadata(&path) else {
                     continue;
                 };
+                let found = memo.get(&path, &meta, || {
+                    copilot_read_session(&path)
+                        .map(|state| copilot_chat_summary(&state, cwd.as_deref()))
+                });
+                let Some(Some(mut chat)) = found else {
+                    continue;
+                };
+                // The workspace's folder is read fresh; only the session is kept.
+                chat.project = cwd.as_deref().map(folder_name);
+                chat.cwd = cwd.clone();
                 chats.push(chat);
             }
         }
     }
+    memo.finish_pass();
 
-    chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    chats.sort_by_key(|c| std::cmp::Reverse(c.updated_at));
     chats.truncate(MAX_CHATS);
     chats
 }
@@ -1189,8 +1202,13 @@ fn workspace_path(storage: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(test)]
 fn copilot_chat_file(path: &Path, cwd: Option<&str>) -> Option<ChatSummary> {
-    let state = copilot_read_session(path)?;
+    copilot_chat_summary(&copilot_read_session(path)?, cwd)
+}
+
+/// `None` for a session that is not a chat yet.
+fn copilot_chat_summary(state: &Value, cwd: Option<&str>) -> Option<ChatSummary> {
     let id = state.get("sessionId")?.as_str()?.to_string();
     let requests = state.get("requests").and_then(Value::as_array);
     // VS Code persists a session as soon as the Chat panel is opened. Until
@@ -1468,7 +1486,7 @@ fn codex_chats_at(index_path: &Path, sessions_dir: &Path, id: &ProviderId) -> Ve
         latest.insert(row.id.clone(), (row, updated_at.with_timezone(&Utc)));
     }
     let mut rows: Vec<_> = latest.into_values().collect();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.1));
 
     let rollouts = codex_rollout_index(sessions_dir);
     let mut chats = Vec::new();
@@ -1650,7 +1668,7 @@ fn codex_surface(originator: Option<&str>, source: Option<&Value>) -> Option<Str
             "cli" => Some("CLI".into()),
             other => Some(capitalize(other)),
         },
-        _ => originator.map(|o| capitalize(o)),
+        _ => originator.map(capitalize),
     }
 }
 
