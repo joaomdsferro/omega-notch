@@ -152,9 +152,12 @@ struct RingView: View {
   }
 
   /// One segment, from twelve o'clock clockwise, cut to a share of its length.
+  /// Inset by half the stroke, so the gauge stays inside its frame and runs
+  /// along `radius`, where the cap rides.
   private func segment(_ index: Int, covering share: Double) -> some Shape {
     let start = Double(index) * segmentAngle + segmentGap / 2
     return Circle()
+      .inset(by: gaugeWidth / 2)
       .trim(from: start / 360, to: (start + share * (segmentAngle - segmentGap)) / 360)
       .rotation(.degrees(-90))
   }
