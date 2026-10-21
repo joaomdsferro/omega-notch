@@ -891,6 +891,7 @@ mod tests {
         .unwrap();
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_part(
         conn: &Connection,
         id: &str,

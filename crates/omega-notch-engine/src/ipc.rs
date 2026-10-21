@@ -130,7 +130,7 @@ async fn handle_message(
             write_msg(writer, &ServerMessage::ConfigUpdated { config }).await?;
         }
         ClientMessage::SetConfig { config } => {
-            store.set_config(config).await?;
+            store.set_config(*config).await?;
         }
         ClientMessage::CopilotSignIn => {
             store.copilot_sign_in();
