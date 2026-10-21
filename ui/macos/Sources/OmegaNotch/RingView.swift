@@ -135,23 +135,28 @@ struct RingView: View {
   private var gauge: some View {
     ZStack {
       ForEach(0..<segments, id: \.self) { index in
-        let used = covered(index)
         let zone = index >= Int(Double(segments) * 0.9)
-        Circle()
-          .trim(
-            from: (Double(index) * segmentAngle + segmentGap / 2) / 360,
-            to: (Double(index) * segmentAngle + segmentGap / 2
-              + used * (segmentAngle - segmentGap)) / 360
-          )
+        // The track: every segment, whole, so the ring stays round.
+        segment(index, covering: 1)
           .stroke(
-            used > 0 ? accent : zone ? Theme.critical.opacity(0.5) : Theme.inkTrack(surface).opacity(0.75),
+            zone ? Theme.critical.opacity(0.5) : Theme.inkTrack(surface).opacity(0.75),
             style: StrokeStyle(lineWidth: gaugeWidth, lineCap: .butt)
           )
-          .rotationEffect(.degrees(-90))
+        // The part in use, on top.
+        segment(index, covering: covered(index))
+          .stroke(accent, style: StrokeStyle(lineWidth: gaugeWidth, lineCap: .butt))
       }
     }
     .frame(width: ringSize, height: ringSize)
     .animation(.easeOut(duration: 0.6), value: pct)
+  }
+
+  /// One segment, from twelve o'clock clockwise, cut to a share of its length.
+  private func segment(_ index: Int, covering share: Double) -> some Shape {
+    let start = Double(index) * segmentAngle + segmentGap / 2
+    return Circle()
+      .trim(from: start / 360, to: (start + share * (segmentAngle - segmentGap)) / 360)
+      .rotation(.degrees(-90))
   }
 
   @ViewBuilder private var labels: some View {
