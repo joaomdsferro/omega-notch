@@ -200,7 +200,19 @@ impl OpenCodeTracker {
                         SessionKind::WaitingYou => prev != SessionKind::WaitingYou,
                         SessionKind::Busy => false,
                     },
-                    None => session.kind == SessionKind::WaitingYou,
+                    // A short turn can finish between polls: announce it once
+                    // when first seen as finished and still fresh.
+                    None => match session.kind {
+                        SessionKind::WaitingYou => true,
+                        SessionKind::Idle => {
+                            session.finished
+                                && Utc::now()
+                                    .signed_duration_since(session.updated_at)
+                                    .num_minutes()
+                                    < 15
+                        }
+                        SessionKind::Busy => false,
+                    },
                 };
                 if announce {
                     store

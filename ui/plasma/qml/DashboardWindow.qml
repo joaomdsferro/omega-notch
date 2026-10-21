@@ -588,13 +588,12 @@ Window {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             blocking: true
             onWheel: (event) => {
-                // A discrete wheel reports no scroll phase, even when Wayland
-                // also labels it as a touchpad; touchpad gestures keep their
-                // 1:1 pixels.
-                const discrete = event.phase === Qt.NoScrollPhase
-                const step = discrete
-                           ? event.angleDelta.y / 120 * 110
-                           : event.pixelDelta.y
+                // Touchpads send pixel deltas; mouse wheels often send only
+                // angle deltas (QML WheelEvent has no scroll phase). Prefer
+                // pixels when present, otherwise one notch = 110 px.
+                const step = event.pixelDelta.y !== 0
+                           ? event.pixelDelta.y
+                           : event.angleDelta.y / 120 * 110
                 const maxY = Math.max(0, flick.contentHeight - flick.height)
                 flick.contentY = Math.max(0, Math.min(maxY, flick.contentY - step))
                 event.accepted = true
