@@ -1171,8 +1171,11 @@ fn copilot_chats(memo: &mut FileMemo<Option<ChatSummary>>) -> Vec<ChatSummary> {
                 let Ok(meta) = std::fs::metadata(&path) else {
                     continue;
                 };
-                let found = memo.get(&path, &meta, || copilot_chat_file(&path, cwd.as_deref()));
-                let Some(mut chat) = found else {
+                let found = memo.get(&path, &meta, || {
+                    copilot_read_session(&path)
+                        .map(|state| copilot_chat_summary(&state, cwd.as_deref()))
+                });
+                let Some(Some(mut chat)) = found else {
                     continue;
                 };
                 // The workspace's folder is read fresh; only the session is kept.
@@ -1199,8 +1202,13 @@ fn workspace_path(storage: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(test)]
 fn copilot_chat_file(path: &Path, cwd: Option<&str>) -> Option<ChatSummary> {
-    let state = copilot_read_session(path)?;
+    copilot_chat_summary(&copilot_read_session(path)?, cwd)
+}
+
+/// `None` for a session that is not a chat yet.
+fn copilot_chat_summary(state: &Value, cwd: Option<&str>) -> Option<ChatSummary> {
     let id = state.get("sessionId")?.as_str()?.to_string();
     let requests = state.get("requests").and_then(Value::as_array);
     // VS Code persists a session as soon as the Chat panel is opened. Until

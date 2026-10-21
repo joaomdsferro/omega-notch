@@ -10,6 +10,9 @@ type Stamp = (SystemTime, u64);
 /// Results keyed by path and remembered with the file's mtime and size, so a
 /// pass over many unchanged files reads none of them again. Files a pass did
 /// not visit are forgotten when it ends.
+///
+/// `compute` returns `None` when the file could not be read; that is never
+/// kept, so the next pass tries the file again.
 pub(crate) struct FileMemo<T> {
     kept: HashMap<PathBuf, (Stamp, T)>,
     seen: HashMap<PathBuf, (Stamp, T)>,
@@ -25,22 +28,27 @@ impl<T> Default for FileMemo<T> {
 }
 
 impl<T: Clone> FileMemo<T> {
-    pub fn get(&mut self, path: &Path, meta: &Metadata, compute: impl FnOnce() -> T) -> T {
+    pub fn get(
+        &mut self,
+        path: &Path,
+        meta: &Metadata,
+        compute: impl FnOnce() -> Option<T>,
+    ) -> Option<T> {
         let Ok(modified) = meta.modified() else {
             return compute();
         };
         let stamp = (modified, meta.len());
         if let Some((seen, value)) = self.seen.get(path) {
             if *seen == stamp {
-                return value.clone();
+                return Some(value.clone());
             }
         }
         let value = match self.kept.remove(path) {
             Some((kept, value)) if kept == stamp => value,
-            _ => compute(),
+            _ => compute()?,
         };
         self.seen.insert(path.to_path_buf(), (stamp, value.clone()));
-        value
+        Some(value)
     }
 
     pub fn finish_pass(&mut self) {
@@ -66,24 +74,31 @@ mod tests {
             let meta = std::fs::metadata(&path).unwrap();
             let value = memo.get(&path, &meta, || {
                 calls.set(calls.get() + 1);
-                std::fs::read_to_string(&path).unwrap().len()
+                Some(std::fs::read_to_string(&path).unwrap().len())
             });
             memo.finish_pass();
             value
         };
 
-        assert_eq!(read(&mut memo), 3);
-        assert_eq!(read(&mut memo), 3);
+        assert_eq!(read(&mut memo), Some(3));
+        assert_eq!(read(&mut memo), Some(3));
         assert_eq!(calls.get(), 1);
 
         std::fs::write(&path, "three").unwrap();
-        assert_eq!(read(&mut memo), 5);
+        assert_eq!(read(&mut memo), Some(5));
         assert_eq!(calls.get(), 2);
 
         // A pass that skips the file forgets it.
         memo.finish_pass();
-        assert_eq!(read(&mut memo), 5);
+        assert_eq!(read(&mut memo), Some(5));
         assert_eq!(calls.get(), 3);
+
+        // A failed read is tried again on the next pass.
+        let meta = std::fs::metadata(&path).unwrap();
+        let mut failing = FileMemo::<usize>::default();
+        assert_eq!(failing.get(&path, &meta, || None), None);
+        failing.finish_pass();
+        assert_eq!(failing.get(&path, &meta, || Some(5)), Some(5));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -801,6 +801,7 @@ fn scan_copilot_files(
             && memo
                 .open_tool
                 .get(path, &meta, || copilot_transcript_has_open_tool(path))
+                .unwrap_or(false)
         {
             *open_tool = true;
         }
@@ -808,9 +809,12 @@ fn scan_copilot_files(
             .parent()
             .and_then(|parent| parent.file_name())
             .is_some_and(|name| name == "chatSessions")
-            && memo.pending.get(path, &meta, || {
-                copilot_session_has_pending_confirmation(path)
-            })
+            && memo
+                .pending
+                .get(path, &meta, || {
+                    copilot_session_has_pending_confirmation(path)
+                })
+                .unwrap_or(false)
         {
             *waiting_for_confirmation = true;
         }
@@ -845,16 +849,15 @@ fn copilot_activity_file(path: &Path) -> bool {
     false
 }
 
-fn copilot_session_has_pending_confirmation(path: &Path) -> bool {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    raw.lines().any(|line| {
+/// `None` when the file could not be read.
+fn copilot_session_has_pending_confirmation(path: &Path) -> Option<bool> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    Some(raw.lines().any(|line| {
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             return false;
         };
         pending_confirmation_value(&value)
-    })
+    }))
 }
 
 fn pending_confirmation_value(value: &Value) -> bool {
@@ -874,12 +877,11 @@ fn pending_confirmation_value(value: &Value) -> bool {
     }
 }
 
-/// True when the transcript has a tool.execution_start without its complete.
-fn copilot_transcript_has_open_tool(path: &Path) -> bool {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    classify_copilot_open_tool(&raw)
+/// True when the transcript has a tool.execution_start without its complete;
+/// `None` when the file could not be read.
+fn copilot_transcript_has_open_tool(path: &Path) -> Option<bool> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    Some(classify_copilot_open_tool(&raw))
 }
 
 fn classify_copilot_open_tool(raw: &str) -> bool {

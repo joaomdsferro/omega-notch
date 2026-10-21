@@ -67,8 +67,10 @@ See every [feature](docs/features.md).
 
 ## Privacy
 
-Everything is read locally, read-only. The only network calls go to each tool's own usage endpoint,
-with the sign-in that tool already saved. There is no server of ours. [Details](docs/privacy.md).
+Everything is read locally, read-only. Network calls go to each tool's own usage endpoint, with the
+sign-in that tool already saved; on macOS, to GitHub for the daily update check, which sends nothing
+about you; and to Anthropic through your own `claude` only when you press "Ask Claude". There is no
+server of ours. [Details](docs/privacy.md).
 
 ## Documentation
 
