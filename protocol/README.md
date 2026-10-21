@@ -70,15 +70,25 @@ point without one. Muted providers, and `alerts.limits` off, send none. Older
 clients ignore it.
 
 `snapshot` carries `providers`: every provider the engine can fetch, in
-display order, each `{ "id": "claude_code", "display_name": "Claude Code" }`.
-Shells build their provider lists from it instead of hardcoding ids, and a
-newer engine can add one without an older shell failing to read it.
+display order, each `{ "id": "claude_code", "display_name": "Claude Code",
+"detected": true }`. Shells build their provider lists from it instead of
+hardcoding ids, and a newer engine can add one without an older shell failing
+to read it. `detected` (additive) says the tool left something on this
+machine (its folder, sign-in or binary), so a shell can put those first; an
+engine without it is read as having found every provider.
 
 Provider ids are open strings (`provider_id`); the engine's registry decides
 which ones it can fetch, and an unknown id reads as disabled rather than an
 error. `config.providers` is the same open map (`{ "<id>": true }`), a
 missing id meaning on; `config.alerts.muted` is the same map for muted limit
 alerts, a missing id meaning not muted.
+
+The engine names every provider of its registry in `config.providers` when it
+starts: one the file does not name yet starts on only if it is detected. The
+ones left off that way are listed in `config.undetected`, and the engine turns
+each on, and drops it from the list, once it is detected. Switching one on by
+hand also drops it, so switching it off again stays off. Shells should write
+`undetected` back unchanged.
 
 `session_updated` carries a provider's overall state (waiting outranks busy,
 busy outranks idle). `session_finished` and `session_waiting` are about one

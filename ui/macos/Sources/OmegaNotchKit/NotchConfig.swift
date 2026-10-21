@@ -41,6 +41,73 @@ public struct NotchConfig: Equatable, Sendable {
     set { raw["max_providers"] = .number(Double(min(5, max(1, newValue)))) }
   }
 
+  /// Providers the user starred; the notch prefers them over idle ones.
+  public var favorites: [String] {
+    get { stringList("favorites") }
+    set { raw["favorites"] = .array(Self.cleanProviderList(newValue).map { .string($0) }) }
+  }
+
+  /// Layout order for notch rings; unnamed providers follow in registry order.
+  public var notchOrder: [String] {
+    get { stringList("notch_order") }
+    set { raw["notch_order"] = .array(Self.cleanProviderList(newValue).map { .string($0) }) }
+  }
+
+  public func isFavorite(_ id: String) -> Bool { favorites.contains(id) }
+
+  public mutating func setFavorite(_ id: String, favorite: Bool) {
+    guard Self.isProviderId(id) else { return }
+    var list = favorites
+    if favorite {
+      if !list.contains(id) { list.append(id) }
+    } else {
+      list.removeAll { $0 == id }
+    }
+    favorites = list
+  }
+
+  /// Move an enabled provider earlier (`by` < 0) or later in the notch.
+  public mutating func moveInNotch(_ id: String, by: Int, among enabled: [String]) {
+    guard by != 0, enabled.contains(id) else { return }
+    var order = enabled.sorted { a, b in
+      let ai = notchOrder.firstIndex(of: a) ?? Int.max
+      let bi = notchOrder.firstIndex(of: b) ?? Int.max
+      if ai != bi { return ai < bi }
+      return enabled.firstIndex(of: a)! < enabled.firstIndex(of: b)!
+    }
+    guard let from = order.firstIndex(of: id) else { return }
+    let to = min(max(0, from + by), order.count - 1)
+    guard to != from else { return }
+    let item = order.remove(at: from)
+    order.insert(item, at: to)
+    notchOrder = order
+  }
+
+  private func stringList(_ key: String) -> [String] {
+    guard case .array(let list)? = raw[key] else { return [] }
+    return Self.cleanProviderList(list.compactMap(\.string))
+  }
+
+  private static let providerListMax = 64
+  private static let providerIdMax = 48
+
+  private static func isProviderId(_ id: String) -> Bool {
+    !id.isEmpty && id.count <= providerIdMax
+      && id.unicodeScalars.allSatisfy {
+        CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-"
+      }
+  }
+
+  private static func cleanProviderList(_ list: [String]) -> [String] {
+    var seen = Set<String>()
+    var out: [String] = []
+    for id in list where isProviderId(id) && seen.insert(id).inserted {
+      out.append(id)
+      if out.count == providerListMax { break }
+    }
+    return out
+  }
+
   public var idleSize: Double {
     get { min(3, max(1, raw["idle_size"]?.double ?? 1)) }
     set { raw["idle_size"] = .number(min(3, max(1, newValue))) }

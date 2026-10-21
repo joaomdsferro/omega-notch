@@ -37,6 +37,17 @@ struct DashboardView: View {
   private func matches(_ provider: String) -> Bool { providerFilter == "all" || provider == providerFilter }
   private var activeReadings: [UsageReading] { client.activeReadings }
   private var shownReadings: [UsageReading] { activeReadings.filter { matches($0.provider) } }
+  /// The window that is already out, for the page's notice: the card says it
+  /// on the ring, but a page at 100% must read as such without hunting.
+  private var exhaustedLimit: (reading: UsageReading, window: UsageWindow)? {
+    var worst: (UsageReading, UsageWindow)?
+    for reading in activeReadings where reading.hasData {
+      for window in reading.windows where window.usedPct >= 100 {
+        if worst == nil || window.usedPct > worst!.1.usedPct { worst = (reading, window) }
+      }
+    }
+    return worst.map { (reading: $0.0, window: $0.1) }
+  }
 
   /// What to say where the numbers are not here yet: the engine is still
   /// sending them, it is not running, or there is nothing to show.
@@ -183,6 +194,26 @@ struct DashboardView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         header
+        if !client.dashboardError.isEmpty || !client.connected {
+          PageNotice(
+            tone: Theme.critical,
+            title: client.dashboardError.isEmpty ? "Engine offline" : "The numbers did not arrive",
+            detail: client.dashboardError.isEmpty
+              ? "The numbers may be out of date. It reconnects on its own."
+              : client.dashboardError,
+            actionLabel: "Try again"
+          ) { client.requestDashboard(days: days) }
+        }
+        if let out = exhaustedLimit {
+          let reset = Format.resetsIn(out.window.resetsAt, now: now)
+          PageNotice(
+            tone: Theme.watch,
+            title: "\(out.reading.displayName) is out of quota",
+            detail: "\(out.window.label) is at \(Int(out.window.usedPct.rounded()))%."
+              + (reset.isEmpty ? "" : " " + reset),
+            actionLabel: "Refresh"
+          ) { client.refresh(out.reading.provider) }
+        }
         filterBar(rangeCost: costs.total)
         stats(
           rangeTotal: rangeTotal, activeDays: activeDays, rangeCost: costs.total, costDays: costDays,
@@ -265,7 +296,7 @@ struct DashboardView: View {
   private var header: some View {
     HStack(alignment: .top) {
       VStack(alignment: .leading, spacing: 6) {
-        Text("Usage").font(.notch(26, .semibold)).foregroundStyle(Theme.text)
+        Text("Usage").font(.notch(Theme.typePageTitle, Theme.typeWeightSemibold)).foregroundStyle(Theme.text)
         HStack(spacing: 8) {
           Circle()
             .fill(
@@ -274,7 +305,7 @@ struct DashboardView: View {
                 : waitingCount > 0 ? Theme.waiting : workingCount > 0 ? Theme.text : Theme.ample
             )
             .frame(width: 8, height: 8)
-          Text(statusLine).font(.notch(13))
+          Text(statusLine).font(.notch(Theme.typeBody))
             .foregroundStyle(client.connected ? Theme.textSecondary : Theme.critical)
         }
       }
@@ -316,11 +347,11 @@ struct DashboardView: View {
         HStack(alignment: .top, spacing: 12) {
           RoundedRectangle(cornerRadius: 2).fill(Theme.text).frame(width: 3)
           VStack(alignment: .leading, spacing: 3) {
-            Text("Showing \(scopeLabel)").font(.notch(14, .semibold)).foregroundStyle(Theme.text)
+            Text("Showing \(scopeLabel)").font(.notch(Theme.typeCardTitle, Theme.typeWeightSemibold)).foregroundStyle(Theme.text)
             Text(
               "\(scopedCount) \(scopedCount == 1 ? "session" : "sessions") · \(Format.usd(rangeCost)) in the last \(days) days. Only Claude Code sessions know their project and title, so the numbers below are theirs; limits are the account's."
             )
-            .font(.notch(12)).foregroundStyle(Theme.textSecondary)
+            .font(.notch(Theme.typeLabel)).foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
           }
           Spacer()
@@ -396,13 +427,13 @@ struct DashboardView: View {
   private var limits: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .firstTextBaseline, spacing: 10) {
-        Text("Limits").font(.notch(15, .semibold)).foregroundStyle(Theme.text)
-        Text("Click a tool to refresh it").font(.notch(12)).foregroundStyle(Theme.textTertiary)
+        Text("Limits").font(.notch(Theme.typeSectionTitle, Theme.typeWeightSemibold)).foregroundStyle(Theme.text)
+        Text("Click a tool to refresh it").font(.notch(Theme.typeLabel)).foregroundStyle(Theme.textTertiary)
       }
       if shownReadings.isEmpty {
         VStack(spacing: 12) {
           Text(loadingHint)
-            .font(.notch(13)).foregroundStyle(Theme.textSecondary)
+            .font(.notch(Theme.typeBody)).foregroundStyle(Theme.textSecondary)
           if client.connected { TextButton(label: "Open Settings", action: openSettings) }
         }
         .frame(maxWidth: .infinity, minHeight: 120)
@@ -783,7 +814,7 @@ private struct CostBreakdown: View {
     VStack(alignment: .leading, spacing: 16) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
         Text(Format.usd(total)).font(.notch(32, .semibold, tabular: true)).foregroundStyle(Theme.text)
-        Text("today").font(.notch(13)).foregroundStyle(Theme.textSecondary)
+        Text("today").font(.notch(Theme.typeBody)).foregroundStyle(Theme.textSecondary)
       }
       if rows.count > 1 {
         shareBar(rows: rows)
@@ -834,7 +865,7 @@ private struct CostBreakdown: View {
             let share = value / mixTotal
             VStack(spacing: 6) {
               HStack(alignment: .firstTextBaseline) {
-                Text(label).font(.notch(12)).foregroundStyle(Theme.textSecondary)
+                Text(label).font(.notch(Theme.typeLabel)).foregroundStyle(Theme.textSecondary)
                 Spacer()
                 Text(
                   "\(Format.tokens(value))  ·  \(share > 0 && share < 0.01 ? "<1" : "\(Int((share * 100).rounded()))")%"
@@ -933,7 +964,7 @@ private struct SuggestionRow: View {
         .frame(width: 20).padding(.top, 2)
       VStack(alignment: .leading, spacing: 4) {
         Text(item.title).font(.notch(14, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
-        Text(item.detail).font(.notch(12)).foregroundStyle(Theme.textSecondary)
+        Text(item.detail).font(.notch(Theme.typeLabel)).foregroundStyle(Theme.textSecondary)
           .fixedSize(horizontal: false, vertical: true)
         if show != nil || open != nil {
           HStack(spacing: 8) {

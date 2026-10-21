@@ -222,7 +222,7 @@ Column {
                         height: parent.height
                         radius: 2
                         color: Theme.text
-                        Behavior on width { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
+                        Behavior on width { NumberAnimation { duration: Theme.motion(Theme.motionFill); easing.type: Easing.Bezier; easing.bezierCurve: Theme.motionCurve } }
                     }
                 }
             }

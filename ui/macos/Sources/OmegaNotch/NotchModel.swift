@@ -71,8 +71,8 @@ final class NotchModel {
   var s: CGFloat { Theme.scale(for: config.size) }
   var notchColor: String { config.notchColor }
 
-  var cellWidth: CGFloat { 48 * s }
-  var cellHeight: CGFloat { 67 * s }  // ring + gap + label
+  var cellWidth: CGFloat { 56 * s }   // room for tagged dual chip
+  var cellHeight: CGFloat { 72 * s }  // ring + gap + chip / %
   var cellAlong: CGFloat { vertical ? cellHeight : cellWidth }
   var cellSpacing: CGFloat { (vertical ? 20 : 22) * s }
   var padStart: CGFloat { (vertical ? 24 : 26) * s }
@@ -200,16 +200,20 @@ final class NotchModel {
     client.chats(for: provider).compactMap(\.updatedAt).max() ?? .distantPast
   }
 
-  /// A provider with a session running outranks an idle one; among equals the
-  /// one whose session started or ended last comes first.
+  /// Working first, then starred, then whichever moved last.
   var ranked: [String] {
-    activeReadings.map { reading -> (String, Bool, Date) in
+    activeReadings.map { reading -> (String, Bool, Bool, Date) in
       let session = client.session(for: reading.provider)
       let running = session.map { $0.kind != .idle } ?? false
+      let favorite = config.isFavorite(reading.provider)
       let at = running ? (session?.updatedAt ?? .distantPast) : lastChatAt(reading.provider)
-      return (reading.provider, running, at)
+      return (reading.provider, running, favorite, at)
     }
-    .sorted { a, b in a.1 != b.1 ? a.1 : a.2 > b.2 }
+    .sorted { a, b in
+      if a.1 != b.1 { return a.1 }
+      if a.2 != b.2 { return a.2 }
+      return a.3 > b.3
+    }
     .map(\.0)
   }
 
@@ -229,14 +233,22 @@ final class NotchModel {
     return ""
   }
 
-  /// Chosen by rank, laid out in the providers' own order so rings do not
-  /// swap places as sessions come and go.
+  /// Chosen by rank, laid out in Settings' notch order (registry order for
+  /// any it does not name) so rings do not swap places as sessions come and go.
   var shownReadings: [UsageReading] {
     var picked = Array(ranked.prefix(config.maxProviders))
     if !pinnedProvider.isEmpty, !picked.isEmpty, !picked.contains(pinnedProvider) {
       picked[picked.count - 1] = pinnedProvider
     }
-    return activeReadings.filter { picked.contains($0.provider) }
+    let place: [String: Int] = Dictionary(
+      uniqueKeysWithValues: config.notchOrder.enumerated().map { ($0.element, $0.offset) })
+    return activeReadings
+      .filter { picked.contains($0.provider) }
+      .sorted {
+        let a = place[$0.provider] ?? config.notchOrder.count
+        let b = place[$1.provider] ?? config.notchOrder.count
+        return a < b
+      }
   }
 
   func shownIndex(of provider: String) -> Int? {

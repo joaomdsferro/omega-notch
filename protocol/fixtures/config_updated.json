@@ -48,6 +48,9 @@
     "screen": "",
     "dashboard_palette": "mono",
     "dashboard_colors": [],
-    "theme": "noir"
+    "theme": "noir",
+    "favorites": [],
+    "notch_order": [],
+    "undetected": []
   }
 }

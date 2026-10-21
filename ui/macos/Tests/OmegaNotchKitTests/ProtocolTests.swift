@@ -36,11 +36,16 @@ final class ProtocolTests: XCTestCase {
 
     XCTAssertEqual(providers.first?.id, "claude_code")
     XCTAssertEqual(providers.first?.displayName, "Claude Code")
+    XCTAssertEqual(providers.first?.isDetected, true)
+    // An engine from before `detected` found everything.
+    let old = try ServerMessage.decoder.decode(
+      ProviderInfo.self, from: Data(#"{"id":"codex","display_name":"Codex"}"#.utf8))
+    XCTAssertTrue(old.isDetected)
 
     let reading = try XCTUnwrap(readings.first)
     XCTAssertEqual(reading.provider, "claude_code")
     XCTAssertEqual(reading.windows.count, 2)
-    XCTAssertEqual(reading.headlinePct, 45)
+    XCTAssertEqual(reading.headlinePct, 55.5)
     XCTAssertNotNil(reading.windows[0].resetsAt)
     XCTAssertNil(reading.windows[1].resetsAt)
 
@@ -186,5 +191,23 @@ final class ProtocolTests: XCTestCase {
     // Whole numbers go back as integers, which the engine needs for u32 fields.
     let encoded = String(decoding: try JSONEncoder().encode(config.raw), as: UTF8.self)
     XCTAssertTrue(encoded.contains(#""max_providers":5"#), encoded)
+  }
+
+  func testFavoritesAndNotchOrderRoundTrip() throws {
+    let raw = try JSONDecoder().decode(
+      JSONValue.self,
+      from: Data(#"{"favorites":["codex","codex","Bad Id"],"notch_order":["cursor","codex"]}"#.utf8))
+    var config = NotchConfig(raw: raw)
+    XCTAssertEqual(config.favorites, ["codex"])
+    XCTAssertEqual(config.notchOrder, ["cursor", "codex"])
+    XCTAssertTrue(config.isFavorite("codex"))
+    XCTAssertFalse(config.isFavorite("cursor"))
+
+    config.setFavorite("claude_code", favorite: true)
+    config.setFavorite("codex", favorite: false)
+    XCTAssertEqual(config.favorites, ["claude_code"])
+
+    config.moveInNotch("codex", by: -1, among: ["cursor", "codex", "opencode"])
+    XCTAssertEqual(config.notchOrder, ["codex", "cursor", "opencode"])
   }
 }

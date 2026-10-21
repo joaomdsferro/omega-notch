@@ -57,9 +57,13 @@ struct SettingsSwitch: View {
   var enabled = true
   /// Set in under the switch it belongs to.
   var indent: CGFloat = 0
+  /// Star control before the knob (providers tab); nil hides it.
+  var favorite: Bool? = nil
+  var onFavorite: (() -> Void)? = nil
   var toggle: (Bool) -> Void
 
   @State private var hovered = false
+  @State private var starHovered = false
 
   var body: some View {
     HStack(spacing: 12) {
@@ -77,6 +81,27 @@ struct SettingsSwitch: View {
         }
       }
       Spacer(minLength: 12)
+      if let favorite, let onFavorite {
+        Button(action: onFavorite) {
+          Image(systemName: favorite ? "star.fill" : "star")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(
+              favorite
+                ? Color(hex: "#F5C542")
+                : starHovered ? Theme.textSecondary : Theme.textTertiary
+            )
+            .frame(width: 28, height: 28)
+            .background(
+              RoundedRectangle(cornerRadius: 8).fill(starHovered ? Theme.panelHover : .clear))
+        }
+        .buttonStyle(.plain)
+        .help(favorite ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel("Favorite \(title)")
+        .accessibilityAddTraits(favorite ? [.isSelected] : [])
+        .onHover { starHovered = $0 }
+        // Keep the row's toggle tap from also firing when starring.
+        .contentShape(Rectangle())
+      }
       ZStack(alignment: isOn ? .trailing : .leading) {
         Capsule().fill(isOn ? Theme.ample : Color.white.opacity(0x33 / 255))
         Circle().fill(isOn ? Color.black : Color.white).frame(width: 18, height: 18).padding(2)
@@ -94,7 +119,7 @@ struct SettingsSwitch: View {
     .onHover { hovered = $0 }
     .clickable(enabled: enabled)
     .onTapGesture { if enabled { toggle(!isOn) } }
-    .accessibilityElement(children: .combine)
+    .accessibilityElement(children: .contain)
     .accessibilityAddTraits(.isButton)
     .accessibilityValue(isOn ? "On" : "Off")
     .accessibilityRespondsToUserInteraction(enabled)

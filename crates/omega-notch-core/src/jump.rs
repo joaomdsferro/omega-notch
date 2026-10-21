@@ -121,6 +121,7 @@ pub fn open_chat(target: &ChatTarget) -> anyhow::Result<Option<RaiseRequest>> {
         return open_app(&CODEX_DESKTOP, target.cwd).map(|_| None);
     }
     match provider {
+        "copilot" => open_app(&VSCODE, target.cwd).map(|_| None),
         "opencode" => open_opencode(target),
         "cursor" => open_cursor(target).map(|_| None),
         "grok_bot" => open_grok_bot(target).map(|_| None),

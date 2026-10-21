@@ -3,11 +3,10 @@ import OmegaNotchKit
 import SwiftUI
 
 /// One provider in the notch: a gauge of twenty segments that fills with the
-/// headline limit, the provider's mark inside it, and the number underneath.
-/// The last two segments are the danger zone, painted in the critical colour
-/// from the start, so the risk shows before the number does. A white arc turns
-/// inside the gauge while a session works; it becomes a breathing amber ring
-/// when one is waiting on you.
+/// tightest limit, the provider's mark inside it, and a short readout underneath.
+/// With two windows the readout is a chip ("5h 0 · wk 97") so both limits stay
+/// obvious. The last two segments are the danger zone. A white arc turns inside
+/// while a session works; it becomes a breathing amber ring when one is waiting.
 struct RingView: View {
   var reading: UsageReading?
   var sessionKind: SessionKind
@@ -21,7 +20,12 @@ struct RingView: View {
 
   private var status: String { reading?.status ?? "offline" }
   private var hasData: Bool { reading?.hasData ?? false }
+  private var windows: [UsageWindow] { reading?.windows ?? [] }
+  private var dual: Bool { hasData && windows.count >= 2 }
+  /// Ring shows the tightest window (the one that will stop you first).
   private var pct: Double { reading?.headlinePct ?? 0 }
+  private var sessionPct: Double { dual ? windows[0].usedPct : 0 }
+  private var weeklyPct: Double { dual ? windows[1].usedPct : 0 }
   private var ringSize: CGFloat { 44 * s }
   /// The gauge: twenty segments, the last two the danger zone.
   private var segments: Int { 20 }
@@ -31,6 +35,8 @@ struct RingView: View {
   private var radius: CGFloat { (ringSize - gaugeWidth) / 2 }
   /// The colour of the used part, by how much is used.
   private var accent: Color { Theme.usageColor(pct) }
+  private var sessionAccent: Color { Theme.usageColor(sessionPct) }
+  private var weeklyAccent: Color { Theme.usageColor(weeklyPct) }
   /// Where the used part ends, for the cap that rides on it.
   private var headAngle: Double { (-90 + 360 * min(1, max(0, pct / 100))) * .pi / 180 }
 
@@ -40,8 +46,20 @@ struct RingView: View {
     max(0, min(1, pct / 100 * Double(segments) - Double(index)))
   }
 
+  /// Short tag for a window label: "Current session" → "5h", "Weekly limit" → "wk".
+  private func shortTag(_ label: String) -> String {
+    let s = label.lowercased()
+    if s.range(of: #"week|weekly|7\s*d|7d"#, options: .regularExpression) != nil { return "wk" }
+    if s.range(of: #"5\s*h|5h|hour|session|current"#, options: .regularExpression) != nil {
+      return "5h"
+    }
+    if s.range(of: #"day|24\s*h|24h"#, options: .regularExpression) != nil { return "1d" }
+    let chunk = s.split { !$0.isLetter && !$0.isNumber }.first.map(String.init) ?? "lim"
+    return String(chunk.prefix(3))
+  }
+
   var body: some View {
-    VStack(spacing: 7 * s) {
+    VStack(spacing: 5 * s) {
       ZStack {
         gauge
 
@@ -99,14 +117,12 @@ struct RingView: View {
       .scaleEffect(hovered ? 1.06 : 1)
       .animation(.easeOut(duration: 0.14), value: hovered)
 
-      Text(label)
-        .font(.notch(13 * s, .semibold, tabular: true))
-        .foregroundStyle(labelColor)
-        .lineLimit(1)
-        .fixedSize()
+      labels
     }
-    .frame(width: 48 * s, height: 67 * s, alignment: .top)
+    .frame(width: 56 * s, height: 72 * s, alignment: .top)
     .contentShape(Rectangle())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(accessibilityName)
     .onTapGesture {
       refreshing = true
       onTap()
@@ -138,14 +154,60 @@ struct RingView: View {
     .animation(.easeOut(duration: 0.6), value: pct)
   }
 
-  private var label: String {
+  @ViewBuilder private var labels: some View {
+    if dual && hasData {
+      // Tagged chip so session vs weekly stay obvious ("5h 0 · wk 97").
+      HStack(spacing: 3 * s) {
+        Text(shortTag(windows[0].label))
+          .foregroundStyle(Theme.inkSecondary(surface))
+          .font(.notch(9 * s, .semibold, tabular: true))
+        Text("\(Int(sessionPct.rounded()))")
+          .foregroundStyle(sessionAccent)
+          .font(.notch(10 * s, .bold, tabular: true))
+        Text("·")
+          .foregroundStyle(Theme.inkSecondary(surface))
+          .font(.notch(10 * s, .semibold))
+        Text(shortTag(windows[1].label))
+          .foregroundStyle(Theme.inkSecondary(surface))
+          .font(.notch(9 * s, .semibold, tabular: true))
+        Text("\(Int(weeklyPct.rounded()))")
+          .foregroundStyle(weeklyAccent)
+          .font(.notch(10 * s, .bold, tabular: true))
+      }
+      .padding(.horizontal, 5 * s)
+      .frame(height: 16 * s)
+      .background(Capsule().fill(Theme.ink(surface).opacity(0.08)))
+      .overlay(Capsule().strokeBorder(Theme.ink(surface).opacity(0.12), lineWidth: 1))
+      .lineLimit(1)
+      .fixedSize()
+    } else {
+      Text(singleLabel)
+        .font(.notch(13 * s, .semibold, tabular: true))
+        .foregroundStyle(singleLabelColor)
+        .lineLimit(1)
+        .fixedSize()
+    }
+  }
+
+  private var singleLabel: String {
     if hasData { return "\(Int(pct.rounded()))%" }
     return status == "error" ? "!" : "—"
   }
 
-  private var labelColor: Color {
+  private var singleLabelColor: Color {
     if status == "error" { return Theme.critical }
     return hasData ? Theme.ink(surface) : Theme.inkSecondary(surface)
+  }
+
+  private var accessibilityName: String {
+    let name = reading?.displayName ?? "Provider"
+    guard hasData else {
+      return status == "error" ? "\(name), error" : "\(name), no data"
+    }
+    if dual {
+      return "\(name), \(shortTag(windows[0].label)) \(Int(sessionPct.rounded())) percent, \(shortTag(windows[1].label)) \(Int(weeklyPct.rounded())) percent"
+    }
+    return "\(name), \(Int(pct.rounded())) percent used"
   }
 }
 

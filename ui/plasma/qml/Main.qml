@@ -24,8 +24,8 @@ Window {
     readonly property real s: Theme.scaleFor(Engine.sizePreset)
 
     // ---- Notch metrics (medium preset, scaled by s, snapped to the pixel) ----
-    readonly property real cellWidth: Theme.px(48 * s)
-    readonly property real cellHeight: Theme.px(67 * s)       // ring + gap + label
+    readonly property real cellWidth: Theme.px(56 * s)        // room for tagged dual chip
+    readonly property real cellHeight: Theme.px(72 * s)       // ring + gap + chip / %
     readonly property real cellAlong: vertical ? cellHeight : cellWidth
     readonly property real cellSpacing: Theme.px((vertical ? 20 : 22) * s)
     readonly property real padStart: Theme.px((vertical ? 24 : 26) * s)
@@ -233,10 +233,14 @@ Window {
             rows.push({
                 provider: provider,
                 running: running,
+                favorite: Engine.favorites.indexOf(provider) >= 0,
                 at: running ? (Date.parse(session.updated_at) || 0) : lastChatAt(provider)
             })
         }
-        rows.sort((a, b) => a.running !== b.running ? (a.running ? -1 : 1) : b.at - a.at)
+        // Working first, then the starred, then whichever moved last.
+        rows.sort((a, b) => a.running !== b.running ? (a.running ? -1 : 1)
+                          : a.favorite !== b.favorite ? (a.favorite ? -1 : 1)
+                          : b.at - a.at)
         return rows.map(row => row.provider)
     }
     // Picked with the wheel; forgotten when the notch hides.
@@ -248,13 +252,20 @@ Window {
                                            : peekIndex >= 0 ? Engine.peekProvider
                                            : previewIndex >= 0 ? Engine.previewProvider
                                            : ""
-    // Chosen by rank, laid out in the providers' own order so rings do not
-    // swap places as sessions come and go.
+    // Chosen by rank, laid out in the order set in Settings (the registry's
+    // for any it does not name) so rings do not swap places as sessions come
+    // and go.
     readonly property var shownReadings: {
         const picked = ranked.slice(0, Math.max(1, Engine.maxProviders))
         if (pinnedProvider !== "" && picked.length > 0 && picked.indexOf(pinnedProvider) < 0)
             picked[picked.length - 1] = pinnedProvider
+        const place = {}
+        const order = Engine.notchProviders
+        for (let i = 0; i < order.length; ++i)
+            place[order[i].id] = i
+        const at = reading => place[reading.provider] === undefined ? order.length : place[reading.provider]
         return activeReadings.filter(reading => picked.indexOf(reading.provider) >= 0)
+                             .sort((a, b) => at(a) - at(b))
     }
     function shownIndexOf(provider) {
         for (let i = 0; i < shownReadings.length; ++i) {

@@ -3,11 +3,10 @@ import QtQuick.Shapes
 import OmegaNotch
 
 // One provider in the notch: a gauge of twenty segments that fills with the
-// headline limit, the provider's mark inside it, and the number underneath.
-// The last two segments are the danger zone, painted in the critical colour
-// from the start, so the risk shows before the number does. A white arc turns
-// inside the gauge while a session works; it becomes a pulsing amber ring
-// when one is waiting on you.
+// tightest limit, the provider's mark inside it, and a short readout underneath.
+// With two windows the readout is a chip ("5h 0 · wk 97") so both limits stay
+// obvious. The last two segments are the danger zone. A white arc turns inside
+// while a session works; it becomes a pulsing amber ring when one is waiting.
 Item {
     id: root
 
@@ -22,12 +21,27 @@ Item {
     signal hoveredChanged_(bool hovered)
 
     readonly property real ringSize: Theme.px(44 * scale_)
-    readonly property real labelGap: Theme.px(7 * scale_)
+    readonly property real labelGap: Theme.px(5 * scale_)
     readonly property string status: reading ? (reading.status || "ok") : "offline"
     readonly property bool hasData: reading && reading.windows && reading.windows.length > 0
                                     && (status === "ok" || status === "stale")
-    readonly property real pct: hasData ? (Number(reading.windows[0].used_pct) || 0) : 0
+    readonly property var windows: hasData ? reading.windows : []
+    readonly property bool dual: windows.length >= 2
+    // Ring shows the tightest window (the one that will stop you first).
+    readonly property int tightest: {
+        let best = 0
+        for (let i = 1; i < windows.length; ++i) {
+            if ((Number(windows[i].used_pct) || 0) > (Number(windows[best].used_pct) || 0))
+                best = i
+        }
+        return best
+    }
+    readonly property real pct: hasData ? (Number(windows[tightest].used_pct) || 0) : 0
+    readonly property real sessionPct: dual ? (Number(windows[0].used_pct) || 0) : 0
+    readonly property real weeklyPct: dual ? (Number(windows[1].used_pct) || 0) : 0
     readonly property color accent: Theme.usageColor(pct)
+    readonly property color sessionAccent: Theme.usageColor(sessionPct)
+    readonly property color weeklyAccent: Theme.usageColor(weeklyPct)
     readonly property bool hovered: hover.hovered
     // Centre of the ring in this item's coordinates, for aiming the card.
     readonly property point ringCentre: Qt.point(width / 2, ringSize / 2)
@@ -46,8 +60,32 @@ Item {
 
     property bool refreshing: false
 
-    implicitWidth: Math.max(ringSize, label.implicitWidth)
-    implicitHeight: ringSize + labelGap + label.implicitHeight
+    // Short tag for a window label: "Current session" → "5h", "Weekly limit" → "wk".
+    function shortTag(label) {
+        const s = String(label || "").toLowerCase()
+        if (/week|weekly|7\s*d|7d/.test(s)) return "wk"
+        if (/5\s*h|5h|hour|session|current/.test(s)) return "5h"
+        if (/day|24\s*h|24h/.test(s)) return "1d"
+        const m = s.match(/[a-z0-9]+/)
+        return m ? m[0].slice(0, 3) : "lim"
+    }
+
+    Accessible.name: {
+        if (!hasData)
+            return (reading ? reading.display_name : "Provider")
+                   + (status === "error" ? ", error" : ", no data")
+        if (dual) {
+            return (reading.display_name || "")
+                   + ", " + shortTag(windows[0].label) + " "
+                   + Math.round(sessionPct) + " percent"
+                   + ", " + shortTag(windows[1].label) + " "
+                   + Math.round(weeklyPct) + " percent"
+        }
+        return (reading.display_name || "") + ", " + Math.round(pct) + " percent used"
+    }
+
+    implicitWidth: Math.max(ringSize, labelSlot.implicitWidth)
+    implicitHeight: ringSize + labelGap + labelSlot.implicitHeight
 
     Item {
         id: ring
@@ -145,7 +183,7 @@ Item {
             color: "#FFFFFF"
             opacity: 0.92
             x: Theme.px(ring.width / 2 + Math.cos(root.headAngle) * ring.radius - width / 2)
-            y: Theme.px(ring.height / 2 + Math.sin(root.headAngle) * ring.radius - width / 2)
+            y: Theme.px(ring.height / 2 + Math.sin(root.headAngle) * ring.radius - height / 2)
         }
 
         // Working: a short white arc orbiting between the mark and the ring.
@@ -237,19 +275,83 @@ Item {
         }
     }
 
-    Text {
-        id: label
+    Item {
+        id: labelSlot
         anchors.top: ring.bottom
         anchors.topMargin: root.labelGap
         anchors.horizontalCenter: parent.horizontalCenter
-        text: root.hasData ? Math.round(root.shown) + "%"
-            : root.status === "error" ? "!"
-            : "—"
-        color: root.status === "error" ? Theme.critical
-             : root.hasData ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
-        font.pixelSize: 13 * root.scale_
-        font.weight: Font.DemiBold
-        font.features: { "tnum": 1 }
+        implicitWidth: dualChip.visible ? dualChip.implicitWidth : singleLabel.implicitWidth
+        implicitHeight: dualChip.visible ? dualChip.implicitHeight : singleLabel.implicitHeight
+
+        // Dual: tagged chip so session vs weekly stay obvious ("5h 0 · wk 97").
+        Rectangle {
+            id: dualChip
+            visible: root.dual && root.hasData
+            anchors.horizontalCenter: parent.horizontalCenter
+            implicitWidth: chipRow.implicitWidth + Theme.px(10 * root.scale_)
+            implicitHeight: Theme.px(16 * root.scale_)
+            width: implicitWidth
+            height: implicitHeight
+            radius: height / 2
+            color: Theme.withAlpha(Theme.ink(root.surface), 0.08)
+            border.width: 1
+            border.color: Theme.withAlpha(Theme.ink(root.surface), 0.12)
+
+            Row {
+                id: chipRow
+                anchors.centerIn: parent
+                spacing: Theme.px(3 * root.scale_)
+
+                Text {
+                    text: root.shortTag(root.windows[0].label)
+                    color: Theme.inkSecondary(root.surface)
+                    font.pixelSize: 9 * root.scale_
+                    font.weight: Font.DemiBold
+                    font.features: { "tnum": 1 }
+                }
+                Text {
+                    text: Math.round(root.sessionPct)
+                    color: root.sessionAccent
+                    font.pixelSize: 10 * root.scale_
+                    font.weight: Font.Bold
+                    font.features: { "tnum": 1 }
+                }
+                Text {
+                    text: "·"
+                    color: Theme.inkSecondary(root.surface)
+                    font.pixelSize: 10 * root.scale_
+                    font.weight: Font.DemiBold
+                }
+                Text {
+                    text: root.shortTag(root.windows[1].label)
+                    color: Theme.inkSecondary(root.surface)
+                    font.pixelSize: 9 * root.scale_
+                    font.weight: Font.DemiBold
+                    font.features: { "tnum": 1 }
+                }
+                Text {
+                    text: Math.round(root.weeklyPct)
+                    color: root.weeklyAccent
+                    font.pixelSize: 10 * root.scale_
+                    font.weight: Font.Bold
+                    font.features: { "tnum": 1 }
+                }
+            }
+        }
+
+        Text {
+            id: singleLabel
+            visible: !root.dual
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: root.hasData ? Math.round(root.shown) + "%"
+                : root.status === "error" ? "!"
+                : "—"
+            color: root.status === "error" ? Theme.critical
+                 : root.hasData ? Theme.ink(root.surface) : Theme.inkSecondary(root.surface)
+            font.pixelSize: 13 * root.scale_
+            font.weight: Font.DemiBold
+            font.features: { "tnum": 1 }
+        }
     }
 
     Timer {

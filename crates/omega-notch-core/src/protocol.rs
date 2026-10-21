@@ -92,6 +92,14 @@ impl From<String> for ProviderId {
 pub struct ProviderInfo {
     pub id: ProviderId,
     pub display_name: String,
+    /// The tool has left something on this machine: its folder, sign-in or
+    /// binary (additive; an engine without it found everything).
+    #[serde(default = "default_true")]
+    pub detected: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,8 +142,17 @@ pub struct UsageReading {
 }
 
 impl UsageReading {
+    /// The window that will stop you first: highest `used_pct` (ties keep the
+    /// earlier window).
+    pub fn tightest_window(&self) -> Option<&UsageWindow> {
+        self.windows
+            .iter()
+            .reduce(|best, w| if w.used_pct > best.used_pct { w } else { best })
+    }
+
+    /// Share used on the tightest window, if any.
     pub fn headline_pct(&self) -> Option<f64> {
-        self.windows.first().map(|w| w.used_pct)
+        self.tightest_window().map(|w| w.used_pct)
     }
 
     pub fn needs_auth(provider: ProviderId, message: impl Into<String>) -> Self {

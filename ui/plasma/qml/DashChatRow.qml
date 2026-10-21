@@ -38,6 +38,20 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.name: (chat ? chat.title : "") + ". Open chat"
+    Accessible.focusable: true
+    activeFocusOnTab: true
+    Keys.onReturnPressed: (event) => {
+        if (root.chat) Engine.openChat(root.chat)
+        event.accepted = true
+    }
+    Keys.onEnterPressed: (event) => {
+        if (root.chat) Engine.openChat(root.chat)
+        event.accepted = true
+    }
+    Keys.onSpacePressed: (event) => {
+        if (root.chat) Engine.openChat(root.chat)
+        event.accepted = true
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -46,7 +60,7 @@ Item {
         radius: 8
         color: Theme.panelHover
         opacity: rowHover.hovered ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.motion(Theme.motionHover) } }
     }
     Rectangle {
         width: parent.width
@@ -101,7 +115,7 @@ Item {
             border.color: Theme.panelRaised
 
             SequentialAnimation on opacity {
-                running: root.kind !== "idle" && root.visible
+                running: root.kind !== "idle" && root.visible && !Theme.reducedMotion
                 loops: Animation.Infinite
                 alwaysRunToEnd: true
                 NumberAnimation { from: 1; to: 0.35; duration: 700; easing.type: Easing.InOutSine }
@@ -201,4 +215,5 @@ Item {
         font.weight: root.kind === "idle" && !root.unread ? Font.Normal : Font.DemiBold
         font.features: { "tnum": 1 }
     }
+    FocusRing { target: root }
 }

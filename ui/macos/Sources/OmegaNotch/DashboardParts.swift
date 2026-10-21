@@ -17,9 +17,9 @@ struct DashCard<Trailing: View, Content: View>: View {
       if !heading.isEmpty {
         HStack(alignment: .center) {
           VStack(alignment: .leading, spacing: 2) {
-            Text(heading).font(.notch(14, .semibold)).foregroundStyle(Theme.text)
+            Text(heading).font(.notch(Theme.typeCardTitle, Theme.typeWeightSemibold)).foregroundStyle(Theme.text)
             if !caption.isEmpty {
-              Text(caption).font(.notch(12)).foregroundStyle(Theme.textSecondary)
+              Text(caption).font(.notch(Theme.typeLabel)).foregroundStyle(Theme.textSecondary)
             }
           }
           Spacer(minLength: 12)
@@ -88,7 +88,7 @@ struct DashSegmented: View {
           ProviderGlyph(provider: option.provider, color: chosen ? Theme.text : Theme.textSecondary)
             .frame(width: 14, height: 14)
         }
-        Text(option.label).font(.notch(12, chosen ? .semibold : .medium))
+        Text(option.label).font(.notch(Theme.typeLabel, chosen ? Theme.typeWeightSemibold : Theme.typeWeightMedium))
           .foregroundStyle(chosen ? Theme.text : Theme.textSecondary)
       }
       .padding(.horizontal, 12)
@@ -96,7 +96,7 @@ struct DashSegmented: View {
       .background(
         RoundedRectangle(cornerRadius: 7)
           .fill(chosen ? Theme.controlChosen : hovered ? Theme.controlHover : .clear))
-      .animation(.easeOut(duration: 0.12), value: chosen)
+      .animation(Theme.motionAnimation(Theme.motionHover), value: chosen)
       .contentShape(Rectangle())
       .onHover { hovered = $0 }
       .clickable()
@@ -113,7 +113,7 @@ struct TextButton: View {
   @State private var hovered = false
 
   var body: some View {
-    Text(label).font(.notch(12, .medium)).foregroundStyle(Theme.text)
+    Text(label).font(.notch(Theme.typeLabel, Theme.typeWeightMedium)).foregroundStyle(Theme.text)
       .padding(.horizontal, 10)
       .frame(height: 28)
       .background(RoundedRectangle(cornerRadius: 7).fill(hovered ? Theme.controlChosen : Theme.controlFill))
@@ -121,6 +121,38 @@ struct TextButton: View {
       .clickable()
       .onTapGesture(perform: action)
       .accessibilityAddTraits(.isButton)
+  }
+}
+
+/// News that concerns the whole page, kept where it cannot be missed: a
+/// failed load with a way to try again, or a tool that is already out.
+struct PageNotice: View {
+  var tone: Color
+  var title: String
+  var detail: String
+  var actionLabel: String
+  var action: () -> Void
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 12) {
+      RoundedRectangle(cornerRadius: 2).fill(tone).frame(width: 3)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title).font(.notch(Theme.typeCardTitle, Theme.typeWeightSemibold)).foregroundStyle(Theme.text)
+        if !detail.isEmpty {
+          Text(detail).font(.notch(Theme.typeBody)).foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer(minLength: 12)
+      TextButton(label: actionLabel, action: action)
+    }
+    .padding(12)
+    .background(
+      RoundedRectangle(cornerRadius: 10)
+        .fill(tone.opacity(0.10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tone.opacity(0.35), lineWidth: 1))
+    )
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -139,7 +171,7 @@ struct SearchField: View {
         .foregroundStyle(text.isEmpty ? Theme.textTertiary : Theme.text)
       TextField(prompt, text: $text)
         .textFieldStyle(.plain)
-        .font(.notch(large ? 15 : 13))
+        .font(.notch(large ? Theme.typeSectionTitle : Theme.typeBody))
         .foregroundStyle(Theme.text)
         .focused($focused)
         .onKeyPress(.escape) {
@@ -230,7 +262,7 @@ struct DashRing: View {
           .stroke(Theme.usageColor(pct), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
           .rotationEffect(.degrees(-90))
           .padding(stroke / 2)
-          .animation(.easeOut(duration: 0.6), value: pct)
+          .animation(Theme.motionAnimation(Theme.motionFill), value: pct)
         HStack(alignment: .firstTextBaseline, spacing: 0) {
           Text(pct >= 0 ? "\(Int(pct.rounded()))" : "—")
             .font(.notch((side * 0.3).rounded(), .semibold, tabular: true))
@@ -297,7 +329,7 @@ struct LimitCard: View {
         VStack(alignment: .leading, spacing: 4) {
           HStack(spacing: 8) {
             ProviderGlyph(provider: reading.provider, color: Theme.text).frame(width: 16, height: 16)
-            Text(reading.displayName).font(.notch(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+            Text(reading.displayName).font(.notch(Theme.typeCardTitle, Theme.typeWeightSemibold)).foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 8)
             if let (text, color) = badge {
               Text(text).font(.notch(11, .semibold)).foregroundStyle(color)
@@ -311,7 +343,7 @@ struct LimitCard: View {
                 + (reading.windows.count > 1
                   ? " · " + reading.windows[tightest].label.lowercased() : "")
             )
-            .font(.notch(12, .medium)).foregroundStyle(Theme.usageColor(headline)).lineLimit(1)
+            .font(.notch(Theme.typeLabel, Theme.typeWeightMedium)).foregroundStyle(Theme.usageColor(headline)).lineLimit(1)
           }
           Text(hasData ? checked : reading.message ?? "No limits reported")
             .font(.notch(12, tabular: true))
@@ -326,7 +358,7 @@ struct LimitCard: View {
             let pct = max(0, min(100, window.usedPct))
             VStack(spacing: 8) {
               HStack(alignment: .firstTextBaseline) {
-                Text(window.label.isEmpty ? "Usage" : window.label).font(.notch(12))
+                Text(window.label.isEmpty ? "Usage" : window.label).font(.notch(Theme.typeLabel))
                   .foregroundStyle(Theme.textSecondary).lineLimit(1)
                 Spacer(minLength: 12)
                 Text(Format.resetsIn(window.resetsAt, now: now).replacingOccurrences(of: "Resets ", with: ""))
@@ -355,7 +387,7 @@ struct LimitCard: View {
                 startPoint: .top, endPoint: .init(x: 0.5, y: 0.16)))
         )
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardStroke, lineWidth: 1)))
-    .animation(.easeOut(duration: 0.12), value: hovered)
+    .animation(Theme.motionAnimation(Theme.motionHover), value: hovered)
     .contentShape(Rectangle())
     .onHover { hovered = $0 }
     .clickable()
@@ -379,7 +411,7 @@ struct Bar: View {
         Capsule().fill(Theme.track)
         Capsule().fill(color)
           .frame(width: max(fraction > 0 ? minimum : 0, geo.size.width * max(0, min(1, fraction))))
-          .animation(.easeOut(duration: 0.45), value: fraction)
+          .animation(Theme.motionAnimation(Theme.motionFill), value: fraction)
       }
     }
     .frame(height: height)
@@ -530,7 +562,7 @@ struct UsageChart: View {
             }
             .padding(.horizontal, gap / 2)
             .opacity(dimmed ? 0.45 : 1)
-            .animation(.easeOut(duration: 0.12), value: dimmed)
+            .animation(Theme.motionAnimation(Theme.motionHover), value: dimmed)
           }
           .frame(width: slot, height: plotHeight, alignment: .bottom)
           .offset(x: axisWidth + CGFloat(index) * slot)
@@ -551,7 +583,7 @@ struct UsageChart: View {
         }
 
         if empty {
-          Text(emptyText).font(.notch(13)).foregroundStyle(Theme.textTertiary)
+          Text(emptyText).font(.notch(Theme.typeBody)).foregroundStyle(Theme.textTertiary)
             .frame(width: plotWidth, height: plotHeight)
             .offset(x: axisWidth)
         }

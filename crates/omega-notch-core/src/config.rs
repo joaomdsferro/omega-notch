@@ -56,7 +56,24 @@ pub struct AppConfig {
     /// name falls back to the default.
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Providers the user starred; the notch prefers them over idle ones.
+    #[serde(default)]
+    pub favorites: Vec<String>,
+    /// The order the notch lays its rings out in, first to last. Providers
+    /// it does not name follow, in the registry's order.
+    #[serde(default)]
+    pub notch_order: Vec<String>,
+    /// Providers off only because nothing of them was on this machine when
+    /// the config first named them. One turns on by itself once it shows up;
+    /// switching it on by hand takes it off this list.
+    #[serde(default)]
+    pub undetected: Vec<String>,
 }
+
+/// Most ids a provider list may hold, and the longest id in one: the config
+/// comes from a socket, so what it holds is bounded.
+pub const PROVIDER_LIST_MAX: usize = 64;
+const PROVIDER_ID_MAX: usize = 48;
 
 pub const MAX_PROVIDERS_LIMIT: u32 = 5;
 pub const IDLE_SIZE_MAX: f64 = 3.0;
@@ -106,6 +123,21 @@ fn is_hex_color(value: &str) -> bool {
     value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// Keeps ids that look like a provider id, once each, in order, up to
+/// `PROVIDER_LIST_MAX`.
+fn clean_provider_list(list: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    list.retain(|id| {
+        !id.is_empty()
+            && id.len() <= PROVIDER_ID_MAX
+            && id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+            && seen.insert(id.clone())
+    });
+    list.truncate(PROVIDER_LIST_MAX);
+}
+
 fn default_true() -> bool {
     true
 }
@@ -150,7 +182,8 @@ pub struct ProviderToggles(BTreeMap<String, bool>);
 
 impl ProviderToggles {
     /// Every provider this build knows, on. Explicit in the config so an
-    /// older shell sees the whole list, and a provider added later starts on.
+    /// older shell sees the whole list. A config read from disk is settled
+    /// from what is installed instead (`AppConfig::settle_providers`).
     pub fn defaults() -> Self {
         let mut toggles = Self::default();
         for provider in crate::providers::PROVIDERS {
@@ -167,6 +200,10 @@ impl ProviderToggles {
 
     pub fn set(&mut self, id: &ProviderId, enabled: bool) {
         self.0.insert(id.as_str().to_string(), enabled);
+    }
+
+    pub fn names(&self, id: &ProviderId) -> bool {
+        self.0.contains_key(id.as_str())
     }
 }
 
@@ -270,6 +307,9 @@ impl Default for AppConfig {
             dashboard_palette: default_dashboard_palette(),
             dashboard_colors: Vec::new(),
             theme: default_theme(),
+            favorites: Vec::new(),
+            notch_order: Vec::new(),
+            undetected: Vec::new(),
         }
     }
 }
@@ -284,13 +324,70 @@ impl AppConfig {
     }
 
     pub fn load() -> Self {
-        let path = crate::paths::config_file();
-        match std::fs::read_to_string(&path) {
-            Ok(raw) => serde_json::from_str::<Self>(&raw)
-                .map(Self::normalized)
-                .unwrap_or_default(),
-            Err(_) => Self::default(),
+        Self::read().0
+    }
+
+    /// `load`, writing the config back when providers it did not name were
+    /// settled from this machine: on a new machine, the first run decides
+    /// once which providers start on.
+    pub fn load_settled() -> Self {
+        let (config, settled) = Self::read();
+        if settled {
+            if let Err(err) = config.save() {
+                tracing::warn!(error = %err, "could not save the detected providers");
+            }
         }
+        config
+    }
+
+    fn read() -> (Self, bool) {
+        let path = crate::paths::config_file();
+        let mut config = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Self>(&raw).ok())
+            .map(Self::normalized)
+            .unwrap_or_else(|| Self {
+                providers: ProviderToggles::default(),
+                ..Self::default()
+            });
+        let settled = config.settle_providers(crate::providers::detected);
+        (config, settled)
+    }
+
+    /// Names every provider of this build the config does not name yet: on
+    /// when `found` sees it on this machine, off and listed in `undetected`
+    /// otherwise. Returns whether it named any.
+    pub fn settle_providers(&mut self, found: impl Fn(&ProviderId) -> bool) -> bool {
+        let mut settled = false;
+        for provider in crate::providers::PROVIDERS {
+            let id = provider.id();
+            if self.providers.names(id) {
+                continue;
+            }
+            let on = found(id);
+            self.providers.set(id, on);
+            if !on {
+                self.undetected.push(id.as_str().to_string());
+            }
+            settled = true;
+        }
+        settled
+    }
+
+    /// Switches on the `undetected` providers that `found` now sees.
+    /// Returns whether any was.
+    pub fn adopt_found_providers(&mut self, found: impl Fn(&ProviderId) -> bool) -> bool {
+        let before = self.undetected.len();
+        let toggles = &mut self.providers;
+        self.undetected.retain(|id| {
+            let id = ProviderId::new(id.clone());
+            if !found(&id) {
+                return true;
+            }
+            toggles.set(&id, true);
+            false
+        });
+        self.undetected.len() != before
     }
 
     pub fn normalized(mut self) -> Self {
@@ -337,6 +434,12 @@ impl AppConfig {
                 self.alerts.muted.insert(id.to_string(), true);
             }
         }
+        clean_provider_list(&mut self.favorites);
+        clean_provider_list(&mut self.notch_order);
+        clean_provider_list(&mut self.undetected);
+        let toggles = &self.providers;
+        self.undetected
+            .retain(|id| !toggles.enabled(&ProviderId::new(id.clone())));
         self.dashboard_colors.truncate(DASHBOARD_SERIES);
         for color in &mut self.dashboard_colors {
             *color = if is_hex_color(color) {
@@ -424,6 +527,69 @@ mod tests {
     }
 
     #[test]
+    fn a_new_machine_starts_with_only_the_providers_found_on_it() {
+        let mut c = AppConfig {
+            providers: ProviderToggles::default(),
+            ..AppConfig::default()
+        };
+        let found = |id: &ProviderId| *id == ProviderId::Codex || *id == ProviderId::Cursor;
+        assert!(c.settle_providers(found));
+        assert!(c.provider_enabled(&ProviderId::Codex));
+        assert!(c.provider_enabled(&ProviderId::Cursor));
+        assert!(!c.provider_enabled(&ProviderId::ClaudeCode));
+        assert!(c.undetected.contains(&"claude_code".to_string()));
+        assert!(!c.undetected.contains(&"codex".to_string()));
+        assert_eq!(c.undetected.len(), crate::providers::PROVIDERS.len() - 2);
+
+        // Settled once: a second run leaves the choice alone.
+        assert!(!c.settle_providers(|_| true));
+        assert!(!c.provider_enabled(&ProviderId::ClaudeCode));
+    }
+
+    #[test]
+    fn a_config_that_names_a_provider_keeps_its_choice() {
+        let mut c = parse(r#"{"providers":{"cursor":true,"codex":false}}"#);
+        c.settle_providers(|_| false);
+        assert!(c.provider_enabled(&ProviderId::Cursor));
+        assert!(!c.provider_enabled(&ProviderId::Codex));
+        assert!(!c.undetected.contains(&"codex".to_string()));
+        assert!(!c.undetected.contains(&"cursor".to_string()));
+        // One the file did not name follows the machine.
+        assert!(!c.provider_enabled(&ProviderId::Kimi));
+        assert!(c.undetected.contains(&"kimi".to_string()));
+    }
+
+    #[test]
+    fn an_undetected_provider_turns_on_once_it_shows_up() {
+        let mut c = AppConfig {
+            providers: ProviderToggles::default(),
+            ..AppConfig::default()
+        };
+        c.settle_providers(|_| false);
+        assert!(!c.adopt_found_providers(|_| false));
+        assert!(c.adopt_found_providers(|id| *id == ProviderId::Kiro));
+        assert!(c.provider_enabled(&ProviderId::Kiro));
+        assert!(!c.undetected.contains(&"kiro".to_string()));
+        assert!(!c.provider_enabled(&ProviderId::Amp));
+    }
+
+    #[test]
+    fn switching_an_undetected_provider_on_by_hand_makes_it_the_users() {
+        let mut c = AppConfig {
+            providers: ProviderToggles::default(),
+            ..AppConfig::default()
+        };
+        c.settle_providers(|_| false);
+        c.providers.set(&ProviderId::Amp, true);
+        let mut c = c.normalized();
+        assert!(!c.undetected.contains(&"amp".to_string()));
+        // Off again by hand: it stays off even once found.
+        c.providers.set(&ProviderId::Amp, false);
+        c.adopt_found_providers(|_| true);
+        assert!(!c.provider_enabled(&ProviderId::Amp));
+    }
+
+    #[test]
     fn old_mutes_migrate_to_the_muted_map() {
         let c = parse(
             r#"{"alerts":{"enabled":true,"sound":true,"mute_cursor":true,
@@ -492,6 +658,27 @@ mod tests {
         let c = parse("{}");
         assert_eq!(c.dashboard_palette, "mono");
         assert!(c.dashboard_colors.is_empty());
+    }
+
+    #[test]
+    fn favorites_and_notch_order_are_cleaned_and_bounded() {
+        let c = parse(
+            r#"{"favorites":["codex","codex","Bad Id","","claude_code-work"],
+            "notch_order":["cursor","../x","cursor","codex"]}"#,
+        );
+        assert_eq!(c.favorites, vec!["codex", "claude_code-work"]);
+        assert_eq!(c.notch_order, vec!["cursor", "codex"]);
+
+        let many: Vec<String> = (0..200).map(|n| format!("p{n}")).collect();
+        let c = parse(&format!(
+            r#"{{"favorites":{}}}"#,
+            serde_json::to_string(&many).unwrap()
+        ));
+        assert_eq!(c.favorites.len(), PROVIDER_LIST_MAX);
+
+        // Older configs have neither.
+        let c = parse("{}");
+        assert!(c.favorites.is_empty() && c.notch_order.is_empty());
     }
 
     #[test]

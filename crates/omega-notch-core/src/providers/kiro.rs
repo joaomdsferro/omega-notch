@@ -27,6 +27,10 @@ impl KiroProvider {
     }
 }
 
+pub(super) fn detected() -> bool {
+    locate_binary().is_some()
+}
+
 /// `KIRO_CLI_PATH` first; then the places the installer actually lands (a
 /// Finder launch has none of them on `PATH`); absolute `PATH` entries last.
 fn locate_binary() -> Option<PathBuf> {

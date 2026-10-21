@@ -114,6 +114,31 @@ Window {
     }
     readonly property var shownReadings: activeReadings.filter(r => root.matches(r.provider))
 
+    // The window that is already out, for the page's notice: the card says it
+    // on the ring, but a page at 100% must read as such without hunting.
+    readonly property var exhausted: {
+        let worst = null
+        for (let i = 0; i < activeReadings.length; ++i) {
+            const r = activeReadings[i]
+            if (r.status !== "ok" && r.status !== "stale")
+                continue
+            const ws = r.windows || []
+            for (let j = 0; j < ws.length; ++j) {
+                const pct = Number(ws[j].used_pct) || 0
+                if (pct >= 100 && (worst === null || pct > worst.pct)) {
+                    worst = {
+                        provider: r.provider,
+                        name: r.display_name || r.provider,
+                        label: ws[j].label || "Usage",
+                        pct: pct,
+                        resets_at: ws[j].resets_at
+                    }
+                }
+            }
+        }
+        return worst
+    }
+
     readonly property var filterOptions: {
         const out = [{ value: "all", label: "All tools" }]
         for (let i = 0; i < activeReadings.length; ++i) {
@@ -342,8 +367,8 @@ Window {
             anchors.verticalCenter: parent.verticalCenter
             text: parent.text
             color: Theme.text
-            font.pixelSize: 15
-            font.weight: Font.DemiBold
+            font.pixelSize: Theme.typeSectionTitle
+            font.weight: Theme.typeWeightSemibold
         }
         Text {
             anchors.left: sectionText.right
@@ -351,7 +376,7 @@ Window {
             anchors.baseline: sectionText.baseline
             text: parent.caption
             color: Theme.textTertiary
-            font.pixelSize: 12
+            font.pixelSize: Theme.typeLabel
         }
     }
 
@@ -371,14 +396,14 @@ Window {
             Text {
                 text: stat.label
                 color: Theme.textSecondary
-                font.pixelSize: 12
-                font.weight: Font.Medium
+                font.pixelSize: Theme.typeLabel
+                font.weight: Theme.typeWeightMedium
             }
             Text {
                 text: stat.value
                 color: Theme.text
-                font.pixelSize: 26
-                font.weight: Font.DemiBold
+                font.pixelSize: Theme.typeBigNumber
+                font.weight: Theme.typeWeightSemibold
                 font.features: { "tnum": 1 }
                 elide: Text.ElideRight
                 width: parent.width
@@ -386,7 +411,7 @@ Window {
             Text {
                 text: stat.note
                 color: stat.noteColor
-                font.pixelSize: 12
+                font.pixelSize: Theme.typeLabel
                 font.features: { "tnum": 1 }
                 elide: Text.ElideRight
                 width: parent.width
@@ -458,8 +483,14 @@ Window {
         height: 32
         radius: 9
         color: chosen ? Theme.controlChosen : Theme.controlFill
+        activeFocusOnTab: true
+        Keys.onReturnPressed: (event) => { menuPopup.open(); event.accepted = true }
+        Keys.onEnterPressed: (event) => { menuPopup.open(); event.accepted = true }
+        Keys.onSpacePressed: (event) => { menuPopup.open(); event.accepted = true }
+        Keys.onDownPressed: (event) => { menuPopup.open(); event.accepted = true }
         Accessible.role: Accessible.ComboBox
         Accessible.name: chosen ? chosenLabel : allLabel
+        Accessible.focusable: true
 
         Row {
             id: menuRow
@@ -490,6 +521,7 @@ Window {
         }
         HoverHandler { cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: menuPopup.opened ? menuPopup.close() : menuPopup.open() }
+        FocusRing { target: menuButton }
 
         Popup {
             id: menuPopup
@@ -497,6 +529,15 @@ Window {
             width: 380
             height: Math.min(menuList.contentHeight + 12, 360)
             padding: 6
+            onOpened: {
+                const all = [{ value: "", label: menuButton.allLabel, detail: "" }].concat(menuButton.choices)
+                let index = 0
+                for (let i = 0; i < all.length; ++i) {
+                    if (all[i].value === menuButton.value) index = i
+                }
+                menuList.currentIndex = index
+                menuList.forceActiveFocus()
+            }
             background: Rectangle {
                 radius: 10
                 color: Theme.panelRaised
@@ -507,6 +548,21 @@ Window {
                 id: menuList
                 clip: true
                 model: [{ value: "", label: menuButton.allLabel, detail: "" }].concat(menuButton.choices)
+                function activate() {
+                    const item = menuList.model[menuList.currentIndex]
+                    if (!item) return
+                    menuButton.picked(item.value)
+                    menuButton.forceActiveFocus()
+                    menuPopup.close()
+                }
+                Keys.onEscapePressed: (event) => {
+                    menuButton.forceActiveFocus()
+                    menuPopup.close()
+                    event.accepted = true
+                }
+                Keys.onReturnPressed: (event) => { menuList.activate(); event.accepted = true }
+                Keys.onEnterPressed: (event) => { menuList.activate(); event.accepted = true }
+                Keys.onSpacePressed: (event) => { menuList.activate(); event.accepted = true }
                 delegate: Rectangle {
                     id: menuItem
                     required property var modelData
@@ -514,7 +570,11 @@ Window {
                     width: menuList.width
                     height: 30
                     radius: 6
-                    color: itemHover.hovered ? Theme.controlHover : "transparent"
+                    color: menuItem.ListView.isCurrentItem || itemHover.hovered ? Theme.controlHover : "transparent"
+
+                    Accessible.role: Accessible.MenuItem
+                    Accessible.name: modelData.label
+                    Accessible.focusable: true
 
                     Text {
                         x: 10
@@ -555,9 +615,16 @@ Window {
         height: 28
         radius: 7
         color: tbHover.hovered ? Theme.controlChosen : Theme.controlFill
-        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on color { ColorAnimation { duration: Theme.motion(Theme.motionHover) } }
+
+        activeFocusOnTab: true
+        Keys.onReturnPressed: (event) => { tb.clicked(); event.accepted = true }
+        Keys.onEnterPressed: (event) => { tb.clicked(); event.accepted = true }
+        Keys.onSpacePressed: (event) => { tb.clicked(); event.accepted = true }
+
         Accessible.role: Accessible.Button
         Accessible.name: label
+        Accessible.focusable: true
         Text {
             id: tbText
             anchors.centerIn: parent
@@ -571,6 +638,72 @@ Window {
             cursorShape: Qt.PointingHandCursor
         }
         TapHandler { onTapped: tb.clicked() }
+        FocusRing { target: tb }
+    }
+
+    // News that concerns the whole page, kept where it cannot be missed: a
+    // failed load with a way to try again, or a tool that is already out.
+    component PageNotice: Rectangle {
+        id: notice
+        property string title: ""
+        property string detail: ""
+        property string actionLabel: ""
+        property color tone: Theme.critical
+        signal acted()
+
+        width: parent ? parent.width : 0
+        height: noticeColumn.implicitHeight + 24
+        radius: 10
+        color: Qt.rgba(notice.tone.r, notice.tone.g, notice.tone.b, 0.10)
+        border.width: 1
+        border.color: Qt.rgba(notice.tone.r, notice.tone.g, notice.tone.b, 0.35)
+
+        Accessible.role: Accessible.StaticText
+        Accessible.name: notice.title + ". " + notice.detail
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.margins: 9
+            width: 3
+            radius: 2
+            color: notice.tone
+        }
+        Column {
+            id: noticeColumn
+            anchors.left: parent.left
+            anchors.leftMargin: 22
+            anchors.right: noticeAction.visible ? noticeAction.left : parent.right
+            anchors.rightMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 3
+            Text {
+                width: parent.width
+                text: notice.title
+                color: Theme.text
+                font.pixelSize: Theme.typeCardTitle
+                font.weight: Theme.typeWeightSemibold
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                visible: notice.detail.length > 0
+                width: parent.width
+                text: notice.detail
+                color: Theme.textSecondary
+                font.pixelSize: Theme.typeBody
+                wrapMode: Text.WordWrap
+            }
+        }
+        TextButton {
+            id: noticeAction
+            anchors.right: parent.right
+            anchors.rightMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            visible: notice.actionLabel.length > 0
+            label: notice.actionLabel
+            onClicked: notice.acted()
+        }
     }
 
     // ---- Page ----
@@ -606,6 +739,35 @@ Window {
             y: 28
             width: flick.width - 64
             spacing: 24
+            // Escape closes the page once nothing inside it wants the key.
+            Keys.onEscapePressed: (event) => {
+                root.requestClose()
+                event.accepted = true
+            }
+
+            // What went wrong, or what is already out, before any numbers.
+            PageNotice {
+                width: parent.width
+                visible: Engine.dashboardError.length > 0 || !Engine.connected
+                tone: Theme.critical
+                title: Engine.dashboardError.length > 0 ? "The numbers did not arrive" : "Engine offline"
+                detail: Engine.dashboardError.length > 0 ? Engine.dashboardError
+                      : "The numbers may be out of date. It reconnects on its own."
+                actionLabel: "Try again"
+                onActed: Engine.requestDashboard(root.days)
+            }
+            PageNotice {
+                width: parent.width
+                visible: root.exhausted !== null
+                tone: Theme.watch
+                title: (root.exhausted ? root.exhausted.name : "") + " is out of quota"
+                detail: root.exhausted
+                      ? (root.exhausted.label + " is at " + Math.round(root.exhausted.pct) + "%. "
+                         + Theme.resetsIn(root.exhausted.resets_at, root.now))
+                      : ""
+                actionLabel: "Refresh"
+                onActed: Engine.refresh(root.exhausted ? root.exhausted.provider : "")
+            }
 
             // Header: title and live state, range on the right.
             Item {
@@ -617,8 +779,8 @@ Window {
                     Text {
                         text: "Usage"
                         color: Theme.text
-                        font.pixelSize: 26
-                        font.weight: Font.DemiBold
+                        font.pixelSize: Theme.typePageTitle
+                        font.weight: Theme.typeWeightSemibold
                     }
                     Row {
                         spacing: 8
@@ -673,8 +835,8 @@ Window {
                     height: 42
                     radius: 11
                     color: Theme.panelRaised
-                    border.width: 1
-                    border.color: searchInput.activeFocus ? Theme.textSecondary : Theme.cardStroke
+                    border.width: searchInput.activeFocus ? 2 : 1
+                    border.color: searchInput.activeFocus ? Theme.text : Theme.cardStroke
 
                     SettingsIcon {
                         id: searchIcon
@@ -698,12 +860,15 @@ Window {
                         selectionColor: Theme.textTertiary
                         selectByMouse: true
                         clip: true
+                        activeFocusOnTab: true
                         font.pixelSize: 15
                         Keys.onEscapePressed: (event) => {
                             event.accepted = root.search.length > 0
                             root.search = ""
                         }
+                        Accessible.role: Accessible.EditableText
                         Accessible.name: "Search sessions and chats"
+                        Accessible.focusable: true
 
                         Text {
                             visible: searchInput.text.length === 0
@@ -713,20 +878,31 @@ Window {
                             font.pixelSize: 15
                         }
                     }
-                    SettingsIcon {
+                    Item {
                         id: clearSearch
                         visible: root.search.length > 0
                         anchors.right: parent.right
-                        anchors.rightMargin: 14
+                        anchors.rightMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 13
-                        height: 13
-                        name: "x"
-                        color: Theme.textTertiary
+                        width: 24
+                        height: 24
+                        activeFocusOnTab: true
+                        Keys.onReturnPressed: (event) => { root.search = ""; event.accepted = true }
+                        Keys.onEnterPressed: (event) => { root.search = ""; event.accepted = true }
+                        Keys.onSpacePressed: (event) => { root.search = ""; event.accepted = true }
                         Accessible.role: Accessible.Button
                         Accessible.name: "Clear the search"
+                        Accessible.focusable: true
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: root.search = "" }
+                        SettingsIcon {
+                            anchors.centerIn: parent
+                            width: 13
+                            height: 13
+                            name: "x"
+                            color: Theme.textTertiary
+                        }
+                        FocusRing { target: clearSearch }
                     }
                     HoverHandler { cursorShape: Qt.IBeamCursor }
                     TapHandler { onTapped: searchInput.forceActiveFocus() }
@@ -1403,6 +1579,22 @@ Window {
                             required property int index
                             width: botList.width
                             height: 44
+                            Accessible.role: Accessible.Button
+                            Accessible.name: (botRow.modelData.name || "Bot") + ". Open chat"
+                            Accessible.focusable: true
+                            activeFocusOnTab: true
+                            Keys.onReturnPressed: (event) => {
+                                Engine.openChat({ provider: "grok_bot", id: botRow.modelData.id, title: botRow.modelData.name })
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                Engine.openChat({ provider: "grok_bot", id: botRow.modelData.id, title: botRow.modelData.name })
+                                event.accepted = true
+                            }
+                            Keys.onSpacePressed: (event) => {
+                                Engine.openChat({ provider: "grok_bot", id: botRow.modelData.id, title: botRow.modelData.name })
+                                event.accepted = true
+                            }
 
                             HoverHandler {
                                 id: rowHover
@@ -1488,6 +1680,7 @@ Window {
                                 font.pixelSize: 12
                                 font.features: { "tnum": 1 }
                             }
+                            FocusRing { target: botRow }
                         }
                     }
                 }

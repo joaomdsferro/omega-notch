@@ -47,14 +47,14 @@ Rectangle {
             Text {
                 text: root.heading
                 color: Theme.text
-                font.pixelSize: 14
-                font.weight: Font.DemiBold
+                font.pixelSize: Theme.typeCardTitle
+                font.weight: Theme.typeWeightSemibold
             }
             Text {
                 visible: root.caption.length > 0
                 text: root.caption
                 color: Theme.textSecondary
-                font.pixelSize: 12
+                font.pixelSize: Theme.typeLabel
             }
         }
         Item {

@@ -127,6 +127,7 @@ impl UsageStore {
             .map(|provider| ProviderInfo {
                 id: provider.id().clone(),
                 display_name: provider.display_name().to_string(),
+                detected: provider.detected(),
             })
             .collect();
         let config = self.config().await;
@@ -189,11 +190,55 @@ impl UsageStore {
     }
 
     pub async fn refresh_all(&self) {
+        self.adopt_found_providers().await;
         let config = self.config().await;
         for provider in providers::catalog() {
             let reading = providers::fetch_provider(provider.id().clone(), &config).await;
             self.publish_reading(reading).await;
         }
+    }
+
+    /// A provider that was off only for not being installed, and now is,
+    /// comes on without a visit to Settings. Fetched with the rest by the
+    /// caller, so not refreshed here.
+    async fn adopt_found_providers(&self) {
+        // Detect outside the write lock: walking disks must not stall
+        // set_config / config readers for the whole scan.
+        let snapshot = {
+            let guard = self.inner.config.read().await;
+            if guard.undetected.is_empty() {
+                return;
+            }
+            guard.clone()
+        };
+        let prior_undetected = snapshot.undetected.clone();
+        let found = tokio::task::spawn_blocking(move || {
+            let mut next = snapshot;
+            let adopted = next.adopt_found_providers(providers::detected);
+            (next, adopted)
+        })
+        .await;
+        let Ok((next, true)) = found else {
+            return;
+        };
+        let config = {
+            let mut guard = self.inner.config.write().await;
+            // A concurrent set_config changed who we were hunting for — skip
+            // this tick; the next refresh_all will try again.
+            if guard.undetected != prior_undetected {
+                return;
+            }
+            *guard = next.clone();
+            next
+        };
+        info!(undetected = ?config.undetected, "turned on providers found on this machine");
+        if let Err(err) = config.save() {
+            warn!(error = %err, "could not save the providers found");
+        }
+        let _ = self
+            .inner
+            .events
+            .send(ServerMessage::ConfigUpdated { config });
     }
 
     async fn publish_reading(&self, mut reading: UsageReading) {
@@ -242,16 +287,37 @@ impl UsageStore {
 
     /// Re-reads recent chats and token totals; publishes only when they moved.
     pub async fn refresh_activity(&self) {
-        let Ok(mut index) = self.inner.index.clone().try_lock_owned() else {
-            return;
-        };
         let config = self.config().await;
         if config.provider_enabled(&ProviderId::ClaudeCode)
             && !self.inner.backfill_checked.swap(true, Ordering::SeqCst)
         {
             tokio::task::spawn_blocking(backfill_history);
         }
-        let scanned = tokio::task::spawn_blocking(move || index.scan(&config)).await;
+        // Cursor tokens come from the network; fetch (or use the cache) before
+        // taking the scan lock so a slow page does not stall every poll.
+        let cursor_tokens = if config.provider_enabled(&ProviderId::Cursor) {
+            providers::cursor_token_activity().await
+        } else {
+            None
+        };
+        let Ok(mut index) = self.inner.index.clone().try_lock_owned() else {
+            return;
+        };
+        let scanned = tokio::task::spawn_blocking(move || {
+            let mut activity = index.scan(&config);
+            if let Some((stats, by_chat)) = cursor_tokens {
+                for chat in &mut activity.chats {
+                    if chat.provider == ProviderId::Cursor {
+                        if let Some(tokens) = by_chat.get(&chat.id) {
+                            chat.tokens = Some(*tokens);
+                        }
+                    }
+                }
+                activity.tokens.push(stats);
+            }
+            activity
+        })
+        .await;
         let Ok(mut activity) = scanned else {
             return;
         };
