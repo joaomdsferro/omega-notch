@@ -6,6 +6,8 @@
 //! - Cursor: the `composerHeaders` table of the editor's global state database,
 //!   with `composerData:<id>` for the model, live flags, and context size.
 //!   Token totals come from Cursor's usage-events API (see `providers::cursor`).
+//! - GitHub Copilot Chat: VS Code `workspaceStorage/*/chatSessions/*.jsonl`
+//!   patch logs (titles, model, pending confirmations).
 //! - Codex: `~/.codex/session_index.jsonl` for titles, rollout `session_meta`
 //!   under `~/.codex/sessions` for cwd and surface, and early `turn_context`
 //!   for the model.
@@ -583,6 +585,10 @@ impl ActivityIndex {
             activity.chats.extend(cursor_chats());
         }
 
+        if config.provider_enabled(&ProviderId::Copilot) {
+            activity.chats.extend(copilot_chats());
+        }
+
         if config.provider_enabled(&ProviderId::Codex) {
             for profile in profiles::codex_profiles() {
                 if !config.provider_enabled(&profile.id) {
@@ -1135,6 +1141,280 @@ fn cursor_model_from_data(data: &Value) -> Option<String> {
     } else {
         Some(pretty_model(id))
     }
+}
+
+// ---------------------------------------------------------------------------
+// GitHub Copilot Chat
+// ---------------------------------------------------------------------------
+
+fn copilot_chats() -> Vec<ChatSummary> {
+    let mut chats = Vec::new();
+
+    for product in paths::vscode_product_dirs() {
+        let storage = product.join("User/workspaceStorage");
+        let Ok(entries) = std::fs::read_dir(storage) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let workspace = entry.path();
+            let sessions = workspace.join("chatSessions");
+            let cwd = workspace_path(&workspace);
+            let Ok(files) = std::fs::read_dir(sessions) else {
+                continue;
+            };
+            for file in files.flatten() {
+                if file.path().extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let Some(chat) = copilot_chat_file(&file.path(), cwd.as_deref()) else {
+                    continue;
+                };
+                chats.push(chat);
+            }
+        }
+    }
+
+    chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    chats.truncate(MAX_CHATS);
+    chats
+}
+
+fn workspace_path(storage: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(storage.join("workspace.json")).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    let folder = value.get("folder")?.as_str()?;
+    folder
+        .strip_prefix("file://")
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+}
+
+fn copilot_chat_file(path: &Path, cwd: Option<&str>) -> Option<ChatSummary> {
+    let state = copilot_read_session(path)?;
+    let id = state.get("sessionId")?.as_str()?.to_string();
+    let requests = state.get("requests").and_then(Value::as_array);
+    // VS Code persists a session as soon as the Chat panel is opened. Until
+    // the user sends something it is only editor state, not a real chat.
+    if requests.is_none_or(Vec::is_empty) {
+        return None;
+    }
+    let latest = requests.and_then(|items| items.last());
+    let title = state
+        .get("customTitle")
+        .and_then(Value::as_str)
+        .and_then(|text| clean_title(Some(text)))
+        .or_else(|| {
+            requests.and_then(|items| {
+                items.iter().find_map(|request| {
+                    request
+                        .pointer("/message/text")
+                        .and_then(Value::as_str)
+                        .or_else(|| {
+                            request
+                                .pointer("/message/parts/0/text")
+                                .and_then(Value::as_str)
+                        })
+                        .and_then(|text| clean_title(Some(text)))
+                })
+            })
+        })
+        .unwrap_or_else(|| "GitHub Copilot chat".to_string());
+    let updated_ms = latest
+        .and_then(|request| request.get("timestamp").and_then(Value::as_i64))
+        .or_else(|| state.get("lastMessageDate").and_then(Value::as_i64))
+        .or_else(|| state.get("creationDate").and_then(Value::as_i64))?;
+    let updated_at = Utc.timestamp_millis_opt(updated_ms).single()?;
+    let model = latest
+        .and_then(|request| request.get("modelId").and_then(Value::as_str))
+        .or_else(|| {
+            state
+                .pointer("/inputState/selectedModel/identifier")
+                .and_then(Value::as_str)
+        })
+        .map(|model| pretty_model(model.strip_prefix("copilot/").unwrap_or(model)));
+    let waiting = state
+        .get("pendingRequests")
+        .and_then(Value::as_array)
+        .is_some_and(|pending| !pending.is_empty());
+
+    Some(ChatSummary {
+        provider: ProviderId::Copilot,
+        id,
+        title,
+        project: cwd.map(folder_name),
+        cwd: cwd.map(str::to_string),
+        model,
+        surface: Some("VS Code".into()),
+        preview: None,
+        avatar_shape: None,
+        avatar_color: None,
+        state: if waiting {
+            SessionKind::WaitingYou
+        } else {
+            SessionKind::Idle
+        },
+        live: waiting,
+        updated_at,
+        messages: requests.map_or(0, Vec::len) as u32,
+        tokens: None,
+        context_tokens: None,
+        context_pct: None,
+        lines_added: None,
+        lines_removed: None,
+        unread: false,
+        prompted_at: None,
+        replied_at: None,
+    })
+}
+
+/// VS Code Copilot Chat sessions are a JSONL patch log: `kind` 0 is the
+/// initial state, `kind` 1 sets a path, `kind` 2 appends to an array path.
+/// Titles and requests live in later lines, so the first line alone is empty.
+fn copilot_read_session(path: &Path) -> Option<Value> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut state: Option<Value> = None;
+    for line in BufReader::new(file).lines() {
+        let line = line.ok()?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: Value = serde_json::from_str(&line).ok()?;
+        match row.get("kind").and_then(Value::as_i64) {
+            Some(0) => state = row.get("v").cloned(),
+            Some(1) | Some(2) => {
+                let Some(path) = row.get("k").and_then(Value::as_array) else {
+                    continue;
+                };
+                let Some(value) = row.get("v").cloned() else {
+                    continue;
+                };
+                let append = row.get("kind").and_then(Value::as_i64) == Some(2);
+                let root = state.get_or_insert_with(|| Value::Object(Default::default()));
+                copilot_set_path(root, path, value, append);
+            }
+            _ => {
+                // Older builds wrote the whole session as one JSON object.
+                if state.is_none() && row.get("sessionId").is_some() {
+                    state = Some(row);
+                }
+            }
+        }
+    }
+    state
+}
+
+fn copilot_set_path(root: &mut Value, path: &[Value], value: Value, append: bool) {
+    if path.is_empty() {
+        *root = value;
+        return;
+    }
+    let (last, lead) = path.split_last().expect("path is not empty");
+    let parent = copilot_ensure_path(root, lead);
+    match last.as_str() {
+        Some(name) => {
+            let obj = match parent {
+                Value::Object(map) => map,
+                _ => {
+                    *parent = Value::Object(Default::default());
+                    parent.as_object_mut().expect("object")
+                }
+            };
+            if append {
+                let entry = obj
+                    .entry(name.to_string())
+                    .or_insert_with(|| Value::Array(Vec::new()));
+                if !entry.is_array() {
+                    *entry = Value::Array(Vec::new());
+                }
+                let arr = entry.as_array_mut().expect("array");
+                match value {
+                    Value::Array(items) => arr.extend(items),
+                    other => arr.push(other),
+                }
+            } else {
+                obj.insert(name.to_string(), value);
+            }
+        }
+        None => {
+            let Some(idx) = last.as_u64().or_else(|| last.as_i64().map(|n| n as u64)) else {
+                return;
+            };
+            let idx = idx as usize;
+            let arr = match parent {
+                Value::Array(items) => items,
+                _ => {
+                    *parent = Value::Array(Vec::new());
+                    parent.as_array_mut().expect("array")
+                }
+            };
+            while arr.len() <= idx {
+                arr.push(Value::Null);
+            }
+            if append {
+                if !arr[idx].is_array() {
+                    arr[idx] = Value::Array(Vec::new());
+                }
+                let target = arr[idx].as_array_mut().expect("array");
+                match value {
+                    Value::Array(items) => target.extend(items),
+                    other => target.push(other),
+                }
+            } else {
+                arr[idx] = value;
+            }
+        }
+    }
+}
+
+fn copilot_ensure_path<'a>(root: &'a mut Value, path: &[Value]) -> &'a mut Value {
+    let mut cur = root;
+    for (i, key) in path.iter().enumerate() {
+        let next_is_index = path
+            .get(i + 1)
+            .is_some_and(|k| k.as_u64().is_some() || k.as_i64().is_some());
+        if let Some(name) = key.as_str() {
+            if !cur.is_object() {
+                *cur = Value::Object(Default::default());
+            }
+            let obj = cur.as_object_mut().expect("object");
+            obj.entry(name.to_string()).or_insert_with(|| {
+                if next_is_index {
+                    Value::Array(Vec::new())
+                } else {
+                    Value::Object(Default::default())
+                }
+            });
+            let next = obj.get_mut(name).expect("entry");
+            if next_is_index && !next.is_array() {
+                *next = Value::Array(Vec::new());
+            } else if !next_is_index && !next.is_object() {
+                *next = Value::Object(Default::default());
+            }
+            cur = obj.get_mut(name).expect("entry");
+        } else if let Some(idx) = key.as_u64().or_else(|| key.as_i64().map(|n| n as u64)) {
+            let idx = idx as usize;
+            if !cur.is_array() {
+                *cur = Value::Array(Vec::new());
+            }
+            let arr = cur.as_array_mut().expect("array");
+            while arr.len() <= idx {
+                arr.push(if next_is_index {
+                    Value::Array(Vec::new())
+                } else {
+                    Value::Object(Default::default())
+                });
+            }
+            if next_is_index && !arr[idx].is_array() {
+                arr[idx] = Value::Array(Vec::new());
+            } else if !next_is_index && !arr[idx].is_object() {
+                arr[idx] = Value::Object(Default::default());
+            }
+            cur = &mut arr[idx];
+        } else {
+            break;
+        }
+    }
+    cur
 }
 
 // ---------------------------------------------------------------------------
@@ -1850,5 +2130,98 @@ mod tests {
             cursor_composer_kind(&idle_head, Some(&done), Some(now_ms)),
             (SessionKind::Idle, true)
         );
+    }
+
+    #[test]
+    fn copilot_chats_read_titles_from_jsonl_patches() {
+        let root =
+            std::env::temp_dir().join(format!("omega-notch-copilot-chats-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("chatSessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let session_id = "b0231bf7-047d-4cbe-9872-0a3b43d3f6c5";
+        std::fs::write(
+            sessions.join(format!("{session_id}.jsonl")),
+            format!(
+                r#"{{"kind":0,"v":{{"version":3,"creationDate":1792503317985,"sessionId":"{session_id}","requests":[],"pendingRequests":[],"inputState":{{"selectedModel":{{"identifier":"copilot/auto"}}}}}}}}
+{{"kind":1,"k":["customTitle"],"v":"Resolve OS problems in .py"}}
+{{"kind":2,"k":["requests"],"v":[{{"requestId":"request_1","timestamp":1792503353191,"modelId":"copilot/auto","message":{{"text":"resolve os 4 problems deste .py","parts":[{{"text":"resolve os 4 problems deste .py"}}]}}}}]}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let chat = copilot_chat_file(
+            &sessions.join(format!("{session_id}.jsonl")),
+            Some("/home/me/omega-notch"),
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(chat.provider, ProviderId::Copilot);
+        assert_eq!(chat.id, session_id);
+        assert_eq!(chat.title, "Resolve OS problems in .py");
+        assert_eq!(chat.project.as_deref(), Some("omega-notch"));
+        assert_eq!(chat.model.as_deref(), Some("Auto"));
+        assert_eq!(chat.messages, 1);
+        assert!(!chat.live);
+    }
+
+    #[test]
+    fn copilot_chats_fall_back_to_first_prompt_without_custom_title() {
+        let root = std::env::temp_dir().join(format!(
+            "omega-notch-copilot-prompt-title-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("chatSessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        std::fs::write(
+            sessions.join(format!("{session_id}.jsonl")),
+            format!(
+                r#"{{"kind":0,"v":{{"version":3,"creationDate":1792503317985,"sessionId":"{session_id}","requests":[],"pendingRequests":[]}}}}
+{{"kind":2,"k":["requests"],"v":[{{"requestId":"request_1","timestamp":1792503353191,"modelId":"copilot/gpt-5","message":{{"text":"fix the notch title bug"}}}}]}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let chat = copilot_chat_file(
+            &sessions.join(format!("{session_id}.jsonl")),
+            Some("/home/me/app"),
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(chat.title, "fix the notch title bug");
+        assert_eq!(chat.model.as_deref(), Some("GPT 5"));
+    }
+
+    #[test]
+    fn copilot_chats_skip_empty_editor_sessions() {
+        let root = std::env::temp_dir().join(format!(
+            "omega-notch-copilot-empty-session-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let sessions = root.join("chatSessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let session_id = "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb";
+        let path = sessions.join(format!("{session_id}.jsonl"));
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"kind":0,"v":{{"version":3,"creationDate":1792503317985,"sessionId":"{session_id}","requests":[],"pendingRequests":[],"inputState":{{"selectedModel":{{"identifier":"copilot/auto"}}}}}}}}
+"#
+            ),
+        )
+        .unwrap();
+
+        assert!(copilot_chat_file(&path, Some("/home/me/app")).is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
