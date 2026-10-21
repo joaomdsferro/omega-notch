@@ -26,12 +26,7 @@ pub async fn run_doctor() -> String {
     for provider in providers::catalog() {
         let id = provider.id();
         let enabled = config.provider_enabled(id);
-        let _ = writeln!(
-            out,
-            "[{}] enabled={enabled} detected={}",
-            provider.display_name(),
-            provider.detected()
-        );
+        let _ = writeln!(out, "[{}] enabled={enabled}", provider.display_name());
         match id.as_str() {
             "cursor" => {
                 let db = paths::cursor_state_db();

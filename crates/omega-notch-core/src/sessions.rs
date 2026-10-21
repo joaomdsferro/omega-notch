@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use chrono::Utc;
@@ -296,7 +297,7 @@ fn summarize_claude(live: &[LiveSession], provider: &ProviderId) -> SessionState
 /// another keeps the provider busy — same idea as Claude Code's registry.
 #[derive(Default)]
 struct CursorTracker {
-    known: HashMap<String, SessionKind>,
+    known: HashMap<String, (SessionKind, bool)>,
     primed: bool,
 }
 
@@ -306,7 +307,7 @@ impl CursorTracker {
         if self.primed {
             for session in &live {
                 let before = self.known.get(&session.id).copied();
-                if !cursor_composer_should_announce(before, session.kind) {
+                if !cursor_composer_should_announce(before, session.kind, session.finished) {
                     continue;
                 }
                 store
@@ -321,7 +322,7 @@ impl CursorTracker {
         }
         self.known = live
             .into_iter()
-            .map(|session| (session.id, session.kind))
+            .map(|session| (session.id, (session.kind, session.finished)))
             .collect();
         self.primed = true;
 
@@ -331,13 +332,18 @@ impl CursorTracker {
     }
 }
 
-fn cursor_composer_should_announce(before: Option<SessionKind>, now: SessionKind) -> bool {
-    match (before, now) {
-        (Some(SessionKind::Busy), SessionKind::Idle)
-        | (Some(SessionKind::WaitingYou), SessionKind::Idle) => true,
-        (Some(prev), SessionKind::WaitingYou) if prev != SessionKind::WaitingYou => true,
-        (None, SessionKind::WaitingYou) => true,
-        _ => false,
+fn cursor_composer_should_announce(
+    before: Option<(SessionKind, bool)>,
+    now: SessionKind,
+    finished: bool,
+) -> bool {
+    match before {
+        Some((prev, was_finished)) => match now {
+            SessionKind::Idle => finished && !was_finished,
+            SessionKind::WaitingYou => prev != SessionKind::WaitingYou,
+            SessionKind::Busy => false,
+        },
+        None => matches!(now, SessionKind::WaitingYou),
     }
 }
 
@@ -503,7 +509,29 @@ fn detect_cursor_session() -> crate::protocol::SessionState {
 /// An agent transcript whose last event is not `turn_ended`, still within the
 /// open-turn grace. Cursor often leaves the file quiet for minutes while tools
 /// run, so the short 20s busy window used elsewhere is too tight here.
+///
+/// WalkDir over `~/.cursor/projects` is expensive; cache the answer briefly so
+/// the session poll does not rescan every couple of seconds.
 fn cursor_open_transcript() -> bool {
+    static CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(5);
+
+    if let Ok(guard) = CACHE.lock() {
+        if let Some((at, value)) = *guard {
+            if at.elapsed() < TTL {
+                return value;
+            }
+        }
+    }
+
+    let value = cursor_open_transcript_uncached();
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = Some((Instant::now(), value));
+    }
+    value
+}
+
+fn cursor_open_transcript_uncached() -> bool {
     let home = dirs::home_dir().unwrap_or_default();
     let root = home.join(".cursor/projects");
     if !root.is_dir() {
@@ -882,28 +910,50 @@ mod tests {
     #[test]
     fn cursor_announces_each_composer_finish_and_wait() {
         assert!(cursor_composer_should_announce(
-            Some(SessionKind::Busy),
-            SessionKind::Idle
+            Some((SessionKind::Busy, false)),
+            SessionKind::Idle,
+            true
         ));
         assert!(cursor_composer_should_announce(
-            Some(SessionKind::WaitingYou),
-            SessionKind::Idle
+            Some((SessionKind::WaitingYou, false)),
+            SessionKind::Idle,
+            true
+        ));
+        assert!(!cursor_composer_should_announce(
+            Some((SessionKind::Busy, false)),
+            SessionKind::Idle,
+            false
         ));
         assert!(cursor_composer_should_announce(
-            Some(SessionKind::Busy),
-            SessionKind::WaitingYou
+            Some((SessionKind::Busy, false)),
+            SessionKind::WaitingYou,
+            false
         ));
-        assert!(cursor_composer_should_announce(None, SessionKind::WaitingYou));
+        assert!(cursor_composer_should_announce(
+            None,
+            SessionKind::WaitingYou,
+            false
+        ));
         assert!(!cursor_composer_should_announce(
-            Some(SessionKind::Idle),
-            SessionKind::Idle
+            Some((SessionKind::Idle, true)),
+            SessionKind::Idle,
+            true
         ));
         assert!(!cursor_composer_should_announce(
-            Some(SessionKind::Busy),
-            SessionKind::Busy
+            Some((SessionKind::Busy, false)),
+            SessionKind::Busy,
+            false
         ));
-        assert!(!cursor_composer_should_announce(None, SessionKind::Idle));
-        assert!(!cursor_composer_should_announce(None, SessionKind::Busy));
+        assert!(!cursor_composer_should_announce(
+            None,
+            SessionKind::Idle,
+            true
+        ));
+        assert!(!cursor_composer_should_announce(
+            None,
+            SessionKind::Busy,
+            false
+        ));
     }
 
     #[test]
