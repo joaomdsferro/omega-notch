@@ -3,8 +3,9 @@
 use std::ffi::c_void;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
-use security_framework::item::{ItemClass, ItemSearchOptions, Limit, SearchResult};
+use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
 
 /// `errSecItemNotFound`
 const ITEM_NOT_FOUND: i32 = -25300;
@@ -123,28 +124,43 @@ pub enum KeychainError {
     Other(String),
 }
 
-/// The secret of the generic password item named `service`. macOS asks the
-/// user first unless they already chose "Always Allow" for this program.
-/// Blocks while that prompt is up.
+/// The secret of the generic password item named `service`, read through
+/// `/usr/bin/security`. Claude Code writes its sign-in with that tool, which
+/// leaves it as the item's one trusted program, and rewrites the item, ACL
+/// and all, each time it refreshes the token; "Always Allow" given to this
+/// program would last only until then. Reading as `security` needs no prompt
+/// at all; if the ACL does not trust it, macOS asks as before and this blocks
+/// while that prompt is up.
 pub fn keychain_password(service: &str) -> Result<Vec<u8>, KeychainError> {
-    let results = ItemSearchOptions::new()
-        .class(ItemClass::generic_password())
-        .service(service)
-        .load_data(true)
-        .limit(Limit::Max(1))
-        .search()
-        .map_err(|err| match err.code() {
-            ITEM_NOT_FOUND => KeychainError::NotFound,
-            code if DENIED.contains(&code) => KeychainError::Denied,
-            _ => KeychainError::Other(err.to_string()),
-        })?;
-    results
-        .into_iter()
-        .find_map(|r| match r {
-            SearchResult::Data(data) => Some(data),
-            _ => None,
-        })
-        .ok_or(KeychainError::NotFound)
+    let output = Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", service, "-w"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|err| KeychainError::Other(err.to_string()))?;
+    if !output.status.success() {
+        // `security` exits with the low byte of the OSStatus.
+        let low_byte = |status: i32| status & 0xff;
+        return Err(match output.status.code() {
+            Some(code) if code == low_byte(ITEM_NOT_FOUND) => KeychainError::NotFound,
+            Some(code) if DENIED.iter().any(|&d| code == low_byte(d)) => KeychainError::Denied,
+            _ => KeychainError::Other(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        });
+    }
+    let mut secret = output.stdout;
+    if secret.last() == Some(&b'\n') {
+        secret.pop();
+    }
+    Ok(unhex(&secret).unwrap_or(secret))
+}
+
+/// `security -w` prints a secret that is not plain text as hex.
+fn unhex(text: &[u8]) -> Option<Vec<u8>> {
+    if text.is_empty() || !text.len().is_multiple_of(2) {
+        return None;
+    }
+    text.chunks(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
+        .collect()
 }
 
 /// Whether a generic password item named `service` exists, without reading
@@ -171,6 +187,14 @@ mod tests {
             keychain_password(service),
             Err(KeychainError::NotFound)
         ));
+    }
+
+    #[test]
+    fn hex_secrets_are_decoded_and_text_is_left_alone() {
+        assert_eq!(unhex(b"7b7d").as_deref(), Some(&b"{}"[..]));
+        assert_eq!(unhex(b"{\"a\":1}"), None);
+        assert_eq!(unhex(b"abc"), None);
+        assert_eq!(unhex(b""), None);
     }
 
     #[test]
