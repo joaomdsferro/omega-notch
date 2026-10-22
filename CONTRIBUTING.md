@@ -63,10 +63,11 @@ open "target/macos/Omega Notch.app"
 ```
 
 The app starts the engine inside it, and logs the engine to `~/Library/Logs/Omega Notch/engine.log`.
-Config, data and the socket live in `~/Library/Application Support/omega-notch/`. The first time the
-engine reads the Claude Code sign-in, macOS asks for Keychain access. By default the build is signed ad
-hoc, and macOS asks again after every rebuild. To sign it with a certificate of your own, so "Always
-Allow" lasts across rebuilds, name it in `CODESIGN_IDENTITY`:
+Config, data and the socket live in `~/Library/Application Support/omega-notch/`. The engine reads the
+Claude Code sign-in through `/usr/bin/security`, as Claude Code does, so the Keychain does not ask.
+By default the build is signed ad hoc, and permissions granted to it, such as Accessibility, are asked
+for again after every rebuild. To sign it with a certificate of your own, so they last across rebuilds,
+name it in `CODESIGN_IDENTITY`:
 
 ```sh
 security find-identity -v -p codesigning     # lists the identities you have

@@ -5,6 +5,8 @@
   on macOS, to GitHub for the update check (below); and, only when you press "Ask Claude" in the
   dashboard, to Anthropic through your own `claude` command (see below). Nothing goes to a server
   of ours, because there is none.
+- On macOS, the Claude Code sign-in is read from the login Keychain through `/usr/bin/security`,
+  the tool Claude Code itself saves and reads it with. The token is only held in memory.
 - On macOS, the downloaded app also checks GitHub once a day for a newer release (you can switch
   that off in Settings → General). It asks before installing anything, and installs only updates
   signed with the project's key. The check sends nothing about you or your usage.
