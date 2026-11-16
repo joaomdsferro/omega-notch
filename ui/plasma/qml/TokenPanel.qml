@@ -2,13 +2,16 @@ import QtQuick
 import OmegaNotch
 
 // Tokens the provider burned today, with the last seven days for scale.
+// The headline leaves out cache re-reads (see Theme.freshTokens); they get
+// their own quieter line so the big number stays the one that matters.
 Column {
     id: root
 
     property var stats
     property real scale_: 1.0
 
-    readonly property real todayTotal: stats ? Theme.totalTokens(stats.today) : 0
+    readonly property real todayTotal: stats ? Theme.freshTokens(stats.today) : 0
+    readonly property real cacheRead: stats && stats.today ? (stats.today.cache_read || 0) : 0
     readonly property var days: stats && stats.daily ? stats.daily : []
     readonly property real peak: {
         let m = 1
@@ -34,7 +37,7 @@ Column {
         Text {
             anchors.right: parent.right
             anchors.baseline: heading.baseline
-            text: root.stats ? Theme.tokens(Theme.totalTokens(root.stats.week)) + " this week" : ""
+            text: root.stats ? Theme.tokens(Theme.freshTokens(root.stats.week)) + " this week" : ""
             color: Theme.textSecondary
             font.pixelSize: 11 * root.scale_
             font.features: { "tnum": 1 }
@@ -88,7 +91,7 @@ Column {
         text: root.stats
             ? "in " + Theme.tokens(root.stats.today.input)
               + "  ·  out " + Theme.tokens(root.stats.today.output)
-              + "  ·  cache " + Theme.tokens((root.stats.today.cache_read || 0) + (root.stats.today.cache_write || 0))
+              + "  ·  cache write " + Theme.tokens(root.stats.today.cache_write || 0)
             : ""
         color: Theme.textSecondary
         font.pixelSize: 11 * root.scale_
@@ -96,14 +99,32 @@ Column {
         elide: Text.ElideRight
     }
 
+    // Cache re-reads, apart: large but billed at a fraction of input.
+    Text {
+        width: parent.width
+        visible: root.cacheRead > 0
+        text: "+ " + Theme.tokens(root.cacheRead) + " re-read from cache, billed at a discount"
+        color: Theme.textTertiary
+        font.pixelSize: 11 * root.scale_
+        font.features: { "tnum": 1 }
+        elide: Text.ElideRight
+    }
+
+    // Model mix as shares, only when there is a mix to show. Shares hold
+    // whichever way tokens are counted, so they never contradict the headline.
     Text {
         width: parent.width
         visible: text.length > 0
         text: {
             const models = root.stats && root.stats.models_today ? root.stats.models_today : []
+            if (models.length < 2) return ""
+            let sum = 0
+            for (let i = 0; i < models.length; ++i)
+                sum += models[i].total || 0
+            if (sum <= 0) return ""
             const parts = []
             for (let i = 0; i < Math.min(3, models.length); ++i)
-                parts.push(models[i].model + " " + Theme.tokens(models[i].total))
+                parts.push(models[i].model + " " + Math.round(100 * (models[i].total || 0) / sum) + "%")
             return parts.join("  ·  ")
         }
         color: Theme.textTertiary

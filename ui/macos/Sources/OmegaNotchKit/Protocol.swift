@@ -88,6 +88,9 @@ public struct TokenTotals: Codable, Equatable, Sendable {
   }
 
   public var total: Double { input + output + cacheRead + cacheWrite }
+  /// Without cache re-reads: every turn re-reads the whole history, which
+  /// would make a busy day read as tens of millions of tokens.
+  public var fresh: Double { input + output + cacheWrite }
 }
 
 public struct ChatSummary: Codable, Equatable, Sendable, Identifiable {

@@ -10,7 +10,7 @@ Where each tool's numbers come from. Everything except the usage endpoints is re
 | **GitHub Copilot** | `copilot_internal/user` endpoint (premium requests, or chat/completions on Free) | VS Code Copilot Chat transcripts (best effort) | — | — |
 | **Codex** | `wham/usage` endpoint (5h + weekly, or monthly on Free) with the ChatGPT sign-in from `~/.codex/auth.json` | — | `~/.codex/session_index.jsonl` + rollout `session_meta` / `turn_context` (incl. model) | — |
 | **OpenCode** | the sub-provider's own limits when known (Anthropic, GitHub Copilot); its local data otherwise | — | `~/.local/share/opencode/opencode.db` (model per session) | the same database, last 7 days |
-| **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | — | the sand store's bot roster (`~/.config/Grok Bot/sand-client-persistence`), name and last message per bot | — |
+| **Grok Bot** | `GetSandUsageStatus` on Cursor's dashboard API (weekly included usage), with your Cursor sign-in | the roster's last activity vs your last look (best effort: working until a reply becomes unread) | the sand store's bot roster (`~/.config/Grok Bot/sand-client-persistence`), name, last message and unread mark per bot | — |
 | **Kimi** | `api.kimi.com/coding/v1/usages` with the Kimi Code CLI's OAuth session (`~/.kimi-code/credentials/kimi-code.json`) | — | — | — |
 | **Grok** | `cli-chat-proxy.grok.com` credits, with Grok CLI's `~/.grok/auth.json` (renewed in memory) | — | — | — |
 | **Amp** | `ampcode.com/api/internal` balance, with the Amp CLI's key (`~/.local/share/amp/secrets.json`) | — | — | — |

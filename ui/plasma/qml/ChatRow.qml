@@ -20,7 +20,7 @@ Item {
         if (chat.model) parts.push(chat.model)
         if (chat.surface) parts.push(chat.surface)
         if (chat.tokens) {
-            const total = Theme.totalTokens(chat.tokens)
+            const total = Theme.freshTokens(chat.tokens)
             if (total > 0) parts.push(Theme.tokens(total) + " tok")
         }
         if (chat.context_pct !== undefined && chat.context_pct !== null)

@@ -115,7 +115,7 @@ public enum Format {
     if let project = chat.project, !project.isEmpty { parts.append(project) }
     if let model = chat.model, !model.isEmpty { parts.append(model) }
     if let surface = chat.surface, !surface.isEmpty { parts.append(surface) }
-    if let tokens = chat.tokens, tokens.total > 0 { parts.append(Self.tokens(tokens.total) + " tok") }
+    if let tokens = chat.tokens, tokens.fresh > 0 { parts.append(Self.tokens(tokens.fresh) + " tok") }
     if let pct = chat.contextPct { parts.append("\(Int(pct.rounded()))% ctx") }
     let added = chat.linesAdded ?? 0
     let removed = chat.linesRemoved ?? 0

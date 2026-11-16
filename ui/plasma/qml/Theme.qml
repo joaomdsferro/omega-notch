@@ -370,6 +370,14 @@ Item {
         return (t.input || 0) + (t.output || 0) + (t.cache_read || 0) + (t.cache_write || 0)
     }
 
+    // Tokens minus cache re-reads: what the model was newly given or wrote.
+    // Every turn re-reads the whole history from cache, so counting those
+    // makes a busy day look like tens of millions of tokens.
+    function freshTokens(t) {
+        if (!t) return 0
+        return (t.input || 0) + (t.output || 0) + (t.cache_write || 0)
+    }
+
     // "now", "4m", "3h", "2d", then a date.
     function ago(iso, now) {
         const d = new Date(iso)

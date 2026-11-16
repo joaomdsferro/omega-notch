@@ -206,12 +206,12 @@ struct TokenPanel: View {
           .kerning(0.6)
           .foregroundStyle(Theme.textSecondary)
         Spacer()
-        Text(Format.tokens(stats.week.total) + " this week")
+        Text(Format.tokens(stats.week.fresh) + " this week")
           .font(.notch(11 * s, tabular: true))
           .foregroundStyle(Theme.textSecondary)
       }
       HStack(alignment: .center) {
-        Text(Format.tokens(stats.today.total))
+        Text(Format.tokens(stats.today.fresh))
           .font(.notch(24 * s, .semibold, tabular: true))
           .foregroundStyle(Theme.text)
         Spacer()
@@ -227,12 +227,23 @@ struct TokenPanel: View {
       }
       .frame(height: 30 * s)
       Text(
-        "in \(Format.tokens(stats.today.input))  ·  out \(Format.tokens(stats.today.output))  ·  cache \(Format.tokens(stats.today.cacheRead + stats.today.cacheWrite))"
+        "in \(Format.tokens(stats.today.input))  ·  out \(Format.tokens(stats.today.output))  ·  cache write \(Format.tokens(stats.today.cacheWrite))"
       )
       .font(.notch(11 * s, tabular: true))
       .foregroundStyle(Theme.textSecondary)
       .lineLimit(1)
-      let models = stats.modelsToday.prefix(3).map { "\($0.model) \(Format.tokens($0.total))" }
+      // Cache re-reads, apart: large but billed at a fraction of input.
+      if stats.today.cacheRead > 0 {
+        Text("+ \(Format.tokens(stats.today.cacheRead)) re-read from cache, billed at a discount")
+          .font(.notch(11 * s, tabular: true))
+          .foregroundStyle(Theme.textTertiary)
+          .lineLimit(1)
+      }
+      // Model mix as shares, only when there is a mix to show.
+      let sum = stats.modelsToday.reduce(0) { $0 + $1.total }
+      let models = stats.modelsToday.count < 2 || sum <= 0 ? [] : stats.modelsToday.prefix(3).map {
+        "\($0.model) \(Int((100 * $0.total / sum).rounded()))%"
+      }
       if !models.isEmpty {
         Text(models.joined(separator: "  ·  "))
           .font(.notch(11 * s, tabular: true))

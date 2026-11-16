@@ -3,7 +3,9 @@
 //! The store keeps one blob per key, the file name being the key in lower
 //! case, unpadded base32. The roster names every bot with its latest message
 //! and when it arrived; when several accounts left one behind, the signed-in
-//! account's slot (`client-meta.account-slot`) picks it.
+//! account's slot (`client-meta.account-slot`) picks it. It also carries the
+//! app's unread mark and when you last looked, which is what tells a finished
+//! bot from one still working: the app writes no run state of its own.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -220,6 +222,7 @@ fn read_account_slot(dir: &Path) -> Option<String> {
 
 fn chat_from(row: RosterRow) -> Option<ChatSummary> {
     let updated_at = timestamp(row.last_activity_at?)?;
+    let viewed_at = row.last_viewed_at.and_then(timestamp);
     let preview = row
         .last_entry
         .as_ref()
@@ -229,6 +232,14 @@ fn chat_from(row: RosterRow) -> Option<ChatSummary> {
         .awaiting_user_response
         .as_ref()
         .is_some_and(|value| !value.is_null());
+    // The app owns the unread mark and clears it when you look at the bot, so
+    // it is what we trust; `replied_at` only exists when the app still has
+    // something for you, which keeps `seen`'s local marks able to clear it.
+    let unread = row.has_unread;
+    // No unread reply and activity since your last look: the bot is on it.
+    // A finished turn flips `hasUnread`, and looking at it moves
+    // `lastViewedAt` past the activity, so neither state leaves this true.
+    let busy = !unread && !waiting && viewed_at.is_some_and(|viewed| updated_at > viewed);
     Some(ChatSummary {
         provider: ProviderId::GrokBot,
         id: row.id,
@@ -242,6 +253,8 @@ fn chat_from(row: RosterRow) -> Option<ChatSummary> {
         avatar_color: non_empty(row.avatar_color.as_deref()),
         state: if waiting {
             SessionKind::WaitingYou
+        } else if busy {
+            SessionKind::Busy
         } else {
             SessionKind::Idle
         },
@@ -253,9 +266,9 @@ fn chat_from(row: RosterRow) -> Option<ChatSummary> {
         context_pct: None,
         lines_added: None,
         lines_removed: None,
-        unread: false,
-        prompted_at: row.last_viewed_at.and_then(timestamp),
-        replied_at: row.last_entry.is_some().then_some(updated_at),
+        unread,
+        prompted_at: viewed_at,
+        replied_at: unread.then_some(updated_at),
     })
 }
 
@@ -302,6 +315,8 @@ struct RosterRow {
     avatar_color: Option<String>,
     #[serde(default)]
     is_hidden_from_sidebar: bool,
+    #[serde(default)]
+    has_unread: bool,
     #[serde(default)]
     last_entry: Option<Value>,
     #[serde(default)]
@@ -410,6 +425,7 @@ mod tests {
             "lastEntry": { "kind": "text", "text": format!("{name} speaking\nwith   spaces") },
             "lastActivityAt": activity,
             "lastViewedAt": viewed,
+            "hasUnread": false,
             "awaitingUserResponse": null,
             "isHiddenFromSidebar": false,
         })
@@ -440,6 +456,7 @@ mod tests {
         ];
         rows[0]["avatarShape"] = serde_json::json!("cloud");
         rows[0]["avatarColor"] = serde_json::json!("orange");
+        rows[0]["hasUnread"] = serde_json::json!(true);
         rows.push(serde_json::json!({
             "id": "c",
             "name": "Hidden",
@@ -465,13 +482,44 @@ mod tests {
         assert_eq!(ops.messages, 0);
         assert_eq!(ops.prompted_at, timestamp(1_000));
         assert_eq!(ops.replied_at, timestamp(2_000));
+        assert_eq!(ops.state, SessionKind::Idle);
+        assert!(ops.unread);
 
         assert_eq!(chats[0].state, SessionKind::WaitingYou);
-        assert_eq!(chats[2].replied_at, timestamp(500));
+        // An all-read bot has no unread reply to hand to `seen`.
+        assert_eq!(chats[2].replied_at, None);
         assert_eq!(chats[2].prompted_at, None);
         // Avatars the roster left empty become none.
         assert_eq!(chats[2].avatar_shape, None);
         assert_eq!(chats[2].avatar_color, None);
+    }
+
+    #[test]
+    fn a_bot_with_activity_since_your_last_look_is_busy() {
+        let dir = temp_dir("busy");
+        let account = "sand.client.slice.account.google-oauth2%7Cuser_1.";
+        let mut replied = row("Replied", "b", 5_000, Some(1_000));
+        replied["hasUnread"] = serde_json::json!(true);
+        let mut asking = row("Asking", "e", 5_000, Some(1_000));
+        asking["awaitingUserResponse"] = serde_json::json!({ "prompt": "Approve?" });
+        let rows = vec![
+            row("Working", "a", 5_000, Some(1_000)),
+            replied,
+            row("Read", "c", 5_000, Some(6_000)),
+            row("Never seen", "d", 5_000, None),
+            asking,
+        ];
+        write_blob(&dir, &format!("{account}roster.last-roster"), &roster(rows));
+
+        let chats = bots_from(&dir);
+        let state = |name: &str| chats.iter().find(|chat| chat.title == name).unwrap().state;
+        assert_eq!(state("Working"), SessionKind::Busy);
+        // A reply the app has not shown you is finished, not working.
+        assert_eq!(state("Replied"), SessionKind::Idle);
+        assert_eq!(state("Read"), SessionKind::Idle);
+        assert_eq!(state("Never seen"), SessionKind::Idle);
+        // Waiting for you outranks working.
+        assert_eq!(state("Asking"), SessionKind::WaitingYou);
     }
 
     #[test]
