@@ -56,7 +56,11 @@ struct CardView: View {
       if !unread.isEmpty {
         Rectangle().fill(Theme.hairline).frame(height: 1)
         chatSection(
-          "TO READ · \(unread.count)", color: Theme.unread, chats: Array(unread.prefix(5)))
+          "TO READ · \(unread.count)", color: Theme.unread, chats: Array(unread.prefix(5))
+        ) {
+          // Every one to read, also those past the five shown.
+          client.markRead(unread)
+        }
       }
       if !rest.isEmpty {
         Rectangle().fill(Theme.hairline).frame(height: 1)
@@ -76,12 +80,21 @@ struct CardView: View {
     }
   }
 
-  private func chatSection(_ heading: String, color: Color, chats: [ChatSummary]) -> some View {
+  /// `markAllRead`, when given, puts a "Mark all read" action on the heading.
+  private func chatSection(
+    _ heading: String, color: Color, chats: [ChatSummary], markAllRead: (() -> Void)? = nil
+  ) -> some View {
     VStack(alignment: .leading, spacing: 9 * s) {
-      Text(heading)
-        .font(.notch(10.5 * s, .semibold))
-        .kerning(0.6)
-        .foregroundStyle(color)
+      HStack(alignment: .center) {
+        Text(heading)
+          .font(.notch(10.5 * s, .semibold))
+          .kerning(0.6)
+          .foregroundStyle(color)
+        if let markAllRead {
+          Spacer(minLength: 8 * s)
+          markAllReadButton(action: markAllRead)
+        }
+      }
       ForEach(chats) { chat in
         ChatRow(chat: chat, now: now, s: s, hovered: hoveredChat == chat.id) { client.openChat(chat) }
           .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(NotchView.space)) }) {
@@ -90,6 +103,38 @@ struct CardView: View {
           .onDisappear { placeChat(chat.id, nil) }
       }
     }
+  }
+
+  /// The pointer key for the "Mark all read" button in the card's own
+  /// pointer tracking; `#` never starts a chat id.
+  static let markAllReadKey = "#mark-all-read"
+
+  /// A pill in the unread colour that fills in under the pointer, so it reads
+  /// as something to click. Hover comes from the notch's pointer tracking, as
+  /// the chat rows' does.
+  private func markAllReadButton(action: @escaping () -> Void) -> some View {
+    let hovered = hoveredChat == Self.markAllReadKey
+    return HStack(spacing: 4 * s) {
+      Image(systemName: "checkmark")
+        .font(.system(size: 8.5 * s, weight: .bold))
+      Text("Mark all read")
+        .font(.notch(10.5 * s, .semibold))
+    }
+    .foregroundStyle(hovered ? Theme.text : Theme.unread)
+    .padding(.horizontal, 8 * s)
+    .padding(.vertical, 3.5 * s)
+    .background(Capsule().fill(Theme.unread.opacity(hovered ? 0.32 : 0.14)))
+    .overlay(Capsule().strokeBorder(Theme.unread.opacity(hovered ? 0.7 : 0.35), lineWidth: 1))
+    .animation(.easeOut(duration: 0.12), value: hovered)
+    .contentShape(Capsule())
+    .onTapGesture(perform: action)
+    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(NotchView.space)) }) {
+      placeChat(Self.markAllReadKey, $0)
+    }
+    .onDisappear { placeChat(Self.markAllReadKey, nil) }
+    .accessibilityElement(children: .ignore)
+    .accessibilityAddTraits(.isButton)
+    .accessibilityLabel("Mark all chats to read as read")
   }
 
   private var message: String {

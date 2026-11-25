@@ -217,6 +217,8 @@ public:
     Q_INVOKABLE void openDashboard();
     // Raises the window running this chat, or resumes it in a new one.
     Q_INVOKABLE void openChat(const QVariantMap &chat);
+    // Marks these chats read without opening them ("Mark all read").
+    Q_INVOKABLE void markRead(const QVariantList &chats);
     // Ids of the live chats that finished while you were away.
     QStringList unreadLiveChats() const;
     // The window in front: a finished chat it shows counts as read.

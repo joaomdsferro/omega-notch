@@ -15,7 +15,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::paths;
-use crate::protocol::{ChatSummary, ProviderId, SessionKind};
+use crate::protocol::{ChatRef, ChatSummary, ProviderId, SessionKind};
 
 /// Marks older than this are dropped; the chat list never reaches back so far.
 const KEEP_DAYS: i64 = 30;
@@ -96,6 +96,14 @@ impl Seen {
         let oldest = at - Duration::days(KEEP_DAYS);
         self.chats.retain(|_, seen| *seen >= oldest);
         true
+    }
+
+    /// Records a look at `at` on each chat; false when it changes none.
+    pub fn mark_all(&mut self, chats: &[ChatRef], at: DateTime<Utc>) -> bool {
+        // Every mark is tried: no short-circuit once one changes.
+        chats
+            .iter()
+            .fold(false, |any, c| self.mark(&c.provider, &c.id, at) | any)
     }
 
     /// Stopped, with a reply newer than both your last prompt and your last look.
@@ -192,6 +200,47 @@ mod tests {
         ));
         assert!(!seen.chats.contains_key("claude_code:old"));
         assert!(seen.chats.contains_key("claude_code:new"));
+    }
+
+    #[test]
+    fn mark_all_reads_every_chat_it_names() {
+        let mut seen = Seen::new(at(0));
+        let mut other = chat(SessionKind::Idle, Some(5), Some(9));
+        other.id = "def".into();
+        let done = chat(SessionKind::Idle, Some(5), Some(9));
+        let both = [
+            ChatRef {
+                provider: ProviderId::ClaudeCode,
+                id: "abc".into(),
+            },
+            ChatRef {
+                provider: ProviderId::ClaudeCode,
+                id: "def".into(),
+            },
+        ];
+        // One already read must not stop the next being marked.
+        assert!(seen.mark(&ProviderId::ClaudeCode, "abc", at(10)));
+        assert!(seen.mark_all(&both, at(10)));
+        assert!(!seen.is_unread(&done));
+        assert!(!seen.is_unread(&other));
+        assert!(!seen.mark_all(&both, at(10)));
+        assert!(!seen.mark_all(&[], at(11)));
+    }
+
+    #[test]
+    fn mark_read_parses_from_the_wire() {
+        let line = r#"{"type":"mark_read","chats":[{"provider":"claude_code","id":"abc"}]}"#;
+        let msg: crate::protocol::ClientMessage = serde_json::from_str(line).unwrap();
+        let crate::protocol::ClientMessage::MarkRead { chats } = msg else {
+            panic!("not mark_read");
+        };
+        assert_eq!(
+            chats,
+            vec![ChatRef {
+                provider: ProviderId::ClaudeCode,
+                id: "abc".into()
+            }]
+        );
     }
 
     #[test]

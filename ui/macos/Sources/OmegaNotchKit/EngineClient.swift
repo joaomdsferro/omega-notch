@@ -206,6 +206,23 @@ public final class EngineClient {
     send(.object(message))
   }
 
+  /// Marks these chats read without opening them ("Mark all read"). They
+  /// stop counting at once; the engine's next update confirms it.
+  public func markRead(_ chats: [ChatSummary]) {
+    let targets = chats.filter(\.isUnread)
+    // Offline, nothing would reach the engine: leave them to read.
+    guard connected, !targets.isEmpty else { return }
+    let key = { (chat: ChatSummary) in "\(chat.provider):\(chat.id)" }
+    let keys = Set(targets.map(key))
+    for index in self.chats.indices where keys.contains(key(self.chats[index])) {
+      self.chats[index].unread = false
+    }
+    let refs: [JSONValue] = targets.map {
+      .object(["provider": .string($0.provider), "id": .string($0.id)])
+    }
+    send(.object(["type": .string("mark_read"), "chats": .array(refs)]))
+  }
+
   /// The window in front: the pid of the app that owns it and its title.
   public func windowFocused(pid: Int32, title: String?) {
     var message: [String: JSONValue] = ["type": .string("window_focused"), "pid": .number(Double(pid))]

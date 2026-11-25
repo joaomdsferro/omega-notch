@@ -12,8 +12,9 @@ use crate::config::AppConfig;
 use crate::copilot_auth;
 use crate::limits::LimitWatch;
 use crate::protocol::{
-    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ProviderInfo,
-    ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
+    Activity, ChatRef, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId,
+    ProviderInfo, ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
+    MARK_READ_MAX,
 };
 use crate::providers;
 use crate::seen::Seen;
@@ -347,8 +348,19 @@ impl UsageStore {
 
     /// Marks a chat read now, and tells the shells when that changes it.
     pub async fn mark_seen(&self, provider: ProviderId, id: &str) {
+        self.mark_seen_many(&[ChatRef {
+            provider,
+            id: id.to_owned(),
+        }])
+        .await;
+    }
+
+    /// Marks these chats read now ("Mark all read"): one save and one update
+    /// for the lot. Ids it does not know are harmless; their marks age out.
+    pub async fn mark_seen_many(&self, chats: &[ChatRef]) {
+        let chats = &chats[..chats.len().min(MARK_READ_MAX)];
         let changed = match self.inner.seen.lock() {
-            Ok(mut seen) => seen.mark(&provider, id, Utc::now()),
+            Ok(mut seen) => seen.mark_all(chats, Utc::now()),
             Err(_) => false,
         };
         if !changed {

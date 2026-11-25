@@ -40,7 +40,8 @@ final class NotchModel {
   /// panel already follows: SwiftUI's own hover tracking reaches a panel
   /// that is never key, in an app that is never active, late and unevenly.
   private(set) var hoveredChat = ""
-  /// Where each of the card's chats is drawn, in panel coordinates.
+  /// Where each of the card's chats (and its "Mark all read" button, under
+  /// `CardView.markAllReadKey`) is drawn, in panel coordinates.
   @ObservationIgnored var chatFrames: [String: CGRect] = [:]
 
   @ObservationIgnored private var hideTimer: Timer?

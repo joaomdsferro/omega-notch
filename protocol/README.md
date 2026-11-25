@@ -33,6 +33,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `get_dashboard` | `days?` (7–90, default 30), `search?`, `project?`, `session?` | persisted history + cost estimates |
 | `analyze_usage` | `model` (`sonnet`/`opus`), `request?`, `days?`, `search?`, `project?`, `session?` | ask Claude for advice on that dashboard's sessions |
 | `window_focused` | `pid`, `title?` | the window now in front (macOS); a finished chat it shows is read |
+| `mark_read` | `chats` (`[{provider, id}]`, at most 500 heeded) | mark these chats read without opening them ("Mark all read") |
 | `ping` | — | liveness |
 
 ## Engine → Client
@@ -120,7 +121,7 @@ roster has not styled carry neither. Older clients ignore the fields.
 
 `unread` (v6) is true for a chat that stopped with a reply newer than both
 your latest prompt in it and the last time you looked at it. Looking means
-`open_chat` on it that succeeds, or (macOS) `window_focused` naming the app that runs it:
+`open_chat` on it that succeeds, `mark_read` naming it, or (macOS) `window_focused` naming the app that runs it:
 the engine picks the live session under `pid` whose chat title, name or
 folder the window's `title` carries best, or the only one when there is no
 title. Sessions the title fits equally well (VS Code captions a chat's tab
