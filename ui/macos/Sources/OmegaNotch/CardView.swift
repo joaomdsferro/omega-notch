@@ -135,6 +135,7 @@ struct CardView: View {
     .accessibilityElement(children: .ignore)
     .accessibilityAddTraits(.isButton)
     .accessibilityLabel("Mark all chats to read as read")
+    .accessibilityAction(.default, action)
   }
 
   private var message: String {

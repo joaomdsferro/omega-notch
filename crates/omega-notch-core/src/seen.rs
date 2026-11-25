@@ -218,6 +218,12 @@ mod tests {
                 id: "def".into(),
             },
         ];
+        // Both unread: the first one changing must not stop the second.
+        let mut fresh = Seen::new(at(0));
+        assert!(fresh.is_unread(&done) && fresh.is_unread(&other));
+        assert!(fresh.mark_all(&both, at(10)));
+        assert!(!fresh.is_unread(&done));
+        assert!(!fresh.is_unread(&other));
         // One already read must not stop the next being marked.
         assert!(seen.mark(&ProviderId::ClaudeCode, "abc", at(10)));
         assert!(seen.mark_all(&both, at(10)));

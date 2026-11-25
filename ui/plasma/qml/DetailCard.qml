@@ -250,6 +250,7 @@ Item {
                     Behavior on color { ColorAnimation { duration: 120 } }
                     Accessible.role: Accessible.Button
                     Accessible.name: "Mark all chats to read as read"
+                    Accessible.onPressAction: Engine.markRead(root.allUnread)
 
                     Text {
                         id: markAllLabel
