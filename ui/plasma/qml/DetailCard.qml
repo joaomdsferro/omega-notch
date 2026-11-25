@@ -27,7 +27,8 @@ Item {
     readonly property real tailLength: 11 * scale_
     readonly property int maxChats: 5
     // Finished chats to read come first, under their own heading.
-    readonly property var unreadChats: chats.filter(c => c.unread).slice(0, maxChats)
+    readonly property var allUnread: chats.filter(c => c.unread)
+    readonly property var unreadChats: allUnread.slice(0, maxChats)
     readonly property var otherChats: chats.filter(c => !c.unread)
                                            .slice(0, Math.max(2, maxChats - unreadChats.length))
     readonly property string status: reading ? (reading.status || "ok") : "offline"
@@ -221,12 +222,55 @@ Item {
             spacing: 9 * root.scale_
             visible: root.unreadChats.length > 0
 
-            Text {
-                text: "TO READ · " + root.unreadChats.length
-                color: Theme.unread
-                font.pixelSize: 10.5 * root.scale_
-                font.weight: Font.DemiBold
-                font.letterSpacing: 0.6
+            Item {
+                width: parent.width
+                implicitHeight: Math.max(toReadHeading.implicitHeight, markAllPill.visible ? markAllPill.height : 0)
+
+                Text {
+                    id: toReadHeading
+                    text: "TO READ · " + root.allUnread.length
+                    color: Theme.unread
+                    font.pixelSize: 10.5 * root.scale_
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.6
+                }
+
+                // Every one to read, also those past the five shown. A pill
+                // in the unread colour that fills in under the pointer.
+                Rectangle {
+                    id: markAllPill
+                    // No pill while the engine is offline: the click could do nothing.
+                    visible: root.engineConnected
+                    anchors.right: parent.right
+                    anchors.verticalCenter: toReadHeading.verticalCenter
+                    width: markAllLabel.implicitWidth + 16 * root.scale_
+                    height: markAllLabel.implicitHeight + 7 * root.scale_
+                    radius: height / 2
+                    color: Qt.rgba(Theme.unread.r, Theme.unread.g, Theme.unread.b, markAll.containsMouse ? 0.32 : 0.14)
+                    border.width: 1
+                    border.color: Qt.rgba(Theme.unread.r, Theme.unread.g, Theme.unread.b, markAll.containsMouse ? 0.7 : 0.35)
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Mark all chats to read as read"
+                    Accessible.onPressAction: Engine.markRead(root.allUnread)
+
+                    Text {
+                        id: markAllLabel
+                        anchors.centerIn: parent
+                        text: "✓ Mark all read"
+                        color: markAll.containsMouse ? Theme.text : Theme.unread
+                        font.pixelSize: 10.5 * root.scale_
+                        font.weight: Font.DemiBold
+                    }
+
+                    MouseArea {
+                        id: markAll
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Engine.markRead(root.allUnread)
+                    }
+                }
             }
 
             Repeater {

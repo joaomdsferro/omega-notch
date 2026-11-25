@@ -177,6 +177,9 @@ async fn handle_message(
         ClientMessage::WindowFocused { pid, title } => {
             store.window_focused(pid, title).await;
         }
+        ClientMessage::MarkRead { chats } => {
+            store.mark_read(&chats).await;
+        }
         ClientMessage::GetDashboard {
             days,
             search,

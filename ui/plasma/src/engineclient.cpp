@@ -611,6 +611,25 @@ void EngineClient::openChat(const QVariantMap &chat)
     sendJson(obj);
 }
 
+void EngineClient::markRead(const QVariantList &chats)
+{
+    QJsonArray refs;
+    for (const QVariant &value : chats) {
+        const QVariantMap chat = value.toMap();
+        const QString provider = chat.value(QStringLiteral("provider")).toString();
+        const QString id = chat.value(QStringLiteral("id")).toString();
+        if (chat.value(QStringLiteral("unread")).toBool() && !provider.isEmpty() && !id.isEmpty()) {
+            refs.append(QJsonObject{{QStringLiteral("provider"), provider}, {QStringLiteral("id"), id}});
+        }
+    }
+    if (refs.isEmpty()) {
+        return;
+    }
+    // The engine answers with activity_updated, which clears the marks here.
+    sendJson(QJsonObject{{QStringLiteral("type"), QStringLiteral("mark_read")},
+                         {QStringLiteral("chats"), refs}});
+}
+
 QStringList EngineClient::unreadLiveChats() const
 {
     QStringList ids;

@@ -12,11 +12,11 @@ use crate::config::AppConfig;
 use crate::copilot_auth;
 use crate::limits::LimitWatch;
 use crate::protocol::{
-    Activity, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId, ProviderInfo,
-    ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
+    Activity, ChatRef, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId,
+    ProviderInfo, ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
 };
 use crate::providers;
-use crate::seen::Seen;
+use crate::seen::{self, Seen};
 use crate::sessions::{self, SessionEvent};
 use crate::{history, pricing};
 
@@ -347,8 +347,27 @@ impl UsageStore {
 
     /// Marks a chat read now, and tells the shells when that changes it.
     pub async fn mark_seen(&self, provider: ProviderId, id: &str) {
+        self.mark_seen_many(&[ChatRef {
+            provider,
+            id: id.to_owned(),
+        }])
+        .await;
+    }
+
+    /// A client's `mark_read` ("Mark all read"): only chats listed now as
+    /// unread are marked, so made-up ids never reach the marks or the file.
+    pub async fn mark_read(&self, asked: &[ChatRef]) {
+        let chats = {
+            let guard = self.inner.activity.read().await;
+            seen::only_listed_unread(&guard.chats, asked)
+        };
+        self.mark_seen_many(&chats).await;
+    }
+
+    /// Marks these chats read now: one save and one update for the lot.
+    async fn mark_seen_many(&self, chats: &[ChatRef]) {
         let changed = match self.inner.seen.lock() {
-            Ok(mut seen) => seen.mark(&provider, id, Utc::now()),
+            Ok(mut seen) => seen.mark_all(chats, Utc::now()),
             Err(_) => false,
         };
         if !changed {

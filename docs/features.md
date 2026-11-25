@@ -30,7 +30,8 @@
   tool's ring (a green dot on the nub, or under the camera housing, while the notch is tucked away)
   and its own "To read" list in the card and the dashboard. It counts as read once you open it from
   the notch, write in it again, or (on macOS) bring its window or tab to the front while you are at
-  the Mac. Claude Code only, for now: other tools do not say when they last replied
+  the Mac. "Mark all read" on the card's "To read" heading clears the lot without opening any.
+  Claude Code only, for now: other tools do not say when they last replied
 - Click a ring to refresh it; hover the notch for Settings and a grip to slide it along the edge;
   right-click opens Settings
 - Only the notch takes input; the rest of the edge stays click-through

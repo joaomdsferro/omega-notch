@@ -7,7 +7,7 @@
 //! `seen.json` next to the history, owner-only. On the first run every chat
 //! already on disk counts as read, so installing does not flood the notch.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -15,7 +15,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::paths;
-use crate::protocol::{ChatSummary, ProviderId, SessionKind};
+use crate::protocol::{ChatRef, ChatSummary, ProviderId, SessionKind, MARK_READ_MAX};
 
 /// Marks older than this are dropped; the chat list never reaches back so far.
 const KEEP_DAYS: i64 = 30;
@@ -89,13 +89,37 @@ impl Seen {
 
     /// Records a look at `at`; false when it changes nothing.
     pub fn mark(&mut self, provider: &ProviderId, id: &str, at: DateTime<Utc>) -> bool {
+        let changed = self.record(provider, id, at);
+        if changed {
+            self.prune(at);
+        }
+        changed
+    }
+
+    /// Records a look at `at` on each chat; false when it changes none.
+    pub fn mark_all(&mut self, chats: &[ChatRef], at: DateTime<Utc>) -> bool {
+        // Every mark is tried: no short-circuit once one changes.
+        let changed = chats
+            .iter()
+            .fold(false, |any, c| self.record(&c.provider, &c.id, at) | any);
+        if changed {
+            self.prune(at);
+        }
+        changed
+    }
+
+    fn record(&mut self, provider: &ProviderId, id: &str, at: DateTime<Utc>) -> bool {
         if at <= self.seen_at(provider, id) {
             return false;
         }
         self.chats.insert(key(provider, id), at);
+        true
+    }
+
+    /// Drops marks older than `KEEP_DAYS` before `at`.
+    fn prune(&mut self, at: DateTime<Utc>) {
         let oldest = at - Duration::days(KEEP_DAYS);
         self.chats.retain(|_, seen| *seen >= oldest);
-        true
     }
 
     /// Stopped, with a reply newer than both your last prompt and your last look.
@@ -114,6 +138,27 @@ impl Seen {
             chat.unread = self.is_unread(chat);
         }
     }
+}
+
+/// The asked-for chats that are among `listed` and unread there, at most
+/// `MARK_READ_MAX`. A `mark_read` line can then only mark chats the engine
+/// already shows as unread, never grow the marks with made-up ids.
+pub fn only_listed_unread(listed: &[ChatSummary], asked: &[ChatRef]) -> Vec<ChatRef> {
+    let unread: HashSet<(&ProviderId, &str)> = listed
+        .iter()
+        .filter(|c| c.unread)
+        .map(|c| (&c.provider, c.id.as_str()))
+        .collect();
+    let mut kept: Vec<ChatRef> = Vec::new();
+    for c in asked {
+        if kept.len() == MARK_READ_MAX {
+            break;
+        }
+        if unread.contains(&(&c.provider, c.id.as_str())) && !kept.contains(c) {
+            kept.push(c.clone());
+        }
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -192,6 +237,96 @@ mod tests {
         ));
         assert!(!seen.chats.contains_key("claude_code:old"));
         assert!(seen.chats.contains_key("claude_code:new"));
+    }
+
+    #[test]
+    fn mark_all_reads_every_chat_it_names() {
+        let mut seen = Seen::new(at(0));
+        let mut other = chat(SessionKind::Idle, Some(5), Some(9));
+        other.id = "def".into();
+        let done = chat(SessionKind::Idle, Some(5), Some(9));
+        let both = [
+            ChatRef {
+                provider: ProviderId::ClaudeCode,
+                id: "abc".into(),
+            },
+            ChatRef {
+                provider: ProviderId::ClaudeCode,
+                id: "def".into(),
+            },
+        ];
+        // Both unread: the first one changing must not stop the second.
+        let mut fresh = Seen::new(at(0));
+        assert!(fresh.is_unread(&done) && fresh.is_unread(&other));
+        assert!(fresh.mark_all(&both, at(10)));
+        assert!(!fresh.is_unread(&done));
+        assert!(!fresh.is_unread(&other));
+        // One already read must not stop the next being marked.
+        assert!(seen.mark(&ProviderId::ClaudeCode, "abc", at(10)));
+        assert!(seen.mark_all(&both, at(10)));
+        assert!(!seen.is_unread(&done));
+        assert!(!seen.is_unread(&other));
+        assert!(!seen.mark_all(&both, at(10)));
+        assert!(!seen.mark_all(&[], at(11)));
+    }
+
+    #[test]
+    fn only_listed_unread_drops_unknown_read_and_repeated_chats() {
+        let r = |id: &str| ChatRef {
+            provider: ProviderId::ClaudeCode,
+            id: id.into(),
+        };
+        let mut unread = chat(SessionKind::Idle, Some(5), Some(9));
+        unread.unread = true;
+        let mut read = unread.clone();
+        read.id = "old".into();
+        read.unread = false;
+        let listed = [unread, read];
+        let asked = [r("made-up"), r("abc"), r("old"), r("abc")];
+        assert_eq!(only_listed_unread(&listed, &asked), vec![r("abc")]);
+        // Same id under another provider is a different chat.
+        let other = ChatRef {
+            provider: ProviderId::Codex,
+            id: "abc".into(),
+        };
+        assert!(only_listed_unread(&listed, &[other]).is_empty());
+        assert!(only_listed_unread(&listed, &[]).is_empty());
+    }
+
+    #[test]
+    fn only_listed_unread_keeps_at_most_the_cap() {
+        let listed: Vec<ChatSummary> = (0..MARK_READ_MAX + 10)
+            .map(|i| {
+                let mut c = chat(SessionKind::Idle, Some(5), Some(9));
+                c.id = format!("c{i}");
+                c.unread = true;
+                c
+            })
+            .collect();
+        let asked: Vec<ChatRef> = listed
+            .iter()
+            .map(|c| ChatRef {
+                provider: c.provider.clone(),
+                id: c.id.clone(),
+            })
+            .collect();
+        assert_eq!(only_listed_unread(&listed, &asked).len(), MARK_READ_MAX);
+    }
+
+    #[test]
+    fn mark_read_parses_from_the_wire() {
+        let line = r#"{"type":"mark_read","chats":[{"provider":"claude_code","id":"abc"}]}"#;
+        let msg: crate::protocol::ClientMessage = serde_json::from_str(line).unwrap();
+        let crate::protocol::ClientMessage::MarkRead { chats } = msg else {
+            panic!("not mark_read");
+        };
+        assert_eq!(
+            chats,
+            vec![ChatRef {
+                provider: ProviderId::ClaudeCode,
+                id: "abc".into()
+            }]
+        );
     }
 
     #[test]

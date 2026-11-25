@@ -512,6 +512,18 @@ pub struct Activity {
     pub tokens: Vec<TokenStats>,
 }
 
+/// One chat, by the tool (or account) it belongs to and its id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatRef {
+    pub provider: ProviderId,
+    pub id: String,
+}
+
+/// The most chats one `mark_read` marks; the rest are ignored. Far above
+/// what a card or the dashboard lists. The engine also heeds only chats it
+/// lists as unread.
+pub const MARK_READ_MAX: usize = 500;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -549,6 +561,11 @@ pub enum ClientMessage {
         pid: u32,
         #[serde(default)]
         title: Option<String>,
+    },
+    /// Marks these chats read now, without opening them ("Mark all read").
+    /// The engine heeds at most `MARK_READ_MAX` of them.
+    MarkRead {
+        chats: Vec<ChatRef>,
     },
     /// Dashboard history + cost estimates (v3). `days` clamps to 7..=90.
     GetDashboard {
