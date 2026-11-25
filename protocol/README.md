@@ -33,7 +33,7 @@ The socket path can be overridden with `OMEGA_NOTCH_SOCKET`.
 | `get_dashboard` | `days?` (7–90, default 30), `search?`, `project?`, `session?` | persisted history + cost estimates |
 | `analyze_usage` | `model` (`sonnet`/`opus`), `request?`, `days?`, `search?`, `project?`, `session?` | ask Claude for advice on that dashboard's sessions |
 | `window_focused` | `pid`, `title?` | the window now in front (macOS); a finished chat it shows is read |
-| `mark_read` | `chats` (`[{provider, id}]`, at most 500 heeded) | mark these chats read without opening them ("Mark all read") |
+| `mark_read` | `chats` (`[{provider, id}]`, at most 500 heeded) | mark these chats read without opening them ("Mark all read"); only chats the engine lists as unread are heeded |
 | `ping` | — | liveness |
 
 ## Engine → Client

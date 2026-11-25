@@ -55,12 +55,12 @@ struct CardView: View {
       let rest = chats.filter { !$0.isUnread }.prefix(max(2, 5 - unread.count))
       if !unread.isEmpty {
         Rectangle().fill(Theme.hairline).frame(height: 1)
+        // Every one to read, also those past the five shown; no pill while
+        // the engine is offline, as the click could do nothing.
         chatSection(
-          "TO READ · \(unread.count)", color: Theme.unread, chats: Array(unread.prefix(5))
-        ) {
-          // Every one to read, also those past the five shown.
-          client.markRead(unread)
-        }
+          "TO READ · \(unread.count)", color: Theme.unread, chats: Array(unread.prefix(5)),
+          markAllRead: client.connected ? { client.markRead(unread) } : nil
+        )
       }
       if !rest.isEmpty {
         Rectangle().fill(Theme.hairline).frame(height: 1)

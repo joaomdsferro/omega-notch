@@ -224,7 +224,7 @@ Item {
 
             Item {
                 width: parent.width
-                implicitHeight: Math.max(toReadHeading.implicitHeight, markAllPill.height)
+                implicitHeight: Math.max(toReadHeading.implicitHeight, markAllPill.visible ? markAllPill.height : 0)
 
                 Text {
                     id: toReadHeading
@@ -239,6 +239,8 @@ Item {
                 // in the unread colour that fills in under the pointer.
                 Rectangle {
                     id: markAllPill
+                    // No pill while the engine is offline: the click could do nothing.
+                    visible: root.engineConnected
                     anchors.right: parent.right
                     anchors.verticalCenter: toReadHeading.verticalCenter
                     width: markAllLabel.implicitWidth + 16 * root.scale_

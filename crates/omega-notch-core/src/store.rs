@@ -14,10 +14,9 @@ use crate::limits::LimitWatch;
 use crate::protocol::{
     Activity, ChatRef, CopilotLogin, CostEstimate, HistoryPoint, ModelDayPoint, ProviderId,
     ProviderInfo, ReadingStatus, ServerMessage, SessionKind, SessionState, UsageReading,
-    MARK_READ_MAX,
 };
 use crate::providers;
-use crate::seen::Seen;
+use crate::seen::{self, Seen};
 use crate::sessions::{self, SessionEvent};
 use crate::{history, pricing};
 
@@ -355,10 +354,18 @@ impl UsageStore {
         .await;
     }
 
-    /// Marks these chats read now ("Mark all read"): one save and one update
-    /// for the lot. Ids it does not know are harmless; their marks age out.
-    pub async fn mark_seen_many(&self, chats: &[ChatRef]) {
-        let chats = &chats[..chats.len().min(MARK_READ_MAX)];
+    /// A client's `mark_read` ("Mark all read"): only chats listed now as
+    /// unread are marked, so made-up ids never reach the marks or the file.
+    pub async fn mark_read(&self, asked: &[ChatRef]) {
+        let chats = {
+            let guard = self.inner.activity.read().await;
+            seen::only_listed_unread(&guard.chats, asked)
+        };
+        self.mark_seen_many(&chats).await;
+    }
+
+    /// Marks these chats read now: one save and one update for the lot.
+    async fn mark_seen_many(&self, chats: &[ChatRef]) {
         let changed = match self.inner.seen.lock() {
             Ok(mut seen) => seen.mark_all(chats, Utc::now()),
             Err(_) => false,

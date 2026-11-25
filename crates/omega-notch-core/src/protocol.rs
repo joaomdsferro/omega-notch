@@ -520,7 +520,8 @@ pub struct ChatRef {
 }
 
 /// The most chats one `mark_read` marks; the rest are ignored. Far above
-/// what a card or the dashboard lists, and it bounds the work one line can ask.
+/// what a card or the dashboard lists. The engine also heeds only chats it
+/// lists as unread.
 pub const MARK_READ_MAX: usize = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
